@@ -1,0 +1,519 @@
+STAYNEST PROJECT INFORMATION
+============================
+
+Project
+-------
+StayNest is a full-stack real-estate marketplace for discovering homes,
+short stays, long-term rentals, agents, tenants, social property posts,
+messaging, bookings, notifications, moderation, and founder administration.
+
+The application is designed around trust, role separation, secure sessions,
+verified property professionals, transparent listings, and a green glass-style
+user interface.
+
+
+TECHNOLOGY STACK
+----------------
+
+Frontend:
+- HTML5
+- CSS3
+- Vanilla JavaScript modules
+- Vite for development and production builds
+- Responsive desktop, tablet, and mobile layouts
+- Glassmorphism content surfaces with an opaque green navigation system
+
+Backend:
+- Node.js
+- Express
+- MySQL-compatible database through mysql2
+- express-session with a MySQL-backed session store
+- Helmet security headers
+- express-rate-limit
+- bcryptjs password hashing
+- otplib for optional multi-factor authentication
+- multer for uploads
+- sharp for image processing
+- AWS S3 SDK for S3-compatible object storage
+
+Testing and tooling:
+- Node.js built-in test runner
+- Vite production build
+- PowerShell development commands
+- Git and GitHub deployment workflow
+
+
+MAIN APPLICATION FILES
+----------------------
+
+index.html
+- Public StayNest marketplace shell.
+- Contains the homepage, navigation, search area, showcase, listings,
+  hosting section, modal shell, and role-aware controls.
+
+app.js
+- Main frontend controller.
+- Handles authentication state, tenant and agent routing, listing discovery,
+  profile pages, agent discovery, posts, likes, views, messages, notifications,
+  settings, bookings, and modal interactions.
+- Includes safe dynamic markup handling and media URL validation.
+
+styles.css
+- Main marketplace and profile styling.
+- Contains the StayNest green palette, responsive layouts, profile sidebars,
+  opaque navigation, cards, modals, glass surfaces, buttons, and accessibility
+  presentation.
+
+posts.html
+- Social feed page for agent posts and followed content.
+
+posts.js
+- Loads posts, filters posts, handles likes and views, and navigates to agent
+  profiles.
+
+admin.html
+- Founder administration center.
+- Includes dashboard metrics, people management, listing moderation, booking
+  management, badges, trust and safety, identity verification, and audit logs.
+
+public/
+- Browser support files such as accessibility styles, service worker,
+  manifest, and shared frontend enhancements.
+
+
+BACKEND FILES
+-------------
+
+server/index.js
+- Main Express server and API routes.
+- Handles authentication, sessions, CSRF, role authorization, listings,
+  profiles, agents, follows, posts, messages, notifications, bookings,
+  uploads, admin actions, audit logs, and health checks.
+
+server/db.js
+- MySQL connection pool and database connectivity checks.
+
+server/session-store.js
+- MySQL-backed session storage.
+- Supports invalidating sessions after suspension, deletion, MFA reset, or
+  administrator role removal.
+
+server/storage.js
+- Validates upload signatures instead of trusting MIME declarations.
+- Processes images with sharp.
+- Stores public media and private identity documents locally or in S3-
+  compatible object storage.
+
+server/rules.js
+- Booking calculations, date overlap checks, availability rules, role checks,
+  and payment webhook signature verification.
+
+server/validation.js
+- Positive ID validation, bounded pagination, safe non-empty strings, and
+  strict calendar-date validation.
+
+server/notifications.js
+- In-app notification delivery plus optional email and SMS integrations.
+
+server/geocoding.js
+- Address geocoding integration used by listing workflows.
+
+
+USER ROLES
+----------
+
+Guest:
+- Can browse the public marketplace.
+- Can view public listings and public showcase content.
+- Cannot access private profiles, messaging, bookings, or account features.
+
+Tenant:
+- Can save homes.
+- Can follow agents.
+- Can send and receive messages.
+- Can create bookings.
+- Can view booking history.
+- Can manage a tenant profile and profile photo.
+- Can receive notifications.
+- Can submit reviews where permitted.
+
+Agent:
+- Can manage an approved agent profile.
+- Can create listings for moderation.
+- Can upload listing media and required documents.
+- Can receive booking requests.
+- Can manage assigned listing and media permissions.
+- Can create posts and communicate with tenants.
+
+Sub-agent:
+- Uses a separate login.
+- Operates under a main agent account.
+- Receives only explicitly assigned permissions.
+- Cannot manage the main agent unless granted by the system.
+
+Administrator:
+- Uses protected admin access.
+- Can manage users and account status.
+- Can suspend, restore, delete, and reactivate accounts.
+- Can manage roles and MFA resets.
+- Can moderate listings and posts.
+- Can review identity and agent verification.
+- Can manage badges.
+- Can review bookings.
+- Can investigate trust and safety reports.
+- Can inspect audit events.
+
+
+IMPORTANT USER FLOWS
+---------------------
+
+Registration:
+1. A user submits an email, name, password, and role.
+2. Passwords are hashed with bcrypt.
+3. Tenant accounts become active immediately.
+4. Agent accounts begin in pending approval status.
+5. Agent registration creates an administrator notification.
+
+Login:
+1. Credentials are checked against the database.
+2. The session is regenerated after successful login.
+3. MFA is required when enabled.
+4. Account status is checked before access is granted.
+
+Agent discovery:
+1. Authenticated users can open Explore agents.
+2. Agents are ranked using followers, published listings, ratings, and
+   engagement signals.
+3. Agent cards open deterministic agent profile routes.
+
+Listing creation:
+1. An authorized agent submits listing details.
+2. Required registration documents and media are validated.
+3. Uploaded files are checked by signature and size.
+4. Listings are created with pending_review status.
+5. Administrators receive a moderation notification.
+6. Only published listings appear publicly.
+
+Booking:
+1. A tenant selects an available listing and dates.
+2. The server validates dates, minimum nights, and ownership.
+3. A database transaction creates the booking.
+4. Booking date locks prevent overlapping confirmed or pending stays.
+5. Idempotency support prevents accidental duplicate booking requests.
+
+Messaging:
+1. Authenticated users can message permitted users.
+2. Blocked users cannot message each other.
+3. Message bodies are limited to 2,000 characters.
+4. Messages and conversation summaries display only the latest 30 days.
+
+Notifications:
+- Notifications are shown for the latest 30 days.
+- Older records remain in the database but are excluded from normal API
+  responses.
+
+
+DATABASE
+--------
+
+Primary schema:
+- database/schema.sql
+
+Migrations:
+- database/agent-migration.sql
+- database/founder-approval-migration.sql
+- database/posts-badges-migration.sql
+- database/sub-agent-migration.sql
+- database/security-hardening-migration.sql
+
+Apply the schema first, then apply migrations in the order listed above.
+
+Important database areas:
+- users
+- user_profiles
+- roles
+- user_roles
+- agent_profiles
+- agent_subaccounts
+- listings
+- listing_media
+- bookings
+- booking_date_locks
+- conversations
+- conversation_members
+- messages
+- notifications
+- posts
+- listing_likes
+- listing_views
+- saved_listings
+- agent_follows
+- identity_verifications
+- audit_logs
+- reports
+- user_blocks
+- request_idempotency
+
+
+SECURITY CONTROLS
+-----------------
+
+Authentication and sessions:
+- HTTP-only session cookies.
+- SameSite cookie protection.
+- Secure cookies in production.
+- Session regeneration during login and registration.
+- Session invalidation for sensitive administrator actions.
+- Account status rechecked on authenticated requests.
+
+CSRF:
+- State-changing authenticated API requests require a CSRF token.
+- Login, registration, admin gate, and guest listing view analytics are
+  intentionally exempt.
+- Guest view analytics does not modify account state.
+
+SQL injection protection:
+- Database values are passed through parameterized mysql2 queries.
+- User-controlled values are not concatenated into SQL parameters.
+- Search filters use parameterized LIKE and numeric values.
+
+XSS protection:
+- Dynamic profile and showcase markup is sanitized before entering the DOM.
+- Unsafe script, frame, object, embed, event-handler, style, javascript, and
+  vbscript content is removed.
+- Dynamic media URLs are restricted to safe URL formats.
+- CSP blocks inline JavaScript and inline event-handler attributes.
+
+Request abuse:
+- Authentication endpoints are rate limited.
+- Administrator gate attempts are rate limited.
+- General API traffic has a bounded rate limit.
+- Uploads have file-count and file-size limits.
+
+Uploads:
+- MIME declarations are not trusted alone.
+- File signatures are checked.
+- Images are processed through sharp.
+- Public and private storage paths are separated.
+- Identity documents must remain private in production.
+
+Security headers:
+- Content Security Policy.
+- X-Frame-Options.
+- Referrer-Policy.
+- X-Content-Type-Options through Helmet defaults.
+- Frame ancestor restrictions.
+- X-Powered-By disabled.
+
+Static file protection:
+- Server source, database files, tests, node_modules, storage, environment
+  files, and package internals are not served publicly.
+
+
+ENVIRONMENT VARIABLES
+---------------------
+
+Copy .env.example to .env for local development. Never commit .env.
+
+Required:
+- NODE_ENV
+- PORT
+- TRUST_PROXY
+- SESSION_SECRET
+- APP_ENCRYPTION_KEY
+- MYSQL_HOST
+- MYSQL_PORT
+- MYSQL_DATABASE
+- MYSQL_USER
+- MYSQL_PASSWORD
+
+Object storage:
+- S3_REGION
+- S3_BUCKET
+- S3_PUBLIC_BASE_URL
+- S3_ENDPOINT
+- S3_ACCESS_KEY_ID
+- S3_SECRET_ACCESS_KEY
+
+Payments:
+- PAYMENT_WEBHOOK_SECRET
+
+Administrator gate:
+- ADMIN_GATE_USERNAME
+- ADMIN_GATE_PASSWORD_HASH
+
+Optional notifications:
+- EMAIL_API_URL
+- EMAIL_API_KEY
+- EMAIL_FROM
+- SMS_API_URL
+- SMS_API_KEY
+- SMS_FROM
+
+Production secrets must be long, random, and stored only in the hosting
+provider's secret environment-variable settings.
+
+
+LOCAL DEVELOPMENT
+------------------
+
+Install dependencies:
+
+    npm install
+
+Start frontend and API together:
+
+    npm run dev
+
+Start only the API:
+
+    npm run dev:api
+
+Build for production:
+
+    npm run build
+
+Run automated tests:
+
+    npm test
+
+The local application normally uses:
+
+    Frontend: http://127.0.0.1:5173
+    API:      http://127.0.0.1:3000
+
+The API health endpoints are:
+
+    http://127.0.0.1:3000/api/health
+    http://127.0.0.1:3000/api/ready
+
+
+DEPLOYMENT
+----------
+
+A simple deployment uses:
+- GitHub for source control.
+- Render or another Node hosting provider for the Express service.
+- A managed MySQL-compatible database such as TiDB Cloud Serverless.
+- Cloudflare R2, Backblaze B2, or another S3-compatible provider for media.
+
+Render settings:
+
+    Build command: npm install && npm run build
+    Start command: npm start
+    Health check: /api/ready
+
+Use object storage in production. Local hosted disks may be erased during
+restarts or redeployments.
+
+Recommended object storage layout:
+
+    Public:
+      listings/
+      agents/
+      users/
+
+    Private:
+      identity/
+
+After deployment, verify:
+- /api/health returns ok true.
+- /api/ready reports database ok.
+- The homepage loads.
+- Posts load.
+- Uploaded media is persistent.
+- Identity documents are not public.
+- /server/index.js returns 404.
+- /database/schema.sql returns 404.
+- /admin.html requires administrator authentication.
+
+
+SEO
+---
+
+SEO support includes:
+- Descriptive page titles.
+- Description metadata on the Posts page.
+- robots.txt.
+- sitemap.xml.
+- Public marketplace and posts pages.
+- Private admin and API paths excluded from robots.txt.
+
+Before using a custom domain, update sitemap.xml to use absolute production
+URLs and verify canonical URLs.
+
+
+TESTING AND CURRENT STATUS
+--------------------------
+
+The current built-in test suite covers:
+- Booking date overlap.
+- Booking totals and minimum stay.
+- Payment signature verification.
+- Role permissions.
+- Listing availability.
+- Upload signature validation.
+- Pagination and positive ID validation.
+- Strict calendar-date validation.
+
+Last verified project status:
+- Automated tests passing: 8/8.
+- Production build passing.
+- JavaScript syntax checks passing.
+- Public link smoke checks passing.
+- API health and readiness checks passing.
+- Sensitive server and database files blocked from static access.
+- Anonymous listing view tracking working.
+
+
+GIT AND GITHUB
+--------------
+
+The local repository is initialized on the main branch.
+
+The GitHub remote is:
+
+    https://github.com/ayubkadama-ops/StayNest.git
+
+The local project has been prepared with .gitignore rules for:
+- .env files
+- node_modules
+- dist
+- storage/media
+- storage/private
+
+The latest local preparation commit is:
+
+    c574b6b Prepare project for GitHub deployment
+
+If GitHub returns a permission error, authenticate with the account that owns
+the repository or add the current GitHub account as a collaborator.
+
+
+OPERATING RECOMMENDATIONS
+-------------------------
+
+- Do not commit .env files, passwords, private keys, or identity documents.
+- Use HTTPS in production.
+- Configure database backups.
+- Configure object-storage billing alerts.
+- Keep identity documents private.
+- Rotate secrets if they are ever exposed.
+- Review administrator audit logs regularly.
+- Keep dependencies updated.
+- Run npm test and npm run build before every deployment.
+- Use a staging environment before production changes.
+- Configure email delivery for account and booking notifications.
+- Add payment-provider webhook verification before accepting real payments.
+- Set a custom domain and update SEO URLs before public marketing.
+- Monitor rate-limit events, failed logins, upload failures, and database
+  readiness failures.
+
+
+KNOWN DEPLOYMENT NOTE
+---------------------
+
+The application is prepared for GitHub, but the first push can fail if the
+local Git credentials do not have permission to the target repository. This
+is an account-permission issue, not an application issue.
+
