@@ -1,0 +1,5 @@
+:root{color-scheme:light}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+button,a,input,select,textarea{font:inherit}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #8abf98;outline-offset:3px}
+html[data-network="offline"] body::before{content:"Offline";position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:1000;padding:6px 14px;border-radius:0 0 10px 10px;background:#7b3d2f;color:#fff;font-size:11px;font-weight:700}
