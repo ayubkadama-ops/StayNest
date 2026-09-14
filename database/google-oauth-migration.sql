@@ -1,0 +1,4 @@
+USE staynest;
+
+ALTER TABLE users
+  ADD COLUMN google_id VARCHAR(255) NULL UNIQUE;

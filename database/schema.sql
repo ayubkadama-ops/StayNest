@@ -96,6 +96,7 @@ CREATE TABLE agent_profiles (
   user_id BIGINT UNSIGNED PRIMARY KEY,
   phone VARCHAR(32) NULL,
   bio TEXT NULL,
+  agency_name VARCHAR(160) NULL,
   profile_image_url VARCHAR(2048) NULL,
   followers_count INT UNSIGNED NOT NULL DEFAULT 0,
   following_count INT UNSIGNED NOT NULL DEFAULT 0,

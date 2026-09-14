@@ -1,0 +1,65 @@
+STAYNEST TANZANIA EMAIL TEMPLATES
+=================================
+
+These templates are prepared for the future email service integration.
+They are not sent by the application yet.
+
+1. AGENT APPLICATION RECEIVED
+--------------------------------
+Subject: StayNest Tanzania agent application received
+
+Hello {{firstName}},
+
+Thank you for applying to become a StayNest agent in Tanzania.
+
+We have received your application and it is now waiting for founder review. You cannot publish listings or manage bookings until your agent account is approved.
+
+We will contact you by email when a decision has been made. If you need help, contact cleysir54@gmail.com or WhatsApp 0794 442 907.
+
+Kind regards,
+StayNest Tanzania
+
+2. NEW APPLICATION ADMIN ALERT
+------------------------------
+Subject: New StayNest Tanzania agent application requires review
+
+Hello StayNest administrator,
+
+A new agent application is waiting for review.
+
+Applicant: {{firstName}} {{lastName}}
+Email: {{email}}
+Phone: {{phone}}
+Location: {{location}}
+Submitted: {{submittedAt}}
+
+Please review the application in the StayNest Operations Center and approve or reject it.
+
+StayNest Tanzania
+
+3. AGENT APPLICATION APPROVED
+-----------------------------
+Subject: Your StayNest Tanzania agent account has been approved
+
+Hello {{firstName}},
+
+Good news: your StayNest agent application has been approved.
+
+You can now sign in and manage your agent profile, publish eligible property listings, and respond to booking requests.
+
+Please keep your contact details and listing information accurate. For support, contact cleysir54@gmail.com or WhatsApp 0794 442 907.
+
+Welcome to StayNest Tanzania.
+
+4. AGENT APPLICATION NOT APPROVED
+---------------------------------
+Subject: Update on your StayNest Tanzania agent application
+
+Hello {{firstName}},
+
+Thank you for your interest in joining StayNest as an agent.
+
+After reviewing your application, we are unable to approve it at this time. You may contact cleysir54@gmail.com or WhatsApp 0794 442 907 if you believe additional information would help us review your application.
+
+Kind regards,
+StayNest Tanzania

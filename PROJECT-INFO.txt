@@ -299,6 +299,9 @@ Uploads:
 
 Security headers:
 - Content Security Policy.
+- Google OAuth sign-in uses verified Google email addresses and creates tenant accounts by default.
+- Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_CALLBACK_URL before enabling Google sign-in.
+- Run database/google-oauth-migration.sql after the core schema and before using Google sign-in.
 - X-Frame-Options.
 - Referrer-Policy.
 - X-Content-Type-Options through Helmet defaults.
@@ -308,6 +311,11 @@ Security headers:
 Static file protection:
 - Server source, database files, tests, node_modules, storage, environment
   files, and package internals are not served publicly.
+
+Tanzania operations:
+- New agent applications show an approval message with StayNest support email and WhatsApp contact.
+- Future applicant and administrator email copy is prepared in EMAIL-TEMPLATES.txt.
+- Default sample marketplace locations use Tanzania examples such as Dar es Salaam and Arusha.
 
 
 ENVIRONMENT VARIABLES
@@ -516,4 +524,3 @@ KNOWN DEPLOYMENT NOTE
 The application is prepared for GitHub, but the first push can fail if the
 local Git credentials do not have permission to the target repository. This
 is an account-permission issue, not an application issue.
-

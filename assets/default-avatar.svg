@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title">
+  <title>StayNest default profile avatar</title>
+  <rect width="240" height="240" rx="120" fill="#dfe9e2"/>
+  <circle cx="120" cy="86" r="42" fill="#72807b"/>
+  <path d="M42 222c8-55 35-82 78-82s70 27 78 82" fill="#72807b"/>
+</svg>
