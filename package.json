@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail \"npm:dev:api\" \"vite --host 127.0.0.1\"",
+    "dev": "concurrently --kill-others-on-fail \"npm:dev:api\" \"vite --host 0.0.0.0\"",
     "dev:api": "node server/index.js",
     "build": "vite build",
     "preview": "vite preview",

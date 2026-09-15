@@ -2487,11 +2487,12 @@ app.use((error, req, res, _next) => {
 });
 
 const port = Number(process.env.PORT || 3000);
+const host = process.env.HOST || '0.0.0.0';
 assertDatabaseConnection()
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)
-  .then(() => app.listen(port, () => {
-    console.log(`StayNest server listening on ${port}`);
+  .then(() => app.listen(port, host, () => {
+    console.log(`StayNest server listening on http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`);
     console.log(JSON.stringify({
       level: 'info',
       event: 'ga4_configuration',
