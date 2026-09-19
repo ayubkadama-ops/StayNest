@@ -9,7 +9,8 @@ export const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   timezone: 'Z',
-  decimalNumbers: true
+  decimalNumbers: true,
+  ssl: { minVersion: 'TLSv1.2' }
 });
 
 export async function assertDatabaseConnection() {
