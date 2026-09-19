@@ -25,3 +25,5 @@ services:
         sync: false
       - key: MYSQL_PASSWORD
         sync: false
+      - key: GOOGLE_CALLBACK_URL
+        value: https://staynest-np7j.onrender.com/api/auth/google/callback
