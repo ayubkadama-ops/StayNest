@@ -5,3 +5,5 @@ node_modules/
 dist/
 storage/media/
 storage/private/
+*.pem
+*_backup.sql
