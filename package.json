@@ -7,13 +7,15 @@
     "dev": "concurrently --kill-others-on-fail \"npm:dev:api\" \"vite --host 0.0.0.0\"",
     "dev:api": "node server/index.js",
     "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
     "preview": "vite preview",
     "start": "node server/index.js",
     "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
-    "vite": "^7.1.5"
+    "vite": "^7.1.5",
+    "wrangler": "^4.135.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
