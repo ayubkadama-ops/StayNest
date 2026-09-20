@@ -812,7 +812,8 @@ app.get('/api/posts', async (req, res, next) => {
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         ab.badge_label badgeLabel,
         lm.public_url mediaUrl, lm.media_type mediaType, lm.caption mediaCaption,
-        likes, views, EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?) liked,
+        COALESCE(lk.likes, 0) likes, COALESCE(vw.views, 0) views,
+        EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?) liked,
         ROUND((LOG10(1+COALESCE(likes,0))*2.5)+(LOG10(1+COALESCE(views,0))*.8)+(COALESCE(l.average_rating,0)*1.5)+
           GREATEST(0, 3-TIMESTAMPDIFF(DAY, COALESCE(l.published_at,l.created_at),UTC_TIMESTAMP())/14),3) rank_score
        FROM listings l
