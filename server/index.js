@@ -27,11 +27,31 @@ const app = express();
 app.disable('x-powered-by');
 const DEFAULT_PROFILE_AVATAR = '/assets/default-avatar.svg';
 const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production';
+const configuredOrigins = new Set(
+  [process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
+    .map(origin => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+);
+const localOrigins = new Set(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']);
 app.set('trust proxy', trustProxy ? 1 : false);
 app.use((req, res, next) => {
   const requestId = req.get('x-request-id')?.match(/^[A-Za-z0-9._-]{8,100}$/)?.[0] || crypto.randomUUID();
   req.requestId = requestId;
   res.setHeader('X-Request-ID', requestId);
+  next();
+});
+app.use((req, res, next) => {
+  const requestOrigin = req.get('origin');
+  const allowed = requestOrigin
+    && (configuredOrigins.has(requestOrigin) || (process.env.NODE_ENV !== 'production' && localOrigins.has(requestOrigin)));
+  if (allowed) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, X-Request-ID');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') return allowed ? res.status(204).end() : res.status(403).json({ error: 'Origin is not allowed' });
   next();
 });
 app.use('/media', express.static(path.resolve(process.cwd(), 'storage', 'media'), {
@@ -59,7 +79,8 @@ const agentListingUpload = multer({
 });
 const sessionStore = new MySqlSessionStore();
 const googleOAuthEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback';
+const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL
+  || (process.env.NODE_ENV === 'production' ? `${process.env.APP_ORIGIN || 'https://staynest-np7j.onrender.com'}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback');
 const approvalContact = {
   email: 'cleysir54@gmail.com',
   whatsapp: '255794442907',

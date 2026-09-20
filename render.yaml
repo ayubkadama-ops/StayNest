@@ -11,6 +11,10 @@ services:
         value: production
       - key: TRUST_PROXY
         value: "true"
+      - key: APP_ORIGIN
+        value: https://staynest-np7j.onrender.com
+      - key: CORS_ORIGINS
+        value: https://staynest-np7j.onrender.com
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_ENCRYPTION_KEY
