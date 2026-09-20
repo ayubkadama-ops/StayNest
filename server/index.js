@@ -878,7 +878,7 @@ app.get('/api/search', async (req, res, next) => {
          WHERE u.status="active" AND r.name="agent" AND (CONCAT(p.first_name, " ", p.last_name) LIKE ? OR ap.agency_name LIKE ? OR ap.bio LIKE ? OR sa.label LIKE ?)
          GROUP BY u.id, p.first_name, p.last_name, ap.profile_image_url, ap.bio, ap.agency_name, ap.followers_count, ab.badge_label, sa.label
          ORDER BY rankScore DESC, p.first_name LIMIT 30`,
-        [like, like, like, like, like, like, like]
+        [like, like, like, like, like, like]
       );
       return res.json({ type, agents });
     }
