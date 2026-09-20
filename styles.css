@@ -298,3 +298,132 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn:hover{colo
   body.role-view .topbar .header-actions .profile-chip img,body.agent-marketplace-view .topbar .header-actions .profile-chip img{width:30px!important;height:30px!important;display:block!important}
   body.role-view .topbar .header-actions .profile-chip span,body.agent-marketplace-view .topbar .header-actions .profile-chip span{display:none!important}
 }
+@media(max-width:850px){
+  .topbar .header-actions .profile-chip:not([hidden]){
+    display:inline-flex!important;
+    visibility:visible!important;
+    opacity:1!important;
+    flex:0 0 38px!important;
+    width:38px!important;
+    height:38px!important;
+    min-width:38px!important;
+    max-width:38px!important;
+    align-items:center!important;
+    justify-content:center!important;
+    padding:4px!important;
+    border-radius:50%!important;
+    overflow:hidden!important;
+    z-index:26!important;
+  }
+  .topbar .header-actions .profile-chip:not([hidden]) img{
+    display:block!important;
+    visibility:visible!important;
+    opacity:1!important;
+    width:30px!important;
+    height:30px!important;
+    min-width:30px!important;
+    object-fit:cover!important;
+    border-radius:50%!important;
+  }
+  body.role-view,
+  body.agent-marketplace-view{padding-left:0!important}
+  body.role-view .topbar,
+  body.agent-marketplace-view .topbar{
+    position:sticky!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:64px!important;
+    display:flex!important;
+    flex-direction:row!important;
+    flex-wrap:wrap!important;
+    align-items:center!important;
+    padding:9px 4%!important;
+    border:0!important;
+  }
+  body.role-view .topbar .brand,
+  body.agent-marketplace-view .topbar .brand{margin:0!important}
+  body.role-view .topbar .main-nav,
+  body.agent-marketplace-view .topbar .main-nav{
+    order:3!important;
+    width:100%!important;
+    display:flex!important;
+    flex-direction:row!important;
+    flex-wrap:nowrap!important;
+    justify-content:flex-start!important;
+    overflow-x:auto!important;
+    margin:0 -4%!important;
+    padding:4px 4% 6px!important;
+    gap:6px!important;
+  }
+  body.role-view .topbar .main-nav a,
+  body.agent-marketplace-view .topbar .main-nav a{
+    display:inline-flex!important;
+    width:auto!important;
+    flex:0 0 auto!important;
+    padding:9px 13px!important;
+    border:1px solid rgba(255,255,255,.3)!important;
+    border-radius:999px!important;
+    background:rgba(255,255,255,.08)!important;
+    color:#fff!important;
+  }
+  body.role-view .topbar .header-actions,
+  body.agent-marketplace-view .topbar .header-actions{
+    position:static!important;
+    inset:auto!important;
+    order:2!important;
+    width:auto!important;
+    max-width:none!important;
+    min-width:0!important;
+    margin:0 0 0 auto!important;
+    padding:0!important;
+    display:flex!important;
+    flex-direction:row!important;
+    align-items:center!important;
+    gap:6px!important;
+  }
+  body.role-view .topbar .header-actions .settings-btn,
+  body.role-view .topbar .header-actions .notification-btn,
+  body.agent-marketplace-view .topbar .header-actions .settings-btn,
+  body.agent-marketplace-view .topbar .header-actions .notification-btn{
+    width:30px!important;
+    height:30px!important;
+    padding:6px!important;
+    margin:0!important;
+    border:0!important;
+    background:transparent!important;
+  }
+  body.role-view .topbar .header-actions .profile-chip,
+  body.agent-marketplace-view .topbar .header-actions .profile-chip{
+    display:inline-flex!important;
+    visibility:visible!important;
+    opacity:1!important;
+    order:5!important;
+    flex:0 0 38px!important;
+    width:38px!important;
+    height:38px!important;
+    min-width:38px!important;
+    max-width:38px!important;
+    padding:4px!important;
+    border-radius:50%!important;
+    overflow:hidden!important;
+    justify-content:center!important;
+    background:#f4fbf5!important;
+    color:var(--deep)!important;
+  }
+  body.role-view .topbar .header-actions .profile-chip img,
+  body.agent-marketplace-view .topbar .header-actions .profile-chip img{
+    display:block!important;
+    visibility:visible!important;
+    opacity:1!important;
+    width:30px!important;
+    height:30px!important;
+    min-width:30px!important;
+    object-fit:cover!important;
+    border-radius:50%!important;
+  }
+  body.role-view .topbar .header-actions .profile-chip span,
+  body.agent-marketplace-view .topbar .header-actions .profile-chip span{display:none!important}
+  body.role-view .topbar .header-actions .auth-login,
+  body.agent-marketplace-view .topbar .header-actions .auth-login{display:none!important}
+}
