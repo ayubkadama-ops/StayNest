@@ -2470,7 +2470,7 @@ app.get('/app.js', async (_req, res, next) => {
     next(error);
   }
 });
-app.use(express.static('.'));
+app.use(express.static(path.resolve(process.cwd(), 'dist')));
 app.use((error, req, res, _next) => {
   console.error(JSON.stringify({
     level: 'error',
