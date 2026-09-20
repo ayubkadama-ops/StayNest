@@ -1668,6 +1668,11 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       [req.session.user?.id || 0, req.params.id]
     );
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    const [media] = await pool.query(
+      `SELECT id, media_type mediaType, public_url mediaUrl, caption, sort_order sortOrder, is_cover isCover
+       FROM listing_media WHERE listing_id=? ORDER BY is_cover DESC, sort_order ASC, id ASC`,
+      [req.params.id]
+    );
     const [reviews] = await pool.query(
       `SELECT r.rating, r.comment, r.created_at createdAt, p.first_name firstName, p.last_name lastName
        FROM reviews r JOIN user_profiles p ON p.user_id=r.author_user_id
@@ -1682,7 +1687,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
        AND (l.city=? OR l.neighborhood=? OR l.agent_user_id=?) ORDER BY l.average_rating DESC, l.updated_at DESC LIMIT 6`,
       [req.params.id, listing.city, listing.neighborhood, listing.agentId]
     );
-    res.json({ listing, reviews, similar });
+    res.json({ listing, media, reviews, similar });
   } catch (error) { next(error); }
 });
 
