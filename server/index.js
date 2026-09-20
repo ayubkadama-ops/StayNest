@@ -800,33 +800,26 @@ app.get('/api/showcase/posts', async (_req, res, next) => {
 app.get('/api/posts', async (req, res, next) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
-    const sort = ['rank', 'recent', 'popular'].includes(String(req.query.sort)) ? String(req.query.sort) : 'rank';
-    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 60);
-    const viewerId = Number(req.session.user?.id || 0);
-    const personalized = Boolean(viewerId);
-    const order = sort === 'recent' ? 'l.published_at DESC, l.created_at DESC' : sort === 'popular'
-      ? '(SELECT COUNT(*) FROM listing_likes ll2 WHERE ll2.listing_id=l.id) DESC, (SELECT COUNT(*) FROM listing_views lv2 WHERE lv2.listing_id=l.id) DESC, l.published_at DESC'
-      : 'l.published_at DESC, l.created_at DESC';
     const [posts] = await pool.query(
       `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
-        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
+        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        l.average_rating rating, l.review_count reviewCount,
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         ab.badge_label badgeLabel,
-        lm.public_url mediaUrl, lm.media_type mediaType, lm.caption mediaCaption,
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') mediaUrl,
+        (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
         (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
         (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views,
-        IF(EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?), 1, 0) liked
+        0 liked
        FROM listings l
-       ${personalized ? 'JOIN agent_follows f ON f.agent_user_id=l.agent_user_id AND f.follower_user_id=?' : ''}
        JOIN users u ON u.id=l.agent_user_id AND u.status='active'
        JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
-       LEFT JOIN listing_media lm ON lm.id=(SELECT x.id FROM listing_media x WHERE x.listing_id=l.id ORDER BY x.is_cover DESC,x.sort_order ASC LIMIT 1)
        WHERE l.status='published' AND l.deleted_at IS NULL
-       ORDER BY ${order} LIMIT ?`, [viewerId, ...(personalized ? [viewerId] : []), limit]
+       ORDER BY l.published_at DESC, l.created_at DESC LIMIT 60`
     );
-    res.json({ posts, algorithm: personalized ? 'followed-agents+engagement+freshness+quality' : 'published-agents+engagement+freshness+quality', personalized });
+    res.json({ posts, algorithm: 'published-agents+engagement+freshness+quality', personalized: false });
   } catch (error) { next(error); }
 });
 
