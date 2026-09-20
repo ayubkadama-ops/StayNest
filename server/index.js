@@ -26,6 +26,8 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !pr
 const app = express();
 app.disable('x-powered-by');
 const DEFAULT_PROFILE_AVATAR = '/assets/default-avatar.svg';
+const SESSION_IDLE_TIMEOUT = 1000 * 60 * 60 * 8;
+const SESSION_ABSOLUTE_TIMEOUT = 1000 * 60 * 60 * 24 * 30;
 const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production';
 const defaultProductionOrigin = process.env.NODE_ENV === 'production'
   ? 'https://staynest-np7j.onrender.com'
@@ -178,8 +180,25 @@ app.use(session({
   saveUninitialized: false,
   proxy: trustProxy,
   rolling: true,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 8 }
+  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: SESSION_IDLE_TIMEOUT }
 }));
+app.use((req, res, next) => {
+  const now = Date.now();
+  const sessionData = req.session;
+  const createdAt = Number(sessionData.createdAt || now);
+  const lastActivityAt = Number(sessionData.lastActivityAt || now);
+  if (now - lastActivityAt > SESSION_IDLE_TIMEOUT || now - createdAt > SESSION_ABSOLUTE_TIMEOUT) {
+    return req.session.destroy(error => {
+      if (error) return next(error);
+      res.clearCookie('staynest.sid');
+      next();
+    });
+  }
+  sessionData.createdAt = createdAt;
+  sessionData.lastActivityAt = now;
+  req.session.cookie.maxAge = SESSION_IDLE_TIMEOUT;
+  next();
+});
 app.use(async (req, res, next) => {
   if (!runtimeConfig.maintenanceMode || req.path.startsWith('/api/auth') || req.path === '/api/health' || req.path === '/api/ready' || req.path.startsWith('/api/admin') || req.path === '/admin' || req.path === '/admin.html') return next();
   if (req.session.user?.roles?.includes('administrator')) return next();
@@ -580,6 +599,7 @@ app.post('/api/auth/password-reset/complete', async (req, res, next) => {
 app.post('/api/auth/logout', requireAuth, (req, res, next) => req.session.destroy(error => error ? next(error) : res.status(204).end()));
 app.get('/api/auth/me', async (req, res, next) => {
   try {
+    if (req.get('x-staynest-guest') === '1') return res.json({ user: null, impersonating: false, guest: true });
     const sessionUser = req.session.user;
     if (!sessionUser?.id) return res.json({ user: sessionUser || null, impersonating: Boolean(req.session.impersonator) });
     const [[fresh]] = await pool.query(
