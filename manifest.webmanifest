@@ -6,5 +6,12 @@
   "display": "standalone",
   "background_color": "#f8f6f0",
   "theme_color": "#2d5a3d",
-  "icons": []
+  "icons": [
+    {
+      "src": "/assets/staynest-mark.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
