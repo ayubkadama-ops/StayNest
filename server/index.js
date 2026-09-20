@@ -807,14 +807,17 @@ app.get('/api/posts', async (req, res, next) => {
     const order = sort === 'recent' ? 'l.published_at DESC, l.created_at DESC' : sort === 'popular'
       ? 'likes DESC, views DESC, l.published_at DESC' : 'rank_score DESC, l.published_at DESC';
     const [posts] = await pool.query(
-      `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency, l.nightly_price nightlyPrice,
-        l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
+      `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
+        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         ab.badge_label badgeLabel,
         lm.public_url mediaUrl, lm.media_type mediaType, lm.caption mediaCaption,
-        COALESCE(lk.likes, 0) likes, COALESCE(vw.views, 0) views,
+        (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
+        (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views,
         EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?) liked,
-        ROUND((LOG10(1+COALESCE(likes,0))*2.5)+(LOG10(1+COALESCE(views,0))*.8)+(COALESCE(l.average_rating,0)*1.5)+
+        ROUND((LOG10(1+(SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id))*2.5)+
+          (LOG10(1+(SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id))*.8)+
+          (COALESCE(l.average_rating,0)*1.5)+
           GREATEST(0, 3-TIMESTAMPDIFF(DAY, COALESCE(l.published_at,l.created_at),UTC_TIMESTAMP())/14),3) rank_score
        FROM listings l
        ${personalized ? 'JOIN agent_follows f ON f.agent_user_id=l.agent_user_id AND f.follower_user_id=?' : ''}
@@ -823,8 +826,6 @@ app.get('/api/posts', async (req, res, next) => {
        LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
        LEFT JOIN listing_media lm ON lm.id=(SELECT x.id FROM listing_media x WHERE x.listing_id=l.id ORDER BY x.is_cover DESC,x.sort_order ASC LIMIT 1)
-       LEFT JOIN (SELECT listing_id,COUNT(*) likes FROM listing_likes GROUP BY listing_id) lk ON lk.listing_id=l.id
-       LEFT JOIN (SELECT listing_id,COUNT(*) views FROM listing_views GROUP BY listing_id) vw ON vw.listing_id=l.id
        WHERE l.status='published' AND l.deleted_at IS NULL
        ORDER BY ${order} LIMIT ?`, [viewerId, ...(personalized ? [viewerId] : []), limit]
     );
