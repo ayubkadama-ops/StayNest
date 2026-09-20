@@ -27,8 +27,11 @@ const app = express();
 app.disable('x-powered-by');
 const DEFAULT_PROFILE_AVATAR = '/assets/default-avatar.svg';
 const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production';
+const defaultProductionOrigin = process.env.NODE_ENV === 'production'
+  ? 'https://staynest-np7j.onrender.com'
+  : '';
 const configuredOrigins = new Set(
-  [process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
+  [defaultProductionOrigin, process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
     .map(origin => typeof origin === 'string' ? origin.trim().replace(/\/$/, '') : '')
     .filter(Boolean)
 );
@@ -55,7 +58,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/media', express.static(path.resolve(process.cwd(), 'storage', 'media'), {
-  fallthrough: false,
+  fallthrough: true,
   index: false,
   maxAge: '1y',
   immutable: true
@@ -615,7 +618,7 @@ app.get('/api/tenant/profile', requireAuth, requireRole('tenant'), async (req, r
        JOIN roles r ON r.id=ur.role_id AND r.name="agent"
        LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
-       WHERE f.follower_user_id=? GROUP BY u.id, p.first_name, p.last_name, ap.profile_image_url, ap.bio, ap.followers_count ORDER BY f.created_at DESC`,
+       WHERE f.follower_user_id=?        GROUP BY u.id, p.first_name, p.last_name, ap.profile_image_url, ap.bio, ap.followers_count, f.created_at ORDER BY f.created_at DESC`,
       [req.session.user.id]
     );
     const [wishlist] = await pool.query(
@@ -745,8 +748,7 @@ app.get('/api/agents', async (req, res, next) => {
        LEFT JOIN (SELECT listing_id, COUNT(*) likes FROM listing_likes GROUP BY listing_id) ll ON ll.listing_id=l.id
        WHERE u.status="active" AND r.name="agent"
        GROUP BY u.id, p.first_name, p.last_name, p.city, u.last_login_at, ap.profile_image_url, ap.bio, ap.followers_count
-       ORDER BY rankScore DESC, p.first_name ASC, p.last_name ASC, u.id ASC LIMIT ? OFFSET ?`,
-      [limit, offset]
+       ORDER BY rankScore DESC, p.first_name ASC, p.last_name ASC, u.id ASC LIMIT ${limit} OFFSET ${offset}`
     );
     res.json({ agents, page, limit, algorithm: 'followers+listings+ratings+engagement' });
   } catch (error) { next(error); }
@@ -1035,8 +1037,8 @@ app.get('/api/messages', requireAuth, async (req, res, next) => {
        LEFT JOIN messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL AND m.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
        GROUP BY c.id, c.created_at, other.id, otherProfile.first_name, otherProfile.last_name, member.last_read_at
        HAVING MAX(m.created_at) IS NOT NULL
-       ORDER BY lastMessageAt DESC, c.created_at DESC LIMIT ? OFFSET ?`,
-      [req.session.user.id, req.session.user.id, req.session.user.id, limit, offset]
+       ORDER BY lastMessageAt DESC, c.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [req.session.user.id, req.session.user.id, req.session.user.id]
     );
     res.json({ conversations, page, limit });
   } catch (error) { next(error); }
@@ -1067,8 +1069,8 @@ app.get('/api/messages/:conversationId', requireAuth, async (req, res, next) => 
       `SELECT m.id, m.body, m.sender_user_id senderId, m.created_at createdAt,
         p.first_name firstName, p.last_name lastName
        FROM messages m JOIN users u ON u.id=m.sender_user_id JOIN user_profiles p ON p.user_id=u.id
-       WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY m.created_at DESC LIMIT ? OFFSET ?`,
-      [conversationId, limit, offset]
+       WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY m.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+      [conversationId]
     );
     await pool.execute('UPDATE conversation_members SET last_read_at=UTC_TIMESTAMP() WHERE conversation_id=? AND user_id=?', [conversationId, req.session.user.id]);
     res.json({ messages: messages.reverse(), page, limit });
@@ -1079,8 +1081,8 @@ app.get('/api/notifications', requireAuth, async (req, res, next) => {
   try {
     const { page, limit, offset } = boundedPage(req.query);
     const [notifications] = await pool.execute(
-      'SELECT id, type, title, body, data, read_at readAt, created_at createdAt FROM notifications WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?',
-      [req.session.user.id, limit, offset]
+      `SELECT id, type, title, body, data, read_at readAt, created_at createdAt FROM notifications WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY created_at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`,
+      [req.session.user.id]
     );
     const [[counts]] = await pool.query('SELECT COUNT(*) unread FROM notifications WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND read_at IS NULL', [req.session.user.id]);
     res.json({ notifications, unread: counts.unread, page, limit });
@@ -1969,7 +1971,6 @@ app.get('/api/admin/users', requireAuth, requireAdminAccess, async (req, res, ne
       params.push(term, term, term, term);
     }
     if (status) { where.push('u.status=?'); params.push(status); }
-    params.push(limit);
     const [users] = await pool.query(`
       SELECT u.id, u.email, u.phone, u.status, u.mfa_enabled, u.email_verified_at, u.last_login_at, u.created_at,
              p.first_name, p.last_name, COALESCE(GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', '), '') roles
@@ -1980,7 +1981,7 @@ app.get('/api/admin/users', requireAuth, requireAdminAccess, async (req, res, ne
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       GROUP BY u.id
       ORDER BY u.created_at DESC
-      LIMIT ?
+      LIMIT ${limit}
     `, params);
     res.json({ users });
   } catch (error) { next(error); }
@@ -1997,7 +1998,6 @@ app.get('/api/admin/listings', requireAuth, requireAdminAccess, async (req, res,
     if (status) { where.push('l.status=?'); params.push(status); }
     const sortMap = { recent: 'l.updated_at DESC', oldest: 'l.created_at ASC', title: 'l.title ASC', status: 'l.status ASC' };
     const sort = sortMap[String(req.query.sort)] || 'l.updated_at DESC';
-    params.push(limit);
     const [listings] = await pool.query(`
       SELECT l.id, l.title, l.city, l.status, l.currency, l.nightly_price, l.monthly_price,
              l.created_at, l.updated_at, u.id owner_id, COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email) owner_name
@@ -2006,7 +2006,7 @@ app.get('/api/admin/listings', requireAuth, requireAdminAccess, async (req, res,
       LEFT JOIN user_profiles p ON p.user_id=u.id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY ${sort}
-      LIMIT ?
+      LIMIT ${limit}
     `, params);
     res.json({ listings });
   } catch (error) { next(error); }
@@ -2022,7 +2022,6 @@ app.get('/api/admin/posts', requireAuth, requireAdminAccess, async (req, res, ne
     const where = [];
     if (status) { where.push('l.status=?'); params.push(status); }
     if (req.query.q) { where.push('(l.title LIKE ? OR l.city LIKE ? OR CONCAT(p.first_name," ",p.last_name) LIKE ?)'); const q=`%${String(req.query.q).slice(0,100)}%`; params.push(q,q,q); }
-    params.push(limit);
     const [posts] = await pool.query(
       `SELECT l.id,l.title,l.city,l.status,l.created_at,l.updated_at,
         COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) agent_name,
@@ -2032,7 +2031,7 @@ app.get('/api/admin/posts', requireAuth, requireAdminAccess, async (req, res, ne
        LEFT JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN (SELECT listing_id,COUNT(*) likes FROM listing_likes GROUP BY listing_id) lk ON lk.listing_id=l.id
        LEFT JOIN (SELECT listing_id,COUNT(*) views FROM listing_views GROUP BY listing_id) vw ON vw.listing_id=l.id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} LIMIT ?`, params);
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} LIMIT ${limit}`, params);
     res.json({ posts });
   } catch (error) { next(error); }
 });
@@ -2071,7 +2070,6 @@ app.get('/api/admin/bookings', requireAuth, requireAdminAccess, async (req, res,
     const params = [];
     const where = [];
     if (status) { where.push('b.status=?'); params.push(status); }
-    params.push(limit);
     const [bookings] = await pool.query(`
       SELECT b.id, b.booking_code, b.check_in, b.check_out, b.guests, b.currency, b.total_amount, b.status, b.created_at,
              l.title, guest.id guest_id, COALESCE(gp.display_name, CONCAT(gp.first_name, ' ', gp.last_name), guest.email) guest_name,
@@ -2084,7 +2082,7 @@ app.get('/api/admin/bookings', requireAuth, requireAdminAccess, async (req, res,
       LEFT JOIN user_profiles hp ON hp.user_id=host.id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY b.created_at DESC
-      LIMIT ?
+      LIMIT ${limit}
     `, params);
     res.json({ bookings });
   } catch (error) { next(error); }
@@ -2097,7 +2095,6 @@ app.get('/api/admin/verifications', requireAuth, requireAdminAccess, async (req,
     const params = [];
     const where = [];
     if (status) { where.push('v.status=?'); params.push(status); }
-    params.push(limit);
     const [verifications] = await pool.query(`
       SELECT v.id, v.document_type, v.document_last4, v.status, v.created_at,
              u.email, COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email) applicant_name
@@ -2106,7 +2103,7 @@ app.get('/api/admin/verifications', requireAuth, requireAdminAccess, async (req,
       LEFT JOIN user_profiles p ON p.user_id=u.id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY v.created_at DESC
-      LIMIT ?
+      LIMIT ${limit}
     `, params);
     res.json({ verifications });
   } catch (error) { next(error); }
@@ -2314,8 +2311,8 @@ app.get('/api/admin/audit-logs', requireAuth, requireAdminAccess, async (req, re
       `SELECT al.id, al.actor_user_id, COALESCE(p.display_name, CONCAT(p.first_name, ' ', p.last_name), CASE WHEN al.actor_user_id IS NULL THEN 'system' ELSE CONCAT('user #', al.actor_user_id) END) actor_name,
         al.action, al.entity_type, al.entity_id, INET6_NTOA(al.ip_address) ip_address, al.user_agent, al.metadata, al.created_at
        FROM audit_logs al LEFT JOIN user_profiles p ON p.user_id=al.actor_user_id
-       ${clause} ORDER BY al.created_at DESC, al.id DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       ${clause} ORDER BY al.created_at DESC, al.id DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
     );
     res.json({ logs: rows, page, limit, total: Number(count.total), pages: Math.ceil(Number(count.total) / limit) });
   } catch (error) { next(error); }
