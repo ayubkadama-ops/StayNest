@@ -236,7 +236,6 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
   body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{width:auto}
   body.role-view .agent-page,.role-view .tenant-page{min-height:calc(100vh - 64px);padding-top:25px}
 }
-
 @media (hover: none), (pointer: coarse) {
   .listing-card:hover,
   .cinema-card:hover,
@@ -337,6 +336,29 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn:hover{colo
 @media(max-width:850px){
   body.role-view .topbar,
   body.agent-marketplace-view .topbar{background:var(--deep)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+}
+@media(max-width:850px){
+  body:not(.role-view):not(.agent-marketplace-view) .topbar .header-actions .auth-login:not([hidden]),
+  body:not(.role-view):not(.agent-marketplace-view) .topbar .header-actions .auth-signup:not([hidden]){
+    display:inline-flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    flex:0 0 auto!important;
+    min-height:34px!important;
+    border-radius:999px!important;
+    white-space:nowrap!important;
+    font-size:11px!important;
+    line-height:1!important;
+  }
+  body:not(.role-view):not(.agent-marketplace-view) .topbar .header-actions .auth-login:not([hidden]){
+    padding:8px 10px!important;
+    border:1px solid rgba(255,255,255,.42)!important;
+    background:rgba(255,255,255,.08)!important;
+  }
+  body:not(.role-view):not(.agent-marketplace-view) .topbar .header-actions .auth-signup:not([hidden]){
+    padding:8px 11px!important;
+    box-shadow:none!important;
+  }
 }
  .auth-recovery{display:block;margin:12px auto 0;border:0;background:transparent;color:var(--green);font-size:12px;text-decoration:underline;cursor:pointer}.auth-recovery:hover{color:var(--deep)}
 .cookie-consent{position:fixed;z-index:30;left:24px;right:24px;bottom:20px;display:flex;justify-content:space-between;gap:20px;align-items:center;padding:16px 20px;border:1px solid rgba(255,255,255,.7);border-radius:16px;background:rgba(25,62,53,.94);color:#fff;box-shadow:0 18px 45px rgba(0,0,0,.2);backdrop-filter:blur(14px)}.cookie-consent p{margin:5px 0 0;color:#d7e9dc;font-size:12px}.cookie-consent-actions{display:flex;gap:8px;flex-shrink:0}.cookie-consent-actions button{border:1px solid rgba(255,255,255,.5);border-radius:8px;padding:9px 12px;background:transparent;color:#fff;font-size:11px}.cookie-consent-actions .primary{background:#fff;color:#193e35}.maintenance-banner{position:relative;z-index:25;padding:10px 20px;text-align:center;background:#9c553b;color:#fff;font-size:12px}@media(max-width:700px){.cookie-consent{left:12px;right:12px;bottom:12px;display:block}.cookie-consent-actions{margin-top:12px}.cookie-consent-actions button{flex:1}}
