@@ -820,7 +820,24 @@ app.get('/api/posts', async (req, res, next) => {
        ORDER BY l.published_at DESC, l.created_at DESC LIMIT 60`
     );
     res.json({ posts, algorithm: 'published-agents+engagement+freshness+quality', personalized: false });
-  } catch (error) { next(error); }
+  } catch (error) {
+    try {
+      const [posts] = await pool.query(
+        `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
+          l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
+          p.first_name firstName, p.last_name lastName, '/assets/ezgif-frame-018.jpg' mediaUrl,
+          NULL mediaType, 0 likes, 0 views, 0 liked
+         FROM listings l
+         JOIN users u ON u.id=l.agent_user_id AND u.status='active'
+         JOIN user_profiles p ON p.user_id=u.id
+         WHERE l.status='published' AND l.deleted_at IS NULL
+         ORDER BY l.created_at DESC LIMIT 60`
+      );
+      return res.json({ posts, algorithm: 'published-agents-basic-fallback', personalized: false });
+    } catch {
+      next(error);
+    }
+  }
 });
 
 app.get('/api/search', async (req, res, next) => {
