@@ -863,22 +863,21 @@ app.get('/api/search', async (req, res, next) => {
     const like = `%${query}%`;
     if (type === 'agent') {
       const [agents] = await pool.execute(
-        `SELECT u.id, p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl, ap.bio, ap.agency_name agencyName, ap.followers_count followers,
-          ab.badge_label badgeLabel,
-          sa.label subagentLabel,
-          ROUND((CASE WHEN CONCAT(p.first_name, " ", p.last_name) LIKE ? THEN 10 ELSE 0 END) +
-            (CASE WHEN ap.agency_name LIKE ? THEN 8 ELSE 0 END) +
-              (LOG10(1 + ap.followers_count) * 3) + (LOG10(1 + COUNT(DISTINCT l.id)) * 2) +
-            (COALESCE(AVG(l.average_rating), 0) * 1.5), 3) rankScore
-         FROM users u JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_profiles ap ON ap.user_id=u.id
-         JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
-         LEFT JOIN listings l ON l.agent_user_id=u.id AND l.status="published"
+        `SELECT u.id, p.first_name firstName, p.last_name lastName,
+          ap.profile_image_url profileImageUrl, ap.bio, ap.agency_name agencyName,
+          ap.followers_count followers, MAX(ab.badge_label) badgeLabel, MAX(sa.label) subagentLabel
+         FROM users u
+         JOIN user_profiles p ON p.user_id=u.id
+         LEFT JOIN agent_profiles ap ON ap.user_id=u.id
+         JOIN user_roles ur ON ur.user_id=u.id
+         JOIN roles r ON r.id=ur.role_id
          LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
          LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id AND sa.status="active"
-         WHERE u.status="active" AND r.name="agent" AND (CONCAT(p.first_name, " ", p.last_name) LIKE ? OR ap.agency_name LIKE ? OR ap.bio LIKE ? OR sa.label LIKE ?)
-         GROUP BY u.id, p.first_name, p.last_name, ap.profile_image_url, ap.bio, ap.agency_name, ap.followers_count, ab.badge_label, sa.label
-         ORDER BY rankScore DESC, p.first_name LIMIT 30`,
-        [like, like, like, like, like, like]
+         WHERE u.status="active" AND r.name="agent"
+           AND (CONCAT(p.first_name, " ", p.last_name) LIKE ? OR ap.agency_name LIKE ? OR ap.bio LIKE ? OR sa.label LIKE ?)
+         GROUP BY u.id, p.first_name, p.last_name, ap.profile_image_url, ap.bio, ap.agency_name, ap.followers_count
+         ORDER BY p.first_name, p.last_name LIMIT 30`,
+        [like, like, like, like]
       );
       return res.json({ type, agents });
     }
