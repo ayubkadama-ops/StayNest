@@ -2,6 +2,33 @@ const feed = document.querySelector('#feed');
 const sort = document.querySelector('#sort');
 
 const avatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23dfe9e2"/%3E%3Ccircle cx="50" cy="36" r="18" fill="%2372807b"/%3E%3Cpath d="M15 94c4-25 17-38 35-38s31 13 35 38" fill="%2372807b"/%3E%3C/svg%3E';
+let toastTimer;
+function showSystemMessage(message, type='success') {
+  const toast = document.querySelector('#toast');
+  if (!toast) return;
+  const error = type === 'error' || /invalid|unable|error|failed|could not|unavailable/i.test(String(message));
+  toast.querySelector('.toast-message').textContent = String(message);
+  toast.querySelector('.toast-icon').textContent = error ? '!' : '✓';
+  toast.classList.toggle('error', error);
+  toast.hidden = false;
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  const progress = toast.querySelector('.toast-progress');
+  progress.style.animation = 'none';
+  void progress.offsetWidth;
+  progress.style.animation = 'toast-countdown 4.2s linear forwards';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => { toast.hidden = true; }, 320);
+  }, 4200);
+}
+document.querySelector('#toast .toast-close')?.addEventListener('click', () => {
+  clearTimeout(toastTimer);
+  document.querySelector('#toast').classList.remove('show');
+  setTimeout(() => { document.querySelector('#toast').hidden = true; }, 320);
+});
 
 function showGuestPrompt(action) {
   const existing = document.querySelector('.posts-auth-overlay');
@@ -108,11 +135,7 @@ async function submitBooking(event, overlay, card, listingId) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Unable to send booking request');
     overlay.remove();
-    const status = document.createElement('div');
-    status.className = 'booking-sent';
-    status.textContent = `Booking request ${data.bookingCode || ''} sent to the agent.`;
-    card.querySelector('.post-copy').append(status);
-    setTimeout(() => status.remove(), 5000);
+    showSystemMessage(`Booking request ${data.bookingCode || ''} sent to the agent.`);
   } catch (error) {
     if (showLoginOnAuthenticationError(error)) return;
     errorNode.textContent = error.message;

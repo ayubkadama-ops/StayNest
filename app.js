@@ -28,7 +28,24 @@ const bookings=JSON.parse(localStorage.getItem('staynest_bookings')||'[]');
 function updatePersonalGreeting(user){const greeting=document.querySelector('#personalGreeting'),detail=document.querySelector('#personalGreetingDetail');if(!greeting||!detail)return;const hour=new Date().getHours(),timeGreeting=hour<5?'Good night':hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';if(user?.firstName){greeting.textContent=`${timeGreeting}, ${user.firstName}`;detail.textContent='Your StayNest recommendations are ready';}else{greeting.textContent=`${timeGreeting}`;detail.textContent='Discover homes made for real life';}}
 async function apiJson(url, options={}){let response;try{const headers=new Headers(options.headers||{});if(marketplaceGuestMode)headers.set('X-StayNest-Guest','1');response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers})}catch(error){throw new Error('StayNest is temporarily unavailable. Please make sure the app is running and try again.')}const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{throw new Error(response.status===404?'The requested StayNest service could not be found. Refresh the page and try again.':response.status===429?'Too many attempts. Please wait a few minutes and try again.':response.ok?'The server returned an invalid response.':`StayNest could not complete the request (HTTP ${response.status}).`)}if(!response.ok){if(response.status===429)throw new Error('Too many attempts. Please wait a few minutes and try again.');throw new Error(data.error||`StayNest could not complete the request (HTTP ${response.status}).`)}return data}
 function render(filter='all'){const data=filter==='popular'?listings.filter(x=>+x.rating>4.9):filter==='new'?listings.filter(x=>x.tag.includes('New')):filter==='all'?listings:listings.filter(x=>x.type===filter);grid.innerHTML=data.map(x=>`<article class="listing-card reveal-on-scroll is-visible"><div class="listing-photo" style="background-image:url('${x.image}')"><button class="heart" data-id="${x.id}" aria-label="Save ${x.title}">♡</button>${x.tag?`<span class="rating">${x.tag}</span>`:''}</div><div class="listing-info"><h3>${x.title}</h3><div class="listing-meta">${x.location} · ${x.type==='short'?'Entire place':'Monthly rental'}</div><div class="listing-price"><strong>${x.price}</strong> ${x.type==='short'?'/ night':'/ month'} <span class="listing-meta"> · ★ ${x.rating}</span></div></div></article>`).join('');grid.querySelectorAll('.heart').forEach(btn=>btn.addEventListener('click',()=>{if(!requireAccount('save homes'))return;btn.classList.toggle('saved');btn.textContent=btn.classList.contains('saved')?'♥':'♡';showToast(btn.classList.contains('saved')?'Saved to your wishlist':'Removed from wishlist')}));grid.querySelectorAll('.listing-card').forEach(card=>card.addEventListener('click',e=>{if(e.target.closest('.heart'))return;const item=listings.find(x=>x.id===+card.querySelector('.heart').dataset.id);openListing({...item,isDemo:true})}))}
-function showToast(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2600)}
+let toastTimer;
+function showToast(message,type='success'){
+  if(!toast)return;
+  const text=String(message||'');
+  const isError=type==='error'||/invalid|unable|error|failed|could not|not available|expired|unavailable/i.test(text);
+  const icon=toast.querySelector('.toast-icon'),messageNode=toast.querySelector('.toast-message'),progress=toast.querySelector('.toast-progress');
+  if(messageNode)messageNode.textContent=text;else toast.textContent=text;
+  if(icon)icon.textContent=isError?'!':'✓';
+  toast.classList.toggle('error',isError);
+  toast.hidden=false;
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  if(progress){progress.style.animation='none';void progress.offsetWidth;progress.style.animation='toast-countdown 4.2s linear forwards'}
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{toast.classList.remove('show');setTimeout(()=>{if(!toast.classList.contains('show'))toast.hidden=true},320)},4200);
+}
+document.querySelector('#toast .toast-close')?.addEventListener('click',()=>{clearTimeout(toastTimer);toast.classList.remove('show');setTimeout(()=>{toast.hidden=true},320)});
 const modal=document.querySelector('#modal'),content=document.querySelector('#modalContent');
 let marketplaceGuestMode = ['/','/index.html','/posts.html'].includes(location.pathname)
   && !new URLSearchParams(location.search).has('auth')
@@ -148,7 +165,7 @@ async function updateAuthControls(user){
   clearInterval(window.stayNestPresenceTimer);window.stayNestPresenceTimer=setInterval(()=>apiJson('/api/presence/ping',{method:'POST'}).catch(()=>{}),60000);
   clearInterval(window.stayNestAttentionTimer);
   if(roles.includes('agent')){const refreshAttention=async()=>{try{const result=await apiJson('/api/agent/attention');const pending=Number(result.attention?.pendingBookings||0)+Number(result.attention?.listingActions||0)+Number(result.attention?.pendingVerification||0);if(pending>0)document.body.dataset.attentionCount=String(pending);else delete document.body.dataset.attentionCount}catch(error){console.warn('Agent attention refresh unavailable:',error.message)}};await refreshAttention();window.stayNestAttentionTimer=setInterval(refreshAttention,30000)}
-  login.onclick=async()=>{try{login.disabled=true;const csrf=await apiJson('/api/auth/csrf');await apiJson('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf.token}});sessionStorage.removeItem('stayNest.tabUser');clearInterval(window.stayNestNotificationTimer);currentUser=null;await updateAuthControls(null);location.replace('/index.html')}catch(error){login.disabled=false;showToast(error.message)}};
+  login.onclick=async()=>{try{login.disabled=true;await apiJson('/api/auth/logout',{method:'POST'});sessionStorage.removeItem('stayNest.tabUser');clearInterval(window.stayNestNotificationTimer);currentUser=null;await updateAuthControls(null);showToast('You have been signed out safely.');setTimeout(()=>location.replace('/index.html'),700)}catch(error){login.disabled=false;showToast(error.message,'error')}};
   const activeRole=roles.includes(user.activeRole)?user.activeRole:roles.includes('agent')?'agent':'tenant';
   if(tenantSearchOption){tenantSearchOption.hidden=activeRole!=='agent';if(tenantSearchOption.hidden&&searchType.value==='tenant'){searchType.value='estate';searchType.dispatchEvent(new Event('change'))}}
   resetProfileControl(agentButton);resetProfileControl(tenantButton);
