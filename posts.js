@@ -3,6 +3,28 @@ const sort = document.querySelector('#sort');
 
 const avatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23dfe9e2"/%3E%3Ccircle cx="50" cy="36" r="18" fill="%2372807b"/%3E%3Cpath d="M15 94c4-25 17-38 35-38s31 13 35 38" fill="%2372807b"/%3E%3C/svg%3E';
 
+function showGuestPrompt(action) {
+  const existing = document.querySelector('.posts-auth-overlay');
+  if (existing) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'post-booking-overlay posts-auth-overlay';
+  overlay.innerHTML = `
+    <div class="post-booking-dialog" role="dialog" aria-modal="true" aria-labelledby="postsAuthTitle">
+      <button class="icon-btn post-booking-close" aria-label="Close">×</button>
+      <p class="eyebrow">Members only</p>
+      <h2 id="postsAuthTitle">Sign in to ${escapeHtml(action)}</h2>
+      <p class="booking-help">Create a free StayNest account or sign in to continue. Your approved posts and browsing remain available as a guest.</p>
+      <div class="auth-prompt-actions">
+        <a class="primary" href="/index.html?auth=signup">Create an account <span>→</span></a>
+        <a class="outline-btn" href="/index.html?auth=login">Already have an account? Sign in</a>
+      </div>
+    </div>`;
+  const close = () => overlay.remove();
+  overlay.querySelector('.post-booking-close').onclick = close;
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  document.body.append(overlay);
+}
+
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
   '&': '&amp;',
   '<': '&lt;',
@@ -31,7 +53,7 @@ async function getCsrfToken() {
 
 function showLoginOnAuthenticationError(error) {
   if (!error.message.includes('sign in') && !error.message.includes('Authentication')) return false;
-  window.location.href = '/index.html?auth=login';
+  showGuestPrompt('interact with posts');
   return true;
 }
 
@@ -174,7 +196,10 @@ function bindPostCard(card) {
   card.querySelector('[data-like]').addEventListener('click', event => likePost(card, event));
   card.querySelector('[data-book-post]').addEventListener('click', event => {
     event.stopPropagation();
-    bookingDialog(card);
+    fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
+      .then(response => response.ok ? response.json() : null)
+      .then(result => result?.user ? bookingDialog(card) : showGuestPrompt('book this place'))
+      .catch(() => showGuestPrompt('book this place'));
   });
   card.addEventListener('click', event => {
     if (event.target.closest('a,button,video')) return;
