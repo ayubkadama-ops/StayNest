@@ -12,7 +12,7 @@ function showGuestPrompt(action) {
     <div class="post-booking-dialog" role="dialog" aria-modal="true" aria-labelledby="postsAuthTitle">
       <button class="icon-btn post-booking-close" aria-label="Close">×</button>
       <p class="eyebrow">Members only</p>
-      <h2 id="postsAuthTitle">Sign in to ${escapeHtml(action)}</h2>
+      <h2 id="postsAuthTitle">Sign in to request a booking</h2>
       <p class="booking-help">Create a free StayNest account or sign in to continue. Your approved posts and browsing remain available as a guest.</p>
       <div class="auth-prompt-actions">
         <a class="primary" href="/index.html?auth=signup">Create an account <span>→</span></a>
@@ -223,6 +223,19 @@ async function load() {
     feed.innerHTML = '<div class="feed-empty">The posts feed is temporarily unavailable. Please try again shortly.</div>';
     return;
   }
+
+  async function showInitialGuestGate() {
+    if (sessionStorage.getItem('stayNest.memberGateShown') === 'true') return;
+    try {
+      const response = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+      const result = response.ok ? await response.json() : null;
+      if (result?.user) return;
+    } catch {
+      return;
+    }
+    sessionStorage.setItem('stayNest.memberGateShown', 'true');
+    showGuestPrompt('request a booking');
+  }
   feed.innerHTML = data.posts.length ? data.posts.map(renderPost).join('') : renderEmptyFeed();
   feed.querySelectorAll('.post-card').forEach(bindPostCard);
 }
@@ -242,3 +255,4 @@ window.setInterval(() => {
   if (document.visibilityState === 'visible') refreshFeed();
 }, 30000);
 refreshFeed();
+showInitialGuestGate();

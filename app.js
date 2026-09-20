@@ -20,7 +20,8 @@ async function togglePostLike(id,node){if(!requireAccount('like posts'))return;t
 function setupPostEngagement(root){root.querySelectorAll('[data-post-id]').forEach(post=>{recordPostView(post.dataset.postId,post);post.addEventListener('pointerenter',()=>recordPostView(post.dataset.postId,post),{once:true});post.addEventListener('click',()=>recordPostView(post.dataset.postId,post),{once:true});post.querySelector('[data-post-like]')?.addEventListener('click',event=>{event.stopPropagation();togglePostLike(post.dataset.postId,post)})})}
 function updateAgentFollowUI(result){const buttons=document.querySelectorAll('#followAgentAction');buttons.forEach(button=>{button.textContent=result.following?'Unfollow':'Follow agent';button.setAttribute('aria-pressed',String(result.following));button.disabled=false});document.querySelectorAll('#followersStat strong,.agent-profile-stats span:nth-child(2) strong').forEach(stat=>{if(result.followers!==undefined)stat.textContent=String(result.followers)})}
 let currentUser=null;
-function requireAccount(action='use this feature'){if(currentUser)return true;openModal(`<p class="eyebrow">Members only</p><h2>Sign in to ${action}</h2><p>Create a free StayNest account or sign in to access profiles, bookings, messaging, saved homes, and personalized features.</p><div class="auth-prompt-actions"><button class="primary" id="promptSignup">Create an account <span>→</span></button><button class="outline-btn" id="promptLogin">Already have an account? Sign in</button></div>`);content.querySelector('#promptSignup').onclick=()=>auth('signup');content.querySelector('#promptLogin').onclick=()=>auth('login');return false}
+function showMemberGate(){openModal('<p class="eyebrow">Members only</p><h2>Sign in to request a booking</h2><p>Create a free StayNest account or sign in to access profiles, bookings, messaging, saved homes, and personalized features.</p><div class="auth-prompt-actions"><button class="primary" id="promptSignup">Create an account <span>→</span></button><button class="outline-btn" id="promptLogin">Already have an account? Sign in</button></div>');content.querySelector('#promptSignup').onclick=()=>auth('signup');content.querySelector('#promptLogin').onclick=()=>auth('login');}
+function requireAccount(){if(currentUser)return true;showMemberGate();return false}
 const savedIds=new Set(JSON.parse(localStorage.getItem('staynest_saved')||'[]'));
 const bookings=JSON.parse(localStorage.getItem('staynest_bookings')||'[]');
 function updatePersonalGreeting(user){const greeting=document.querySelector('#personalGreeting'),detail=document.querySelector('#personalGreetingDetail');if(!greeting||!detail)return;const hour=new Date().getHours(),timeGreeting=hour<5?'Good night':hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';if(user?.firstName){greeting.textContent=`${timeGreeting}, ${user.firstName}`;detail.textContent='Your StayNest recommendations are ready';}else{greeting.textContent=`${timeGreeting}`;detail.textContent='Discover homes made for real life';}}
@@ -177,6 +178,10 @@ updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.
         ? { ...result.user, impersonating: result.impersonating }
         : null,
     );
+    if(!result.user&&!requestedAuth&&sessionStorage.getItem('stayNest.memberGateShown')!=='true'){
+      sessionStorage.setItem('stayNest.memberGateShown','true');
+      setTimeout(showMemberGate,0);
+    }
     if (requestedAuth === "login" || requestedAuth === "signup") {
       auth(requestedAuth);
     } else if (requestedDiscover) {
