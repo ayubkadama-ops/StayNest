@@ -2,6 +2,14 @@ const feed = document.querySelector('#feed');
 const sort = document.querySelector('#sort');
 
 const avatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23dfe9e2"/%3E%3Ccircle cx="50" cy="36" r="18" fill="%2372807b"/%3E%3Cpath d="M15 94c4-25 17-38 35-38s31 13 35 38" fill="%2372807b"/%3E%3C/svg%3E';
+const safeMedia = value => {
+  const url = String(value || '').trim();
+  return /^(?:https?:\/\/|\/|data:image\/(?:svg\+xml|png|jpeg|webp);)/i.test(url) ? url : avatar;
+};
+const bustMedia = value => {
+  const url = safeMedia(value);
+  return url.startsWith('/') ? `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}` : url;
+};
 let toastTimer;
 function showSystemMessage(message, type='success') {
   const toast = document.querySelector('#toast');
@@ -191,13 +199,13 @@ function renderPost(post) {
   const name = escapeHtml(`${post.firstName || ''} ${post.lastName || ''}`.trim() || 'StayNest agent');
   const agentId = Number(post.agentId || post.agent_user_id);
   const media = post.mediaType === 'video'
-    ? `<video class="post-media" src="${escapeHtml(post.mediaUrl || '')}" controls playsinline preload="metadata"></video>`
-    : `<img class="post-media" src="${escapeHtml(post.mediaUrl || avatar)}" alt="${escapeHtml(post.title)}" loading="lazy">`;
+    ? `<video class="post-media" src="${escapeHtml(bustMedia(post.mediaUrl))}" controls playsinline preload="metadata"></video>`
+    : `<img class="post-media" src="${escapeHtml(bustMedia(post.mediaUrl))}" alt="${escapeHtml(post.title)}" loading="lazy" onerror="this.onerror=null;this.src='${avatar}'">`;
 
   return `
     <article class="post-card" data-post-id="${post.id}" data-agent-id="${agentId}" data-liked="${post.liked ? 'true' : 'false'}">
       <a class="post-byline" href="/index.html?agent=${agentId}&from=post" aria-label="Open ${name}'s agent profile">
-        <img class="post-avatar" src="${escapeHtml(post.profileImageUrl || avatar)}" alt="">
+        <img class="post-avatar" src="${escapeHtml(bustMedia(post.profileImageUrl))}" alt="" onerror="this.onerror=null;this.src='${avatar}'">
         <div><strong>${name}${badge(post.badgeLabel)}</strong><small>${escapeHtml(post.city || '')} · ${post.mediaType === 'video' ? 'Video tour' : 'Photo post'}</small></div>
       </a>
       ${media}

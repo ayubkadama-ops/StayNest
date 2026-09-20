@@ -12,7 +12,8 @@ const DEFAULT_AGENT_AVATAR='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2
 const cacheBustUrl=value=>{const url=String(value||'');return url&&url.startsWith('/')?`${url}${url.includes('?')?'&':'?'}v=${Date.now()}`:url};
 const agentBadge=active=>active?'<span class="agent-badge" role="img" aria-label="Verified agent" title="Verified agent">✓</span>':'';
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const safeMediaUrl=value=>{const url=String(value||'');return /^(?:https?:\/\/|\/|data:image\/(?:svg\+xml|png|jpeg|webp);)/i.test(url)?url:DEFAULT_AGENT_AVATAR};
+const safeMediaUrl=value=>{const url=String(value||'').trim();return /^(?:https?:\/\/|\/|data:image\/(?:svg\+xml|png|jpeg|webp);)/i.test(url)?url:DEFAULT_AGENT_AVATAR};
+const mediaUrl=value=>cacheBustUrl(safeMediaUrl(value));
 const avatarMarkup=(value,alt='')=>`<img src="${escapeHtml(safeMediaUrl(value))}" alt="${escapeHtml(alt)}" onerror="this.onerror=null;this.src='${DEFAULT_AGENT_AVATAR}'">`;
 document.addEventListener('error',event=>{const image=event.target;if(image instanceof HTMLImageElement&&!image.dataset.avatarFallback){image.dataset.avatarFallback='true';image.src=DEFAULT_AGENT_AVATAR}},true);
 const agentAvatar=(src,_active,alt='')=>`<img class="search-result-avatar" src="${escapeHtml(safeMediaUrl(src))}" alt="${escapeHtml(alt)}" loading="lazy">`;
@@ -47,9 +48,11 @@ function showToast(message,type='success'){
 }
 document.querySelector('#toast .toast-close')?.addEventListener('click',()=>{clearTimeout(toastTimer);toast.classList.remove('show');setTimeout(()=>{toast.hidden=true},320)});
 const modal=document.querySelector('#modal'),content=document.querySelector('#modalContent');
+const hasKnownAccountSession = Boolean(sessionStorage.getItem('stayNest.tabUser'));
 let marketplaceGuestMode = ['/','/index.html','/posts.html'].includes(location.pathname)
   && !new URLSearchParams(location.search).has('auth')
-  && !['view','agent','listing','discover'].some(key => new URLSearchParams(location.search).has(key));
+  && !['view','agent','listing','discover'].some(key => new URLSearchParams(location.search).has(key))
+  && !hasKnownAccountSession;
 const nativeInnerHTML=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
 const safeMarkup=value=>{
   const template=document.createElement('template');
@@ -174,12 +177,12 @@ async function updateAuthControls(user){
   if(roles.includes('agent')&&agentButton){
     agentButton.dataset.profileRole='agent';agentButton.onclick=()=>openOwnProfile('agent').catch(error=>showToast(`Profile could not be opened: ${error.message}`));
     agentName.textContent=[user.firstName,user.lastName].filter(Boolean).join(' ')||'Agent';agentAvatar.src=cacheBustUrl(user.profileImageUrl||user.avatarUrl)||DEFAULT_AGENT_AVATAR;
-    try{const profile=(await apiJson(`/api/agents/${user.mainAgentId||user.id}/profile`)).profile;if(renderVersion!==window.stayNestAuthRenderVersion)return;agentAvatar.src=profile.profileImageUrl||profile.avatarUrl||agentAvatar.src;agentName.textContent=[profile.firstName,profile.lastName].filter(Boolean).join(' ')||agentName.textContent}catch(error){if(renderVersion===window.stayNestAuthRenderVersion)console.warn('Agent profile details unavailable:',error.message)}
+    try{const profile=(await apiJson(`/api/agents/${user.mainAgentId||user.id}/profile`)).profile;if(renderVersion!==window.stayNestAuthRenderVersion)return;agentAvatar.src=mediaUrl(profile.profileImageUrl||profile.avatarUrl||agentAvatar.src);agentName.textContent=[profile.firstName,profile.lastName].filter(Boolean).join(' ')||agentName.textContent}catch(error){if(renderVersion===window.stayNestAuthRenderVersion)console.warn('Agent profile details unavailable:',error.message)}
   }
   if(roles.includes('tenant')&&tenantButton){
     tenantButton.dataset.profileRole='tenant';tenantButton.onclick=()=>openOwnProfile('tenant').catch(error=>showToast(`Profile could not be opened: ${error.message}`));
     tenantName.textContent=[user.firstName,user.lastName].filter(Boolean).join(' ')||'Tenant';tenantAvatar.src=cacheBustUrl(user.profileImageUrl||user.avatarUrl)||DEFAULT_AGENT_AVATAR;
-    try{const profile=(await apiJson('/api/tenant/profile')).profile;if(renderVersion!==window.stayNestAuthRenderVersion)return;tenantAvatar.src=profile.avatarUrl||tenantAvatar.src;tenantName.textContent=[profile.firstName,profile.lastName].filter(Boolean).join(' ')||tenantName.textContent}catch(error){if(renderVersion===window.stayNestAuthRenderVersion)console.warn('Tenant profile details unavailable:',error.message)}
+    try{const profile=(await apiJson('/api/tenant/profile')).profile;if(renderVersion!==window.stayNestAuthRenderVersion)return;tenantAvatar.src=mediaUrl(profile.avatarUrl||tenantAvatar.src);tenantName.textContent=[profile.firstName,profile.lastName].filter(Boolean).join(' ')||tenantName.textContent}catch(error){if(renderVersion===window.stayNestAuthRenderVersion)console.warn('Tenant profile details unavailable:',error.message)}
   }
   if(roles.includes('administrator')){if(agentButton)agentButton.hidden=true;if(tenantButton)tenantButton.hidden=true}
 }
