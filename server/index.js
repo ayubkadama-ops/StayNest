@@ -660,7 +660,7 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
     if (!profile) return res.status(404).json({ error: 'Agent profile not found' });
     const [posts] = await pool.query(
       `SELECT l.id, l.title, l.description, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice, l.status,
-        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl,
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl,
         (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
         (SELECT lm.caption FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaCaption,
         (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
@@ -771,7 +771,7 @@ app.get('/api/showcase/posts', async (_req, res, next) => {
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         ap.followers_count followers, sa.label subagentLabel,
         ab.badge_label badgeLabel,
-        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl,
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl,
         (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
         (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
         (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views,
@@ -1279,7 +1279,7 @@ app.get('/api/marketplace/live', async (req, res, next) => {
         l.average_rating rating, l.review_count reviewCount, l.updated_at updatedAt,
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         (u.last_login_at >= UTC_TIMESTAMP() - INTERVAL 15 MINUTE) online,
-        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl
        FROM listings l
        JOIN users u ON u.id=l.agent_user_id
        JOIN user_profiles p ON p.user_id=u.id
@@ -1591,7 +1591,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
         (SELECT AVG(TIMESTAMPDIFF(MINUTE, b.created_at, b.confirmed_at))/60 FROM bookings b WHERE b.host_user_id=l.agent_user_id AND b.confirmed_at IS NOT NULL) responseHours,
-        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl,
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl,
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved
        FROM listings l LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        LEFT JOIN user_profiles p ON p.user_id=l.agent_user_id
@@ -1608,7 +1608,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
     const [similar] = await pool.query(
       `SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice,
         l.average_rating rating, l.review_count reviewCount,
-        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl
        FROM listings l WHERE l.status="published" AND l.deleted_at IS NULL AND l.id<>?
        AND (l.city=? OR l.neighborhood=? OR l.agent_user_id=?) ORDER BY l.average_rating DESC, l.updated_at DESC LIMIT 6`,
       [req.params.id, listing.city, listing.neighborhood, listing.agentId]

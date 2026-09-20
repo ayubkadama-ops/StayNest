@@ -167,15 +167,474 @@ document.querySelector('#discoverAction').addEventListener('click',openDiscover)
 function searchLabel(type){return {estate:'Homes',location:'Homes near',price:'Homes under',agent:'Agents',tenant:'Tenants'}[type]||'Search results'}
 async function runSearch(){const input=document.querySelector('#locationInput'),type=document.querySelector('#searchType').value,query=input.value.trim();const valid=type==='price'?/^\$?\s*\d[\d,\s]*(\.\d+)?$/.test(query):query.length>=2;if(!valid){showToast(type==='price'?'Enter a maximum price, such as 1200':'Enter at least two characters to search');input.focus();return}try{const result=await apiJson(`/api/search?type=${encodeURIComponent(type)}&q=${encodeURIComponent(query)}`);if(type==='agent'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Sorted by relevance, active listings, ratings, trusted engagement, and delegated account labels.</p>${result.agents.length?result.agents.map(agent=>`<button class="search-result" data-agent-id="${agent.id}"><img src="${safeMediaUrl(agent.profileImageUrl)}" alt=""><span><strong>${agent.firstName} ${agent.lastName}${agent.badgeLabel?` ${agentBadge(agent.badgeLabel)}`:''}</strong><small>${agent.agencyName?`${agent.agencyName} · `:''}${agent.subagentLabel?`Sub-agent · ${agent.subagentLabel}`:(agent.bio||'StayNest agent')} · ${agent.followers||0} followers</small></span></button>`).join(''):'<p class="empty-copy">No agents or sub-agents matched that search. Try a full name, account label, or part of their bio.</p>'}`);content.querySelectorAll('[data-agent-id]').forEach(button=>button.onclick=()=>{closeModal();openAgentProfile(button.dataset.agentId,false)})}else if(type==='tenant'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Tenant discovery is private to agent accounts.</p>${result.tenants.length?result.tenants.map(tenant=>`<div class="search-result">${avatarMarkup(tenant.avatarUrl,`${tenant.firstName} ${tenant.lastName}`)}<span><strong>${tenant.firstName} ${tenant.lastName}</strong><small>${tenant.city||'Registered StayNest tenant'}</small></span></div>`).join(''):'<p class="empty-copy">No tenants matched that name.</p>'}`)}else{openModal(`<p class="eyebrow">StayNest search</p><h2>${type==='price'?`${searchLabel(type)} ${query.replace(/[$,\s]/g,'')}`:`${searchLabel(type)} “${query}”`}</h2><p class="search-note">Ranked by relevance, location, freshness, ratings, saves, views, and likes.</p>${result.listings.length?result.listings.map(listing=>`<button class="search-result listing-result" data-listing='${JSON.stringify(listing).replace(/'/g,'&#39;')}'><img src="${listing.coverUrl||DEFAULT_AGENT_AVATAR}" alt=""><span><strong>${listing.title}</strong><small>${listing.city} · ${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'} · ${listing.rating?`★ ${listing.rating}`:'New listing'}</small></span></button>`).join(''):'<p class="empty-copy">No published homes matched. Try a nearby location, property type, or a higher price.</p>'}`);content.querySelectorAll('[data-listing]').forEach(button=>button.onclick=()=>{const listing=JSON.parse(button.dataset.listing);closeModal();openListing({...listing,title:listing.title,location:listing.city,price:`${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'}`,rating:listing.rating||'New',reviews:listing.reviewCount||0,image:listing.coverUrl||DEFAULT_AGENT_AVATAR,tag:'Search result'})})}}catch(error){showToast(error.message)}}
 document.querySelector('#searchBtn').onclick=runSearch;document.querySelector('#locationInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();runSearch()}});document.querySelector('#exploreAgentsNav')?.addEventListener('click',event=>{event.preventDefault();openDiscover()});document.querySelector('#searchType').addEventListener('change',event=>{const input=document.querySelector('#locationInput'),dates=document.querySelector('.search-field.dates'),type=event.target.value,people=type==='agent'||type==='tenant';input.placeholder=type==='price'?'Maximum price, e.g. 1200':type==='agent'?'Search agent or agency name':type==='tenant'?'Search tenant name or city':'Search homes, places, or property types';dates.hidden=people;document.querySelector('#dateInput').disabled=people});
-updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1';apiJson('/api/auth/me').then(result=>{updatePersonalGreeting(result.user);updateAuthControls(result.user?{...result.user,impersonating:result.impersonating}:null);if(requestedAuth==='login'||requestedAuth==='signup'){auth(requestedAuth)}else if(requestedDiscover){openDiscover()}else if(requestedListingId){openListing({id:requestedListingId})}else if(requestedAgentId){const viewer=result.user,ownsAgent=Boolean(viewer?.roles?.includes('agent')&&String(viewer.mainAgentId||viewer.id)===String(requestedAgentId));openAgentProfile(requestedAgentId,ownsAgent).catch(error=>showToast(error.message))}else if(requestedView==='tenant'&&result.user?.roles?.includes('tenant'))openOwnTenantProfile().catch(error=>showToast(error.message))}).catch(()=>{updateAuthControls(null);if(requestedAuth==='login'||requestedAuth==='signup')auth(requestedAuth);else if(requestedAgentId||requestedView||requestedListingId)requireAccount('view your StayNest profile')});
+updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1';apiJson("/api/auth/me")
+  .then((result) => {
+    updatePersonalGreeting(result.user);
+    updateAuthControls(
+      result.user
+        ? { ...result.user, impersonating: result.impersonating }
+        : null,
+    );
+    if (requestedAuth === "login" || requestedAuth === "signup") {
+      auth(requestedAuth);
+    } else if (requestedDiscover) {
+      openDiscover();
+    } else if (requestedListingId) {
+      openListing({ id: requestedListingId });
+    } else if (requestedAgentId) {
+      const viewer = result.user,
+        ownsAgent = Boolean(
+          viewer?.roles?.includes("agent") &&
+          String(viewer.mainAgentId || viewer.id) === String(requestedAgentId),
+        );
+      openAgentProfile(requestedAgentId, ownsAgent).catch((error) =>
+        showToast(error.message),
+      );
+    } else if (
+      requestedView === "tenant" &&
+      result.user?.roles?.includes("tenant")
+    )
+      openOwnTenantProfile().catch((error) => showToast(error.message));
+  })
+  .catch(() => {
+    updateAuthControls(null);
+    if (requestedAuth === "login" || requestedAuth === "signup")
+      auth(requestedAuth);
+    else if (requestedAgentId || requestedView || requestedListingId)
+      requireAccount("view your StayNest profile");
+  });
 
-function initScrollSequence(){const section=document.querySelector('.sequence-section'),canvas=document.querySelector('#sequenceCanvas'),status=document.querySelector('#sequenceStatus'),progress=document.querySelector('#sequenceProgress');if(!section||!canvas)return;const context=canvas.getContext('2d',{alpha:false});const count=Number(section.dataset.frameCount)||240,padding=Number(section.dataset.framePadding)||3,path=section.dataset.framePath||'/assets/frame_',extension=section.dataset.frameExtension||'.jpg',frames=Array.from({length:count},(_,index)=>{const image=new Image();image.decoding='async';image.src=`${path}${String(index+1).padStart(padding,'0')}${extension}`;return image});let loaded=0,lastFrame=-1,pendingFrame=null,drawQueued=false,targetProgress=0,displayProgress=0,animationFrame=0;const drawFrame=index=>{const image=frames[index];if(!image||!image.complete||!image.naturalWidth)return;const width=canvas.clientWidth,height=canvas.clientHeight,dpr=Math.min(window.devicePixelRatio||1,2),pixelWidth=Math.round(width*dpr),pixelHeight=Math.round(height*dpr);if(canvas.width!==pixelWidth||canvas.height!==pixelHeight){canvas.width=pixelWidth;canvas.height=pixelHeight;context.setTransform(dpr,0,0,dpr,0,0)}const scale=Math.max(width/image.naturalWidth,height/image.naturalHeight),drawWidth=image.naturalWidth*scale,drawHeight=image.naturalHeight*scale;context.fillStyle='#10251f';context.fillRect(0,0,width,height);context.drawImage(image,(width-drawWidth)/2,(height-drawHeight)/2,drawWidth,drawHeight);lastFrame=index};const queueFrame=index=>{pendingFrame=index;if(drawQueued)return;drawQueued=true;requestAnimationFrame(()=>{drawQueued=false;if(pendingFrame!==null){drawFrame(pendingFrame);pendingFrame=null}})};const animate=()=>{const difference=targetProgress-displayProgress;displayProgress+=difference*.18;if(Math.abs(difference)<.0005)displayProgress=targetProgress;const frameIndex=Math.min(count-1,Math.round(displayProgress*(count-1)));if(frameIndex!==lastFrame)queueFrame(frameIndex);if(progress)progress.style.width=`${displayProgress*100}%`;if(Math.abs(targetProgress-displayProgress)>.0005){animationFrame=requestAnimationFrame(animate)}else{animationFrame=0}};const requestAnimation=()=>{if(!animationFrame)animationFrame=requestAnimationFrame(animate)};const update=()=>{const scrollDistance=Math.max(1,section.offsetHeight-window.innerHeight);targetProgress=Math.max(0,Math.min(1,(window.scrollY-section.offsetTop)/scrollDistance));requestAnimation()};const resize=()=>{if(lastFrame>=0){lastFrame=-1;update()}};frames.forEach(image=>image.addEventListener('load',()=>{loaded+=1;if(loaded===count){status.textContent='Scroll to explore';drawFrame(0)}else if(loaded%24===0)status.textContent=`Loading visual tour… ${Math.round(loaded/count*100)}%`},{once:true}));frames.forEach(image=>image.addEventListener('error',()=>{status.textContent='Some frames could not be loaded';},{once:true}));window.addEventListener('scroll',update,{passive:true});window.addEventListener('resize',resize);window.addEventListener('orientationchange',resize);update();if(frames[0].complete)drawFrame(0)}
-function initCinematicMotion(){const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;const revealItems=document.querySelectorAll('.cinema-section,.cinema-card,.listing-card,.split-image,.split-copy,.host-banner');revealItems.forEach(item=>item.classList.add('reveal-on-scroll'));if(reduceMotion){revealItems.forEach(item=>item.classList.add('is-visible'))}else{const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.add('is-visible');observer.unobserve(entry.target)}}),{threshold:.14,rootMargin:'0px 0px -8%'});revealItems.forEach(item=>observer.observe(item))}document.querySelectorAll('[data-tilt]').forEach(card=>{card.addEventListener('pointermove',event=>{if(reduceMotion||event.pointerType==='touch')return;const rect=card.getBoundingClientRect(),x=(event.clientX-rect.left)/rect.width-.5,y=(event.clientY-rect.top)/rect.height-.5;card.style.transform=`perspective(1100px) rotateX(${y*-4}deg) rotateY(${x*5}deg) translateY(-5px)`});card.addEventListener('pointerleave',()=>{card.style.transform=''})});const track=document.querySelector('[data-smooth-track]');if(track&&!reduceMotion)track.addEventListener('wheel',event=>{if(Math.abs(event.deltaY)>Math.abs(event.deltaX)){event.preventDefault();track.scrollBy({left:event.deltaY*.85,behavior:'smooth'})}},{passive:false});const heroImage=document.querySelector('.hero-image');if(heroImage&&!reduceMotion){let ticking=false;window.addEventListener('scroll',()=>{if(ticking)return;ticking=true;requestAnimationFrame(()=>{const offset=Math.max(-20,Math.min(20,window.scrollY*.035));heroImage.style.transform=`translate3d(0,${offset}px,0) scale(1.015)`;ticking=false})},{passive:true})}}
-async function loadAgentShowcase(){const track=document.querySelector('[data-smooth-track]');if(!track)return;try{const result=await apiJson('/api/showcase/posts');if(!result.posts?.length)return;track.innerHTML=result.posts.map((post,index)=>{const creator=post.subagentLabel?`${post.firstName} ${post.lastName} · ${post.subagentLabel}`:`${post.firstName} ${post.lastName}`;const price=post.nightlyPrice?`${post.currency} ${post.nightlyPrice} / night`:post.monthlyPrice?`${post.currency} ${post.monthlyPrice} / month`:post.yearlyPrice?`${post.currency} ${post.yearlyPrice} / year`:'Contact agent';const media=escapeHtml(safeMediaUrl(post.coverUrl||'/assets/ezgif-frame-018.jpg'));return `<article class="cinema-card ${index%2?'cinema-card-wide':'cinema-card-tall'}" data-tilt data-showcase-post="${escapeHtml(post.id)}"><img src="${media}" alt="${escapeHtml(post.title)}" loading="lazy"><div class="cinema-card-copy"><a class="cinema-card-author" href="/index.html?view=agent&amp;agent=${encodeURIComponent(post.agentId)}" aria-label="Open ${escapeHtml(creator)} profile">${escapeHtml(creator)}</a><span>${escapeHtml(post.city)}</span><strong>${escapeHtml(post.title)}</strong><small>${escapeHtml(price)} · ${post.rating?`★ ${escapeHtml(post.rating)}`:'New post'} · ${escapeHtml(post.likes||0)} likes</small></div></article>`}).join('');track.querySelectorAll('[data-showcase-post]').forEach(card=>card.addEventListener('click',event=>{if(event.target.closest('a'))return;const post=result.posts.find(item=>String(item.id)===card.dataset.showcasePost);if(post)openListing({title:post.title,location:post.city,price:post.nightlyPrice||post.monthlyPrice||post.yearlyPrice,rating:post.rating||'New',reviews:post.reviewCount||0,image:safeMediaUrl(post.coverUrl||'/assets/ezgif-frame-018.jpg'),tag:'Agent post'})}));initCinematicMotion()}catch(error){console.warn('Agent showcase unavailable:',error.message)}}
-initScrollSequence();
-const authParams=new URLSearchParams(window.location.search);
-if(authParams.get('admin')==='1'){history.replaceState({},'',window.location.pathname);openAdminGate();}
-function openGoogleSetupWithPassword(){openGoogleSetup();const form=content.querySelector('#googleSetupForm');if(!form)return;const role=form.querySelector('[name="role"]');form.querySelector('p:not(.form-error)').textContent='Your Google email is verified. Set a StayNest password so you can also sign in with this email when Google is unavailable.';role.insertAdjacentHTML('beforebegin','<label>StayNest password</label><input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters" required><label>Confirm password</label><input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required>');form.addEventListener('submit',async event=>{event.preventDefault();event.stopImmediatePropagation();const errorNode=form.querySelector('.form-error'),button=form.querySelector('button');button.disabled=true;try{if(form.elements.password.value!==form.elements.confirmPassword.value)throw new Error('Passwords do not match.');const csrf=(await apiJson('/api/auth/csrf')).token;const result=await apiJson('/api/auth/google/complete',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({phone:form.elements.phone.value,location:form.elements.location.value,password:form.elements.password.value,confirmPassword:form.elements.confirmPassword.value,role:form.elements.role.value})});if(result.pendingApproval){showAgentApproval(result);return}closeModal();const googleUser=(await apiJson('/api/auth/me')).user;sessionStorage.setItem('stayNest.tabUser',JSON.stringify({id:googleUser?.id,roles:googleUser?.roles||[]}));await updateAuthControls(googleUser);showToast('Your StayNest account is ready.');if(form.elements.role.value==='tenant')location.hash='explore';else showRoleDashboard(result.roles||['agent'])}catch(error){errorNode.textContent=error.message;button.disabled=false}},true)}
+function initLegacyScrollSequence() {
+  const section = document.querySelector(".sequence-section"),
+    canvas = document.querySelector("#sequenceCanvas"),
+    status = document.querySelector("#sequenceStatus"),
+    progress = document.querySelector("#sequenceProgress");
+  if (!section || !canvas) return;
+  const context = canvas.getContext("2d", { alpha: false });
+  const count = Number(section.dataset.frameCount) || 240,
+    padding = Number(section.dataset.framePadding) || 3,
+    path = section.dataset.framePath || "/assets/frame_",
+    extension = section.dataset.frameExtension || ".jpg",
+    frames = Array.from({ length: count }, (_, index) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = `${path}${String(index + 1).padStart(padding, "0")}${extension}`;
+      return image;
+    });
+  let loaded = 0,
+    lastFrame = -1,
+    pendingFrame = null,
+    drawQueued = false,
+    targetProgress = 0,
+    displayProgress = 0,
+    animationFrame = 0;
+  const drawFrame = (index) => {
+    const image = frames[index];
+    if (!image || !image.complete || !image.naturalWidth) return;
+    const width = canvas.clientWidth,
+      height = canvas.clientHeight,
+      dpr = Math.min(window.devicePixelRatio || 1, 2),
+      pixelWidth = Math.round(width * dpr),
+      pixelHeight = Math.round(height * dpr);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    const scale = Math.max(
+        width / image.naturalWidth,
+        height / image.naturalHeight,
+      ),
+      drawWidth = image.naturalWidth * scale,
+      drawHeight = image.naturalHeight * scale;
+    context.fillStyle = "#10251f";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(
+      image,
+      (width - drawWidth) / 2,
+      (height - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
+    lastFrame = index;
+  };
+  const queueFrame = (index) => {
+    pendingFrame = index;
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(() => {
+      drawQueued = false;
+      if (pendingFrame !== null) {
+        drawFrame(pendingFrame);
+        pendingFrame = null;
+      }
+    });
+  };
+  const animate = () => {
+    const difference = targetProgress - displayProgress;
+    displayProgress += difference * 0.18;
+    if (Math.abs(difference) < 0.0005) displayProgress = targetProgress;
+    const frameIndex = Math.min(
+      count - 1,
+      Math.round(displayProgress * (count - 1)),
+    );
+    if (frameIndex !== lastFrame) queueFrame(frameIndex);
+    if (progress) progress.style.width = `${displayProgress * 100}%`;
+    if (Math.abs(targetProgress - displayProgress) > 0.0005) {
+      animationFrame = requestAnimationFrame(animate);
+    } else {
+      animationFrame = 0;
+    }
+  };
+  const requestAnimation = () => {
+    if (!animationFrame) animationFrame = requestAnimationFrame(animate);
+  };
+  const update = () => {
+    const scrollDistance = Math.max(
+      1,
+      section.offsetHeight - window.innerHeight,
+    );
+    targetProgress = Math.max(
+      0,
+      Math.min(1, (window.scrollY - section.offsetTop) / scrollDistance),
+    );
+    requestAnimation();
+  };
+  const resize = () => {
+    if (lastFrame >= 0) {
+      lastFrame = -1;
+      update();
+    }
+  };
+  frames.forEach((image) =>
+    image.addEventListener(
+      "load",
+      () => {
+        loaded += 1;
+        if (loaded === count) {
+          status.textContent = "Scroll to explore";
+          drawFrame(0);
+        } else if (loaded % 24 === 0)
+          status.textContent = `Loading visual tour… ${Math.round((loaded / count) * 100)}%`;
+      },
+      { once: true },
+    ),
+  );
+  frames.forEach((image) =>
+    image.addEventListener(
+      "error",
+      () => {
+        status.textContent = "Some frames could not be loaded";
+      },
+      { once: true },
+    ),
+  );
+  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", resize);
+  update();
+  if (frames[0].complete) drawFrame(0);
+}
+function initCinematicMotion() {
+  const reduceMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  const revealItems = document.querySelectorAll(
+    ".cinema-section,.cinema-card,.listing-card,.split-image,.split-copy,.host-banner",
+  );
+  revealItems.forEach((item) => item.classList.add("reveal-on-scroll"));
+  if (reduceMotion) {
+    revealItems.forEach((item) => item.classList.add("is-visible"));
+  } else {
+    const observer = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.14, rootMargin: "0px 0px -8%" },
+    );
+    revealItems.forEach((item) => observer.observe(item));
+  }
+  document.querySelectorAll("[data-tilt]").forEach((card) => {
+    card.addEventListener("pointermove", (event) => {
+      if (reduceMotion || event.pointerType === "touch") return;
+      const rect = card.getBoundingClientRect(),
+        x = (event.clientX - rect.left) / rect.width - 0.5,
+        y = (event.clientY - rect.top) / rect.height - 0.5;
+      card.style.transform = `perspective(1100px) rotateX(${y * -4}deg) rotateY(${x * 5}deg) translateY(-5px)`;
+    });
+    card.addEventListener("pointerleave", () => {
+      card.style.transform = "";
+    });
+  });
+  const track = document.querySelector("[data-smooth-track]");
+  if (track && !reduceMotion)
+    track.addEventListener(
+      "wheel",
+      (event) => {
+        if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+          event.preventDefault();
+          track.scrollBy({ left: event.deltaY * 0.85, behavior: "smooth" });
+        }
+      },
+      { passive: false },
+    );
+  const heroImage = document.querySelector(".hero-image");
+  if (heroImage && !reduceMotion) {
+    let ticking = false;
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          const offset = Math.max(-20, Math.min(20, window.scrollY * 0.035));
+          heroImage.style.transform = `translate3d(0,${offset}px,0) scale(1.015)`;
+          ticking = false;
+        });
+      },
+      { passive: true },
+    );
+  }
+}
+async function loadAgentShowcase() {
+  const track = document.querySelector("[data-smooth-track]");
+  if (!track) return;
+  try {
+    const result = await apiJson("/api/showcase/posts");
+    if (!result.posts?.length) return;
+    track.innerHTML = result.posts
+      .map((post, index) => {
+        const creator = post.subagentLabel
+          ? `${post.firstName} ${post.lastName} · ${post.subagentLabel}`
+          : `${post.firstName} ${post.lastName}`;
+        const price = post.nightlyPrice
+          ? `${post.currency} ${post.nightlyPrice} / night`
+          : post.monthlyPrice
+            ? `${post.currency} ${post.monthlyPrice} / month`
+            : post.yearlyPrice
+              ? `${post.currency} ${post.yearlyPrice} / year`
+              : "Contact agent";
+        const media = escapeHtml(
+          safeMediaUrl(post.coverUrl || "/assets/ezgif-frame-018.jpg"),
+        );
+        return `<article class="cinema-card ${index % 2 ? "cinema-card-wide" : "cinema-card-tall"}" data-tilt data-showcase-post="${escapeHtml(post.id)}"><img src="${media}" alt="${escapeHtml(post.title)}" loading="lazy"><div class="cinema-card-copy"><a class="cinema-card-author" href="/index.html?view=agent&amp;agent=${encodeURIComponent(post.agentId)}" aria-label="Open ${escapeHtml(creator)} profile">${escapeHtml(creator)}</a><span>${escapeHtml(post.city)}</span><strong>${escapeHtml(post.title)}</strong><small>${escapeHtml(price)} · ${post.rating ? `★ ${escapeHtml(post.rating)}` : "New post"} · ${escapeHtml(post.likes || 0)} likes</small></div></article>`;
+      })
+      .join("");
+    track.querySelectorAll("[data-showcase-post]").forEach((card) =>
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("a")) return;
+        const post = result.posts.find(
+          (item) => String(item.id) === card.dataset.showcasePost,
+        );
+        if (post)
+          openListing({
+            title: post.title,
+            location: post.city,
+            price: post.nightlyPrice || post.monthlyPrice || post.yearlyPrice,
+            rating: post.rating || "New",
+            reviews: post.reviewCount || 0,
+            image: safeMediaUrl(post.coverUrl || "/assets/ezgif-frame-018.jpg"),
+            tag: "Agent post",
+          });
+      }),
+    );
+    initCinematicMotion();
+  } catch (error) {
+    console.warn("Agent showcase unavailable:", error.message);
+  }
+}
+function initProgressiveScrollSequence() {
+  const section = document.querySelector(".sequence-section"),
+    canvas = document.querySelector("#sequenceCanvas"),
+    status = document.querySelector("#sequenceStatus"),
+    progress = document.querySelector("#sequenceProgress");
+  if (!section || !canvas) return;
+  const context = canvas.getContext("2d", { alpha: false }),
+    count = Number(section.dataset.frameCount) || 240,
+    padding = Number(section.dataset.framePadding) || 3,
+    path = section.dataset.framePath || "/assets/frame_",
+    extension = section.dataset.frameExtension || ".jpg",
+    frames = Array.from({ length: count }, (_, index) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.dataset.frameSrc = `${path}${String(index + 1).padStart(padding, "0")}${extension}`;
+      return image;
+    });
+  let loaded = 0,
+    lastFrame = -1,
+    pendingFrame = 0,
+    drawQueued = false,
+    targetProgress = 0,
+    displayProgress = 0,
+    animationFrame = 0;
+  const loadFrame = (index) => {
+    const image = frames[index];
+    if (image && !image.src) image.src = image.dataset.frameSrc;
+  };
+  const drawFrame = (index) => {
+    const image = frames[index];
+    if (!image?.complete || !image.naturalWidth) return;
+    const width = canvas.clientWidth,
+      height = canvas.clientHeight,
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (
+      canvas.width !== Math.round(width * dpr) ||
+      canvas.height !== Math.round(height * dpr)
+    ) {
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    const scale = Math.max(
+        width / image.naturalWidth,
+        height / image.naturalHeight,
+      ),
+      drawWidth = image.naturalWidth * scale,
+      drawHeight = image.naturalHeight * scale;
+    context.fillStyle = "#10251f";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(
+      image,
+      (width - drawWidth) / 2,
+      (height - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
+    lastFrame = index;
+  };
+  const queueFrame = (index) => {
+    loadFrame(index);
+    for (let offset = 1; offset <= 3; offset += 1) {
+      loadFrame(index - offset);
+      loadFrame(index + offset);
+    }
+    pendingFrame = index;
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(() => {
+      drawQueued = false;
+      drawFrame(pendingFrame);
+    });
+  };
+  const animate = () => {
+    const difference = targetProgress - displayProgress;
+    displayProgress += difference * 0.18;
+    if (Math.abs(difference) < 0.0005) displayProgress = targetProgress;
+    const frameIndex = Math.min(
+      count - 1,
+      Math.round(displayProgress * (count - 1)),
+    );
+    if (frameIndex !== lastFrame) queueFrame(frameIndex);
+    if (progress) progress.style.width = `${displayProgress * 100}%`;
+    if (Math.abs(targetProgress - displayProgress) > 0.0005)
+      animationFrame = requestAnimationFrame(animate);
+    else animationFrame = 0;
+  };
+  const requestAnimation = () => {
+    if (!animationFrame) animationFrame = requestAnimationFrame(animate);
+  };
+  const update = () => {
+    const scrollDistance = Math.max(
+      1,
+      section.offsetHeight - window.innerHeight,
+    );
+    targetProgress = Math.max(
+      0,
+      Math.min(1, (window.scrollY - section.offsetTop) / scrollDistance),
+    );
+    requestAnimation();
+  };
+  frames.forEach((image) =>
+    image.addEventListener(
+      "load",
+      () => {
+        loaded += 1;
+        if (loaded === 1) status.textContent = "Scroll to explore";
+        if (image === frames[0]) queueFrame(0);
+      },
+      { once: true },
+    ),
+  );
+  loadFrame(0);
+  for (let index = 1; index < 6; index += 1) loadFrame(index);
+  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("resize", () => {
+    lastFrame = -1;
+    update();
+  });
+  update();
+}
+initProgressiveScrollSequence();
+const authParams = new URLSearchParams(window.location.search);
+if (authParams.get("admin") === "1") {
+  history.replaceState({}, "", window.location.pathname);
+  openAdminGate();
+}
+function openGoogleSetupWithPassword() {
+  openGoogleSetup();
+  const form = content.querySelector("#googleSetupForm");
+  if (!form) return;
+  const role = form.querySelector('[name="role"]');
+  form.querySelector("p:not(.form-error)").textContent =
+    "Your Google email is verified. Set a StayNest password so you can also sign in with this email when Google is unavailable.";
+  role.insertAdjacentHTML(
+    "beforebegin",
+    '<label>StayNest password</label><input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters" required><label>Confirm password</label><input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required>',
+  );
+  form.addEventListener(
+    "submit",
+    async (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const errorNode = form.querySelector(".form-error"),
+        button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        if (
+          form.elements.password.value !== form.elements.confirmPassword.value
+        )
+          throw new Error("Passwords do not match.");
+        const csrf = (await apiJson("/api/auth/csrf")).token;
+        const result = await apiJson("/api/auth/google/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({
+            phone: form.elements.phone.value,
+            location: form.elements.location.value,
+            password: form.elements.password.value,
+            confirmPassword: form.elements.confirmPassword.value,
+            role: form.elements.role.value,
+          }),
+        });
+        if (result.pendingApproval) {
+          showAgentApproval(result);
+          return;
+        }
+        closeModal();
+        const googleUser = (await apiJson("/api/auth/me")).user;
+        sessionStorage.setItem(
+          "stayNest.tabUser",
+          JSON.stringify({
+            id: googleUser?.id,
+            roles: googleUser?.roles || [],
+          }),
+        );
+        await updateAuthControls(googleUser);
+        showToast("Your StayNest account is ready.");
+        if (form.elements.role.value === "tenant") location.hash = "explore";
+        else showRoleDashboard(result.roles || ["agent"]);
+      } catch (error) {
+        errorNode.textContent = error.message;
+        button.disabled = false;
+      }
+    },
+    true,
+  );
+}
 if(authParams.get('auth')==='google-setup'){history.replaceState({},'',window.location.pathname);openGoogleSetupWithPassword();}
 if(authParams.get('auth')==='google'){history.replaceState({},'',window.location.pathname);showToast('Signed in with Google successfully.');}
 if(authParams.get('authError')){showToast(authParams.get('authError'));history.replaceState({},'',window.location.pathname);}
