@@ -29,7 +29,7 @@ const DEFAULT_PROFILE_AVATAR = '/assets/default-avatar.svg';
 const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production';
 const configuredOrigins = new Set(
   [process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
-    .map(origin => origin.trim().replace(/\/$/, ''))
+    .map(origin => typeof origin === 'string' ? origin.trim().replace(/\/$/, '') : '')
     .filter(Boolean)
 );
 const localOrigins = new Set(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173', 'http://127.0.0.1:5173']);
