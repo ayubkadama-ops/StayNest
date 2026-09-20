@@ -159,6 +159,22 @@ async function updateAuthControls(user){
   login.hidden=false;login.textContent='Sign out';login.setAttribute('aria-label','Sign out of StayNest');login.dataset.authAction='logout';signup.hidden=true;
   if(postsNav)postsNav.hidden=false;login.setAttribute('aria-label','Sign out of StayNest');login.dataset.authAction='logout';signup.hidden=true;
   const roles=Array.isArray(user.roles)?user.roles:[];
+  const activeRole=roles.includes(user.activeRole)?user.activeRole:roles.includes('agent')?'agent':'tenant';
+  resetProfileControl(agentButton);resetProfileControl(tenantButton);
+  if(agentButton)agentButton.hidden=activeRole!=='agent';
+  if(tenantButton)tenantButton.hidden=activeRole!=='tenant';
+  if(roles.includes('agent')&&agentButton){
+    agentButton.dataset.profileRole='agent';
+    agentButton.onclick=()=>openOwnProfile('agent').catch(error=>showToast(`Profile could not be opened: ${error.message}`));
+    agentName.textContent=[user.firstName,user.lastName].filter(Boolean).join(' ')||'Agent';
+    agentAvatar.src=cacheBustUrl(user.profileImageUrl||user.avatarUrl)||DEFAULT_AGENT_AVATAR;
+  }
+  if(roles.includes('tenant')&&tenantButton){
+    tenantButton.dataset.profileRole='tenant';
+    tenantButton.onclick=()=>openOwnProfile('tenant').catch(error=>showToast(`Profile could not be opened: ${error.message}`));
+    tenantName.textContent=[user.firstName,user.lastName].filter(Boolean).join(' ')||'Tenant';
+    tenantAvatar.src=cacheBustUrl(user.profileImageUrl||user.avatarUrl)||DEFAULT_AGENT_AVATAR;
+  }
   notificationButton.hidden=false;notificationButton.onclick=openNotifications;
   if(messageButton){messageButton.hidden=false;messageButton.onclick=openMessages}
   settingsButton.hidden=false;settingsButton.onclick=()=>openSettings().catch(error=>showToast(`Settings could not be opened: ${error.message}`));
@@ -169,7 +185,6 @@ async function updateAuthControls(user){
   clearInterval(window.stayNestAttentionTimer);
   if(roles.includes('agent')){const refreshAttention=async()=>{try{const result=await apiJson('/api/agent/attention');const pending=Number(result.attention?.pendingBookings||0)+Number(result.attention?.listingActions||0)+Number(result.attention?.pendingVerification||0);if(pending>0)document.body.dataset.attentionCount=String(pending);else delete document.body.dataset.attentionCount}catch(error){console.warn('Agent attention refresh unavailable:',error.message)}};await refreshAttention();window.stayNestAttentionTimer=setInterval(refreshAttention,30000)}
   login.onclick=async()=>{try{login.disabled=true;await apiJson('/api/auth/logout',{method:'POST'});sessionStorage.removeItem('stayNest.tabUser');clearInterval(window.stayNestNotificationTimer);currentUser=null;await updateAuthControls(null);showToast('You have been signed out safely.');setTimeout(()=>location.replace('/index.html'),700)}catch(error){login.disabled=false;showToast(error.message,'error')}};
-  const activeRole=roles.includes(user.activeRole)?user.activeRole:roles.includes('agent')?'agent':'tenant';
   if(tenantSearchOption){tenantSearchOption.hidden=activeRole!=='agent';if(tenantSearchOption.hidden&&searchType.value==='tenant'){searchType.value='estate';searchType.dispatchEvent(new Event('change'))}}
   resetProfileControl(agentButton);resetProfileControl(tenantButton);
   if(agentButton)agentButton.hidden=activeRole!=='agent';
@@ -195,6 +210,14 @@ document.querySelector('#searchBtn').onclick=runSearch;document.querySelector('#
 updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1';apiJson("/api/auth/me")
   .then((result) => {
     updatePersonalGreeting(result.user);
+    if (result.user) {
+      sessionStorage.setItem(
+        'stayNest.tabUser',
+        JSON.stringify({ id: result.user.id, roles: result.user.roles || [] }),
+      );
+    } else {
+      sessionStorage.removeItem('stayNest.tabUser');
+    }
     updateAuthControls(
       result.user
         ? { ...result.user, impersonating: result.impersonating }
