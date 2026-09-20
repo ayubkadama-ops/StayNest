@@ -459,16 +459,7 @@ async function loadAgentShowcase() {
         const post = result.posts.find(
           (item) => String(item.id) === card.dataset.showcasePost,
         );
-        if (post)
-          openListing({
-            title: post.title,
-            location: post.city,
-            price: post.nightlyPrice || post.monthlyPrice || post.yearlyPrice,
-            rating: post.rating || "New",
-            reviews: post.reviewCount || 0,
-            image: safeMediaUrl(post.coverUrl || "/assets/ezgif-frame-018.jpg"),
-            tag: "Agent post",
-          });
+        if (post) void openListingDetails({ id: post.id });
       }),
     );
     initCinematicMotion();
