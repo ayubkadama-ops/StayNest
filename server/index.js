@@ -805,7 +805,8 @@ app.get('/api/posts', async (req, res, next) => {
     const viewerId = Number(req.session.user?.id || 0);
     const personalized = Boolean(viewerId);
     const order = sort === 'recent' ? 'l.published_at DESC, l.created_at DESC' : sort === 'popular'
-      ? 'likes DESC, views DESC, l.published_at DESC' : 'rank_score DESC, l.published_at DESC';
+      ? '(SELECT COUNT(*) FROM listing_likes ll2 WHERE ll2.listing_id=l.id) DESC, (SELECT COUNT(*) FROM listing_views lv2 WHERE lv2.listing_id=l.id) DESC, l.published_at DESC'
+      : 'l.published_at DESC, l.created_at DESC';
     const [posts] = await pool.query(
       `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
@@ -814,11 +815,7 @@ app.get('/api/posts', async (req, res, next) => {
         lm.public_url mediaUrl, lm.media_type mediaType, lm.caption mediaCaption,
         (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
         (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views,
-        EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?) liked,
-        ROUND((LOG10(1+(SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id))*2.5)+
-          (LOG10(1+(SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id))*.8)+
-          (COALESCE(l.average_rating,0)*1.5)+
-          GREATEST(0, 3-TIMESTAMPDIFF(DAY, COALESCE(l.published_at,l.created_at),UTC_TIMESTAMP())/14),3) rank_score
+        IF(EXISTS(SELECT 1 FROM listing_likes myll WHERE myll.listing_id=l.id AND myll.user_id=?), 1, 0) liked
        FROM listings l
        ${personalized ? 'JOIN agent_follows f ON f.agent_user_id=l.agent_user_id AND f.follower_user_id=?' : ''}
        JOIN users u ON u.id=l.agent_user_id AND u.status='active'
