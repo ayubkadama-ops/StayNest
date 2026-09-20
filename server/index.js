@@ -26,7 +26,8 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !pr
 const app = express();
 app.disable('x-powered-by');
 const DEFAULT_PROFILE_AVATAR = '/assets/default-avatar.svg';
-app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production';
+app.set('trust proxy', trustProxy ? 1 : false);
 app.use((req, res, next) => {
   const requestId = req.get('x-request-id')?.match(/^[A-Za-z0-9._-]{8,100}$/)?.[0] || crypto.randomUUID();
   req.requestId = requestId;
@@ -151,7 +152,7 @@ app.use(session({
   store: sessionStore,
   resave: false,
   saveUninitialized: false,
-  proxy: process.env.TRUST_PROXY === 'true',
+  proxy: trustProxy,
   rolling: true,
   cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 8 }
 }));
