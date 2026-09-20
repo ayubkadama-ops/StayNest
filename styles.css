@@ -213,6 +213,27 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
   body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{width:auto}
   body.role-view .agent-page,.role-view .tenant-page{min-height:calc(100vh - 64px);padding-top:25px}
 }
+
+@media (hover: none), (pointer: coarse) {
+  .listing-card:hover,
+  .cinema-card:hover,
+  .post-card:hover,
+  .search-result:hover,
+  .agent-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-sm, 0 6px 18px rgba(0,0,0,.08));
+  }
+
+  .listing-card:active,
+  .cinema-card:active,
+  .post-card:active,
+  .search-result:active,
+  button:active,
+  .primary:active,
+  .outline-btn:active {
+    transform: scale(.98);
+  }
+}
 @media(max-width:850px){
   .topbar .main-nav{display:flex;flex-wrap:wrap;justify-content:center;overflow:visible;gap:4px 6px}
   .topbar .main-nav a{padding:7px 8px;font-size:12px}

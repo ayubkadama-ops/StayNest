@@ -603,14 +603,14 @@ app.get('/api/auth/me', async (req, res, next) => {
     const sessionUser = req.session.user;
     if (!sessionUser?.id) return res.json({ user: sessionUser || null, impersonating: Boolean(req.session.impersonator) });
     const [[fresh]] = await pool.query(
-      `SELECT u.id, p.first_name firstName, p.last_name lastName,
+      `SELECT u.id, p.first_name firstName, p.last_name lastName, p.avatar_url avatarUrl,
               GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') roles
        FROM users u
        LEFT JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN user_roles ur ON ur.user_id=u.id
        LEFT JOIN roles r ON r.id=ur.role_id
        WHERE u.id=? AND u.status='active'
-       GROUP BY u.id, p.first_name, p.last_name`,
+       GROUP BY u.id, p.first_name, p.last_name, p.avatar_url`,
       [sessionUser.id]
     );
     if (!fresh) return res.json({ user: null, impersonating: Boolean(req.session.impersonator) });
@@ -1175,16 +1175,27 @@ app.post('/api/listings/:id/view', async (req, res, next) => {
       [listingId]
     );
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
-    await pool.execute(
-      'INSERT INTO listing_views (listing_id, viewer_user_id) VALUES (?, ?)',
-      [listingId, req.session.user?.id || null]
-    );
+    const viewerId = req.session.user?.id ? Number(req.session.user.id) : null;
+    let viewed = false;
+    if (viewerId) {
+      const [[existing]] = await pool.query(
+        'SELECT 1 FROM listing_views WHERE listing_id=? AND viewer_user_id=? LIMIT 1',
+        [listingId, viewerId]
+      );
+      if (!existing) {
+        await pool.execute(
+          'INSERT INTO listing_views (listing_id, viewer_user_id) VALUES (?, ?)',
+          [listingId, viewerId]
+        );
+        viewed = true;
+      }
+    }
     const [[row]] = await pool.query(
       'SELECT COUNT(*) views FROM listing_views WHERE listing_id=?',
       [listingId]
     );
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ listingId, viewed: true, views: Number(row.views) });
+    res.json({ listingId, viewed, views: Number(row.views) });
   } catch (error) { next(error); }
 });
 
