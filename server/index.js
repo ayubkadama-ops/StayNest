@@ -598,7 +598,7 @@ app.get('/api/tenant/profile', requireAuth, requireRole('tenant'), async (req, r
       [req.session.user.id]
     );
     const [wishlist] = await pool.query(
-      'SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl FROM saved_listings s JOIN listings l ON l.id=s.listing_id WHERE s.user_id=? ORDER BY s.created_at DESC',
+      "SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl FROM saved_listings s JOIN listings l ON l.id=s.listing_id WHERE s.user_id=? ORDER BY s.created_at DESC",
       [req.session.user.id]
     );
     res.json({ profile, following, wishlist });
