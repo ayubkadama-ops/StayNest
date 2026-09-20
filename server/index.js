@@ -229,7 +229,10 @@ app.get('/api/ready', async (_req, res) => {
 
 app.get('/api/auth/csrf', (req, res) => {
   if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(32).toString('hex');
-  res.json({ token: req.session.csrfToken });
+  req.session.save(error => {
+    if (error) return res.status(500).json({ error: 'Unable to prepare secure request token' });
+    res.json({ token: req.session.csrfToken });
+  });
 });
 
 app.get('/api/auth/google', (req, res) => {
@@ -245,7 +248,10 @@ app.get('/api/auth/google', (req, res) => {
     access_type: 'online',
     prompt: 'select_account'
   });
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${query}`);
+  req.session.save(error => {
+    if (error) return res.status(500).send('Unable to start Google sign-in. Please try again.');
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${query}`);
+  });
 });
 
 app.get('/api/auth/google/callback', async (req, res, next) => {
@@ -258,7 +264,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
     const stateBuffer = Buffer.from(state || '');
     const expectedStateBuffer = Buffer.from(expectedState);
     if (typeof code !== 'string' || typeof state !== 'string' || stateBuffer.length !== expectedStateBuffer.length || !crypto.timingSafeEqual(stateBuffer, expectedStateBuffer)) {
-      return res.status(400).send('Invalid Google sign-in state.');
+      return redirectError('Google sign-in expired or was opened in a different browser tab. Please try again.');
     }
     delete req.session.googleOAuthState;
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -394,7 +400,7 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
 });
 
 const requireCsrf = (req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.originalUrl === '/api/auth/login' || req.originalUrl === '/api/auth/register' || req.originalUrl === '/api/auth/password-reset/request' || req.originalUrl === '/api/admin/gate') return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.originalUrl === '/api/auth/login' || req.originalUrl === '/api/auth/register' || req.originalUrl === '/api/auth/logout' || req.originalUrl === '/api/auth/password-reset/request' || req.originalUrl === '/api/admin/gate') return next();
   // Listing view analytics is intentionally available to guests and does not change account state.
   if (req.method === 'POST' && /^\/listings\/\d+\/view$/.test(req.path)) return next();
   const supplied = req.get('x-csrf-token') || '';
