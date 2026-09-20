@@ -49,10 +49,11 @@ function showToast(message,type='success'){
 document.querySelector('#toast .toast-close')?.addEventListener('click',()=>{clearTimeout(toastTimer);toast.classList.remove('show');setTimeout(()=>{toast.hidden=true},320)});
 const modal=document.querySelector('#modal'),content=document.querySelector('#modalContent');
 const hasKnownAccountSession = Boolean(sessionStorage.getItem('stayNest.tabUser'));
+const sharedListingLink = new URLSearchParams(location.search).has('listing');
 let marketplaceGuestMode = ['/','/index.html','/posts.html'].includes(location.pathname)
   && !new URLSearchParams(location.search).has('auth')
-  && !['view','agent','listing','discover'].some(key => new URLSearchParams(location.search).has(key))
-  && !hasKnownAccountSession;
+  && !['view','agent','discover'].some(key => new URLSearchParams(location.search).has(key))
+  && (sharedListingLink || !hasKnownAccountSession);
 const nativeInnerHTML=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
 const safeMarkup=value=>{
   const template=document.createElement('template');
@@ -207,7 +208,7 @@ document.querySelector('#discoverAction').addEventListener('click',openDiscover)
 function searchLabel(type){return {estate:'Homes',location:'Homes near',price:'Homes under',agent:'Agents',tenant:'Tenants'}[type]||'Search results'}
 async function runSearch(){const input=document.querySelector('#locationInput'),type=document.querySelector('#searchType').value,query=input.value.trim();const valid=type==='price'?/^\$?\s*\d[\d,\s]*(\.\d+)?$/.test(query):query.length>=2;if(!valid){showToast(type==='price'?'Enter a maximum price, such as 1200':'Enter at least two characters to search');input.focus();return}try{const result=await apiJson(`/api/search?type=${encodeURIComponent(type)}&q=${encodeURIComponent(query)}`);if(type==='agent'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Sorted by relevance, active listings, ratings, trusted engagement, and delegated account labels.</p>${result.agents.length?result.agents.map(agent=>`<button class="search-result" data-agent-id="${agent.id}"><img src="${safeMediaUrl(agent.profileImageUrl)}" alt=""><span><strong>${agent.firstName} ${agent.lastName}${agent.badgeLabel?` ${agentBadge(agent.badgeLabel)}`:''}</strong><small>${agent.agencyName?`${agent.agencyName} · `:''}${agent.subagentLabel?`Sub-agent · ${agent.subagentLabel}`:(agent.bio||'StayNest agent')} · ${agent.followers||0} followers</small></span></button>`).join(''):'<p class="empty-copy">No agents or sub-agents matched that search. Try a full name, account label, or part of their bio.</p>'}`);content.querySelectorAll('[data-agent-id]').forEach(button=>button.onclick=()=>{closeModal();openAgentProfile(button.dataset.agentId,false)})}else if(type==='tenant'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Tenant discovery is private to agent accounts.</p>${result.tenants.length?result.tenants.map(tenant=>`<div class="search-result">${avatarMarkup(tenant.avatarUrl,`${tenant.firstName} ${tenant.lastName}`)}<span><strong>${tenant.firstName} ${tenant.lastName}</strong><small>${tenant.city||'Registered StayNest tenant'}</small></span></div>`).join(''):'<p class="empty-copy">No tenants matched that name.</p>'}`)}else{openModal(`<p class="eyebrow">StayNest search</p><h2>${type==='price'?`${searchLabel(type)} ${query.replace(/[$,\s]/g,'')}`:`${searchLabel(type)} “${query}”`}</h2><p class="search-note">Ranked by relevance, location, freshness, ratings, saves, views, and likes.</p>${result.listings.length?result.listings.map(listing=>`<button class="search-result listing-result" data-listing='${JSON.stringify(listing).replace(/'/g,'&#39;')}'><img src="${listing.coverUrl||DEFAULT_AGENT_AVATAR}" alt=""><span><strong>${listing.title}</strong><small>${listing.city} · ${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'} · ${listing.rating?`★ ${listing.rating}`:'New listing'}</small></span></button>`).join(''):'<p class="empty-copy">No published homes matched. Try a nearby location, property type, or a higher price.</p>'}`);content.querySelectorAll('[data-listing]').forEach(button=>button.onclick=()=>{const listing=JSON.parse(button.dataset.listing);closeModal();openListing({...listing,title:listing.title,location:listing.city,price:`${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'}`,rating:listing.rating||'New',reviews:listing.reviewCount||0,image:listing.coverUrl||DEFAULT_AGENT_AVATAR,tag:'Search result'})})}}catch(error){showToast(error.message)}}
 document.querySelector('#searchBtn').onclick=runSearch;document.querySelector('#locationInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();runSearch()}});document.querySelector('#exploreAgentsNav')?.addEventListener('click',event=>{event.preventDefault();openDiscover()});document.querySelector('#searchType').addEventListener('change',event=>{const input=document.querySelector('#locationInput'),dates=document.querySelector('.search-field.dates'),type=event.target.value,people=type==='agent'||type==='tenant';input.placeholder=type==='price'?'Maximum price, e.g. 1200':type==='agent'?'Search agent or agency name':type==='tenant'?'Search tenant name or city':'Search homes, places, or property types';dates.hidden=people;document.querySelector('#dateInput').disabled=people});
-updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1';apiJson("/api/auth/me")
+updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1';(sharedListingLink?Promise.resolve({user:null,sharedLinkGuest:true}):apiJson("/api/auth/me"))
   .then((result) => {
     updatePersonalGreeting(result.user);
     if (result.user) {
@@ -223,7 +224,7 @@ updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.
         ? { ...result.user, impersonating: result.impersonating }
         : null,
     );
-    if(!result.user&&!requestedAuth&&sessionStorage.getItem('stayNest.memberGateShown')!=='true'){
+    if(!result.user&&!sharedListingLink&&!requestedAuth&&sessionStorage.getItem('stayNest.memberGateShown')!=='true'){
       sessionStorage.setItem('stayNest.memberGateShown','true');
       setTimeout(showMemberGate,0);
     }
@@ -232,7 +233,7 @@ updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.
     } else if (requestedDiscover) {
       openDiscover();
     } else if (requestedListingId) {
-      openListing({ id: requestedListingId });
+      openListingDetails({ id: requestedListingId });
     } else if (requestedAgentId) {
       const viewer = result.user,
         ownsAgent = Boolean(
