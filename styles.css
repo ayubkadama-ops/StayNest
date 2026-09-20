@@ -194,6 +194,10 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
 .listing-detail-media-grid{display:grid;grid-template-columns:1fr;gap:12px;margin:20px 0}
 .listing-detail-media{display:block;width:100%;height:260px;max-height:260px;object-fit:contain;border-radius:12px;background:#dfe9e2}
 .listing-detail-media-grid .listing-detail-media:first-child{grid-column:auto}
+.listing-actions{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}
+.listing-actions button{border:1px solid rgba(47,109,88,.28);border-radius:999px;padding:9px 14px;font-size:12px;line-height:1.1;white-space:nowrap}
+.listing-actions .primary{width:auto;margin-top:0;box-shadow:none}
+.listing-actions .outline-btn{border-bottom:1px solid rgba(47,109,88,.28);background:rgba(223,233,226,.48);color:var(--deep)}
 .cinema-section{padding:92px 0 72px;background:#193e35;color:#fff;overflow:hidden}
 .cinema-heading{display:flex;align-items:end;justify-content:space-between;gap:30px;padding:0 7%;margin-bottom:32px}
 .cinema-heading h2{font-size:43px}
