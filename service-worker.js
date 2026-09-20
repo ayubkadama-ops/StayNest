@@ -1,4 +1,4 @@
-const CACHE_NAME = 'staynest-shell-v1';
+const CACHE_NAME = 'staynest-shell-v2';
 const APP_SHELL = ['/', '/index.html', '/posts.html', '/styles.css'];
 
 self.addEventListener('install', event => {
