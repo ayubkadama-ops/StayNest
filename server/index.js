@@ -609,14 +609,15 @@ app.get('/api/auth/me', async (req, res, next) => {
     const sessionUser = req.session.user;
     if (!sessionUser?.id) return res.json({ user: sessionUser || null, impersonating: Boolean(req.session.impersonator) });
     const [[fresh]] = await pool.query(
-      `SELECT u.id, p.first_name firstName, p.last_name lastName, p.avatar_url avatarUrl,
+      `SELECT u.id, p.first_name firstName, p.last_name lastName, p.avatar_url avatarUrl, ap.profile_image_url profileImageUrl,
               GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') roles
        FROM users u
        LEFT JOIN user_profiles p ON p.user_id=u.id
+       LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN user_roles ur ON ur.user_id=u.id
        LEFT JOIN roles r ON r.id=ur.role_id
        WHERE u.id=? AND u.status='active'
-       GROUP BY u.id, p.first_name, p.last_name, p.avatar_url`,
+       GROUP BY u.id, p.first_name, p.last_name, p.avatar_url, ap.profile_image_url`,
       [sessionUser.id]
     );
     if (!fresh) return res.json({ user: null, impersonating: Boolean(req.session.impersonator) });
@@ -631,7 +632,7 @@ app.get('/api/auth/me', async (req, res, next) => {
 app.get('/api/tenant/profile', requireAuth, requireRole('tenant'), async (req, res, next) => {
   try {
     const [[profile]] = await pool.query(
-      'SELECT u.id, u.email, u.phone, p.first_name firstName, p.last_name lastName, p.avatar_url avatarUrl, p.bio, p.city FROM users u JOIN user_profiles p ON p.user_id=u.id WHERE u.id=? AND u.status="active"',
+      'SELECT u.id, u.email, u.phone, p.first_name firstName, p.last_name lastName, p.avatar_url avatarUrl, p.bio, p.city FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=? AND u.status="active"',
       [req.session.user.id]
     );
     const [following] = await pool.query(
@@ -660,6 +661,7 @@ app.post('/api/tenant/profile/photo', requireAuth, requireRole('tenant'), upload
     if (!req.file) return res.status(400).json({ error: 'Choose a JPG, PNG, WebP, or AVIF profile image' });
     const stored = await storeUserProfileImage(req.file, req.session.user.id);
     await pool.execute('UPDATE user_profiles SET avatar_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+    req.session.user.avatarUrl = stored.url;
     await audit(req, 'tenant_profile_photo_updated', 'user_profile', req.session.user.id);
     res.json({ avatarUrl: stored.url });
   } catch (error) { next(error); }
@@ -676,6 +678,7 @@ app.patch('/api/tenant/profile', requireAuth, requireRole('tenant'), async (req,
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number' });
     await connection.beginTransaction();
+    await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, display_name) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), last_name=VALUES(last_name)', [req.session.user.id, firstName, lastName, `${firstName} ${lastName}`.slice(0, 160)]);
     await connection.execute('UPDATE users SET phone=? WHERE id=?', [phone || null, req.session.user.id]);
     await connection.execute('UPDATE user_profiles SET first_name=?, last_name=?, display_name=?, bio=?, city=? WHERE user_id=?', [firstName, lastName, `${firstName} ${lastName}`.slice(0, 160), bio, city || null, req.session.user.id]);
     await connection.commit();
@@ -1280,6 +1283,8 @@ app.patch('/api/agent/profile', requireAuth, requireAgentAccess('profile.manage'
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number' });
     await connection.beginTransaction();
+    await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, display_name) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), last_name=VALUES(last_name)', [req.session.user.id, firstName, lastName, `${firstName} ${lastName}`.slice(0, 160)]);
+    await connection.execute('INSERT INTO agent_profiles (user_id, phone, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE phone=VALUES(phone), bio=VALUES(bio)', [req.session.user.id, phone || null, bio]);
     await connection.execute('UPDATE user_profiles SET first_name=?, last_name=?, display_name=?, city=? WHERE user_id=?', [firstName, lastName, `${firstName} ${lastName}`.slice(0, 160), city || null, req.session.user.id]);
     await connection.execute('UPDATE agent_profiles SET phone=?, bio=? WHERE user_id=?', [phone || null, bio, req.session.user.id]);
     await connection.commit();
@@ -1297,6 +1302,7 @@ app.post('/api/agent/profile/photo', requireAuth, requireAgentAccess('profile.ma
     if (!req.file) return res.status(400).json({ error: 'Choose a JPG, PNG, WebP, or AVIF profile image' });
     const stored = await storeAgentProfileImage(req.file, req.session.user.id);
     await pool.execute('UPDATE agent_profiles SET profile_image_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+    req.session.user.profileImageUrl = stored.url;
     await audit(req, 'agent_profile_photo_updated', 'agent_profile', req.session.user.id);
     res.json({ profileImageUrl: stored.url });
   } catch (error) { next(error); }
@@ -1529,7 +1535,11 @@ app.patch('/api/agent/subagents/:id', requireAuth, requireRole('agent'), async (
 app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create'), agentListingUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'media', maxCount: 10 }]), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const { title, description, city, addressLine1, countryCode = 'KE', propertyType = 'apartment', nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', documentType = 'business_license', documentCountry = 'KE', documentLast4 } = req.body;
+    const { title, description, city, addressLine1, countryCode = 'TZ', propertyType = 'apartment', nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
+    const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
+    const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
+    const maxGuests = Math.max(1, Math.min(Number(req.body.maxGuests) || 1, 999));
+    const amenities = String(req.body.amenities || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 20);
     const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
     const document = req.files?.document?.[0], media = req.files?.media || [];
     if (!title || !description || !city || !addressLine1 || (!nightlyPrice && !monthlyPrice && !yearlyPrice)) return res.status(400).json({ error: 'Title, description, address, city, and a price are required' });
@@ -1543,8 +1553,8 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
     await connection.beginTransaction();
     const [result] = await connection.execute(
-      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
+      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
     );
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
@@ -1552,6 +1562,11 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
       const isVideo = file.mimetype.startsWith('video/');
       const stored = isVideo ? await storeListingVideo(file, result.insertId) : await storeListingImage(file, result.insertId);
       await connection.execute('INSERT INTO listing_media (listing_id, media_type, storage_key, public_url, caption, sort_order, is_cover) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.insertId, isVideo ? 'video' : 'image', stored.key, stored.url, String(req.body[`caption${index}`] || '').slice(0, 255), index, index === 0]);
+    }
+    for (const name of amenities) {
+      await connection.execute('INSERT INTO listing_amenities (name) VALUES (?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)', [name]);
+      const [[amenity]] = await connection.query('SELECT id FROM listing_amenities WHERE name=?', [name]);
+      if (amenity) await connection.execute('INSERT IGNORE INTO listing_amenity_map (listing_id, amenity_id) VALUES (?, ?)', [result.insertId, amenity.id]);
     }
     await connection.commit();
     await audit(req, 'agent_listing_created', 'listing', result.insertId);
@@ -1890,7 +1905,8 @@ app.get('/api/admin/analytics', requireAuth, requireAdminAccess, async (_req, re
   try {
     res.json(await getGa4Analytics());
   } catch (error) {
-    next(error);
+    console.error('Admin analytics unavailable:', error.message);
+    res.json({ available: false, error: 'Analytics data is temporarily unavailable.' });
   }
 });
 
