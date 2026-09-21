@@ -291,6 +291,35 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!import
   body.agent-marketplace-view .topbar .header-actions #notificationControl:after,
   body.role-view .topbar .header-actions #notificationControl:after{display:none}
 }
+/* Header tools use icons only; accessible names remain available to screen readers and tooltips. */
+.topbar .header-actions #messageControl,
+.topbar .header-actions #notificationControl,
+.topbar .header-actions #settingsControl{
+  position:relative!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:38px!important;
+  min-width:38px!important;
+  height:38px!important;
+  min-height:38px!important;
+  margin:0!important;
+  padding:8px!important;
+  border-radius:50%!important;
+}
+.topbar .header-actions #messageControl:after,
+.topbar .header-actions #notificationControl:before,
+.topbar .header-actions #notificationControl:after{
+  content:none!important;
+  display:none!important;
+}
+.topbar .header-actions #messageControl .notification-badge,
+.topbar .header-actions #notificationControl .notification-badge{
+  position:absolute!important;
+  top:-4px!important;
+  right:-4px!important;
+  margin:0!important;
+}
 @media (hover: none), (pointer: coarse) {
   .listing-card:hover,
   .cinema-card:hover,
@@ -676,3 +705,10 @@ body.role-view .topbar .header-actions #notificationControl,body.agent-marketpla
 body.role-view .topbar .header-actions #messageControl .notification-badge,body.agent-marketplace-view .topbar .header-actions #messageControl .notification-badge,body.role-view .topbar .header-actions #notificationControl .notification-badge,body.agent-marketplace-view .topbar .header-actions #notificationControl .notification-badge{position:static!important;margin-left:auto!important}
 body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important}
 @media(max-width:850px){body.role-view .topbar .header-actions,body.agent-marketplace-view .topbar .header-actions{flex-direction:row!important;align-items:center!important;gap:6px!important}body.role-view .topbar .header-actions #settingsControl,body.agent-marketplace-view .topbar .header-actions #settingsControl,body.role-view .topbar .header-actions #messageControl,body.agent-marketplace-view .topbar .header-actions #messageControl,body.role-view .topbar .header-actions #notificationControl,body.agent-marketplace-view .topbar .header-actions #notificationControl{width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;margin:0!important;padding:8px!important;justify-content:center!important;border-radius:50%!important}body.role-view .topbar .header-actions #messageControl:after,body.agent-marketplace-view .topbar .header-actions #messageControl:after,body.role-view .topbar .header-actions #notificationControl:before,body.agent-marketplace-view .topbar .header-actions #notificationControl:before{display:none!important}body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important;width:38px!important;min-width:38px!important;height:38px!important;padding:4px!important;justify-content:center!important;border-radius:50%!important}}
+/* Keep the topbar icon-only even when role-view/sidebar rules are present. */
+.topbar .header-actions #messageControl:after,
+.topbar .header-actions #notificationControl:before,
+.topbar .header-actions #notificationControl:after{
+  content:none!important;
+  display:none!important;
+}
