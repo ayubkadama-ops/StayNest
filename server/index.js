@@ -1657,6 +1657,19 @@ app.post('/api/host/bookings/:id/decision', requireAuth, requireHostRole, async 
     if (!status) return res.status(400).json({ error: 'Invalid booking decision' });
     const [result] = await pool.execute('UPDATE bookings SET status=?, confirmed_at=IF(?="confirmed", UTC_TIMESTAMP(), confirmed_at) WHERE id=? AND host_user_id=? AND status="pending"', [status, status, req.params.id, req.session.user.id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Pending booking not found' });
+    const [[booking]] = await pool.query(
+      'SELECT b.guest_user_id guestId, l.title, b.check_in checkIn, b.check_out checkOut FROM bookings b JOIN listings l ON l.id=b.listing_id WHERE b.id=?',
+      [req.params.id]
+    );
+    if (status === 'declined') await pool.execute('DELETE FROM booking_date_locks WHERE booking_id=?', [req.params.id]);
+    if (booking) {
+      void notifyUser(booking.guestId, {
+        type: `booking_${status}`,
+        title: status === 'confirmed' ? 'Booking approved' : 'Booking declined',
+        body: `${booking.title} · ${booking.checkIn} to ${booking.checkOut}`,
+        data: { bookingId: Number(req.params.id), status }
+      }).catch(error => console.error('Tenant booking notification failed:', error.message));
+    }
     await audit(req, `booking_${status}`, 'booking', req.params.id);
     res.json({ ok: true, status });
   } catch (error) { next(error); }
