@@ -314,6 +314,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
         if (!user) {
           await connection.rollback();
           req.session.googlePending = { email, googleId, firstName, lastName, avatarUrl };
+          await new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
           return res.redirect('/index.html?auth=google-setup');
         } else {
         await connection.execute(
