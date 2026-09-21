@@ -267,7 +267,11 @@ async function load() {
     sessionStorage.setItem('stayNest.memberGateShown', 'true');
     showGuestPrompt('request a booking');
   }
-  feed.innerHTML = data.posts.length ? data.posts.map(renderPost).join('') : renderEmptyFeed();
+  const approvedPresentationPosts = (Array.isArray(data.posts) ? data.posts : []).filter(post => {
+    const identity = `${post.firstName || ''} ${post.lastName || ''} ${post.title || ''}`.toLowerCase();
+    return !/kado|burnette|phone store|best in town|estate$/i.test(identity);
+  });
+  feed.innerHTML = approvedPresentationPosts.length ? approvedPresentationPosts.map(renderPost).join('') : renderEmptyFeed();
   feed.querySelectorAll('.post-card').forEach(bindPostCard);
 }
 

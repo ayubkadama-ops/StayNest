@@ -201,6 +201,11 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
 .amenity-pill{display:inline-block;padding:.35rem .65rem;border:1px solid var(--line,#d9e4dc);border-radius:999px;margin:.2rem;font-size:.85rem}
 .review-item{padding:.8rem 0;border-bottom:1px solid var(--line,#d9e4dc)}
 .review-item span{margin-left:.5rem;color:#b07a18}
+.listing-card .listing-photo{position:relative;overflow:hidden;background:#dfe9e2}
+.listing-card .listing-card-image{display:block;width:100%;height:100%;min-height:220px;object-fit:cover;object-position:center}
+.listing-card .listing-photo .heart,.listing-card .listing-photo .rating{position:absolute;z-index:1}
+.listing-card .listing-photo .heart{top:12px;right:12px}
+.listing-card .listing-photo .rating{left:12px;bottom:12px}
 .cinema-section{padding:92px 0 72px;background:#193e35;color:#fff;overflow:hidden}
 .cinema-heading{display:flex;align-items:end;justify-content:space-between;gap:30px;padding:0 7%;margin-bottom:32px}
 .cinema-heading h2{font-size:43px}
