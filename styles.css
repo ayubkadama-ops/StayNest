@@ -210,7 +210,7 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
 .cinema-heading{display:flex;align-items:end;justify-content:space-between;gap:30px;padding:0 7%;margin-bottom:32px}
 .cinema-heading h2{font-size:43px}
 .cinema-heading>p{max-width:360px;color:#d3e1d7;line-height:1.6;font-size:13px}
-.cinema-track{display:flex;gap:20px;overflow-x:auto;overflow-y:hidden;padding:8px 7% 22px;scroll-snap-type:x proximity;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:#9fc5aa #31594b}
+.cinema-track{display:flex;gap:20px;overflow-x:auto;overflow-y:visible;padding:8px 7% 22px;scroll-snap-type:x proximity;overscroll-behavior-x:contain;overscroll-behavior-y:auto;touch-action:pan-x pan-y;scrollbar-width:thin;scrollbar-color:#9fc5aa #31594b}
 .cinema-track::-webkit-scrollbar{height:9px}.cinema-track::-webkit-scrollbar-track{background:#31594b;border-radius:8px}.cinema-track::-webkit-scrollbar-thumb{background:#9fc5aa;border-radius:8px}
 .cinema-card{position:relative;flex:0 0 clamp(270px,30vw,390px);height:430px;overflow:hidden;border-radius:14px;scroll-snap-align:start;cursor:pointer;background:#31594b}
 .cinema-card-wide{flex-basis:clamp(340px,42vw,560px)}

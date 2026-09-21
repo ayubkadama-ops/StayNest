@@ -1,5 +1,45 @@
 const feed = document.querySelector('#feed');
 const sort = document.querySelector('#sort');
+const postsHeaderActions = document.querySelector('.topbar .header-actions');
+
+async function hydratePostsHeader() {
+  if (!postsHeaderActions) return;
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+    const result = response.ok ? await response.json() : null;
+    const user = result?.user;
+    if (!user) return;
+    if (user.roles?.includes('agent')) {
+      document.body.classList.add('agent-posts-view');
+      const heading = document.querySelector('.posts-head h1');
+      const description = document.querySelector('.posts-head p:not(.eyebrow)');
+      if (heading) heading.textContent = 'Manage your StayNest posts';
+      if (description) description.textContent = 'Review your published updates, monitor engagement, and keep your property audience informed.';
+    }
+    postsHeaderActions.innerHTML = `
+      <a class="text-btn" href="/">Home</a>
+      <a class="text-btn" href="/index.html?view=${user.roles?.includes('agent') ? 'agent' : 'tenant'}">${user.roles?.includes('agent') ? 'Agent workspace' : 'My profile'}</a>
+      <button class="text-btn" id="postsSignOut" type="button">Sign out</button>`;
+    postsHeaderActions.querySelector('#postsSignOut').onclick = async () => {
+      try {
+        const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'same-origin', cache: 'no-store' });
+        const csrf = await csrfResponse.json();
+        const logout = await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRF-Token': csrf.token }
+        });
+        if (!logout.ok) throw new Error('Unable to sign out safely');
+        sessionStorage.removeItem('stayNest.tabUser');
+        location.reload();
+      } catch (error) {
+        showSystemMessage(error.message, 'error');
+      }
+    };
+  } catch {
+    // The public posts feed remains available when account hydration is unavailable.
+  }
+}
 
 const avatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Crect width="100" height="100" fill="%23dfe9e2"/%3E%3Ccircle cx="50" cy="36" r="18" fill="%2372807b"/%3E%3Cpath d="M15 94c4-25 17-38 35-38s31 13 35 38" fill="%2372807b"/%3E%3C/svg%3E';
 const safeMedia = value => {
@@ -282,6 +322,7 @@ function refreshFeed() {
 }
 
 sort.addEventListener('change', refreshFeed);
+hydratePostsHeader();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshFeed();
 });

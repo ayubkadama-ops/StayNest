@@ -423,7 +423,7 @@ const requireAuth = async (req, res, next) => {
        LEFT JOIN roles r ON r.id=ur.role_id
        WHERE u.id=?
        GROUP BY u.id, u.status`,
-      [req.session.user.id]
+      [agentOwnerId(req)]
     );
     if (!account || account.status !== 'active') {
       req.session.destroy(() => {});
@@ -1668,7 +1668,7 @@ app.post('/api/agent/bookings/:id/decision', requireAuth, requireAgentAccess('bo
     if (!status) return res.status(400).json({ error: 'Choose approve or decline' });
     const [result] = await pool.execute(
       'UPDATE bookings b JOIN listings l ON l.id=b.listing_id SET b.status=?, b.confirmed_at=IF(?="confirmed", UTC_TIMESTAMP(), b.confirmed_at) WHERE b.id=? AND l.agent_user_id=? AND b.status="pending"',
-      [status, status, req.params.id, req.session.user.id]
+      [status, status, req.params.id, agentOwnerId(req)]
     );
     if (!result.affectedRows) return res.status(404).json({ error: 'Pending booking request not found' });
     const [[booking]] = await pool.query(
@@ -2571,6 +2571,12 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
       body: `New request for ${listing.title || 'your listing'} from ${checkIn} to ${checkOut}.`,
       data: { bookingId: result.insertId, listingId }
     }).catch(error => console.error('Agent booking notification failed:', error.message));
+    void notifyUser(req.session.user.id, {
+      type: 'booking_created',
+      title: 'Booking request sent',
+      body: `${listing.title || 'Your selected home'} · awaiting agent review.`,
+      data: { bookingId: result.insertId, listingId, status: 'pending' }
+    }).catch(error => console.error('Tenant booking notification failed:', error.message));
     res.status(201).json(response);
   } catch (error) {
     await connection.rollback();
