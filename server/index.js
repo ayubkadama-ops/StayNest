@@ -2125,7 +2125,7 @@ app.get('/api/admin/users', requireAuth, requireAdminAccess, async (req, res, ne
       LEFT JOIN user_roles ur ON ur.user_id=u.id
       LEFT JOIN roles r ON r.id=ur.role_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      GROUP BY u.id
+      GROUP BY u.id, u.email, u.phone, u.status, u.mfa_enabled, u.email_verified_at, u.last_login_at, u.created_at
       ORDER BY u.created_at DESC
       LIMIT ${limit}
     `, params);
