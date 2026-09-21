@@ -889,6 +889,62 @@ app.get('/api/posts', async (req, res, next) => {
   }
 });
 
+app.get('/api/listings/discover', async (req, res, next) => {
+  try {
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    const location = String(req.query.location || '').trim().slice(0, 100);
+    const rentalMode = ['short_term', 'long_term'].includes(req.query.rentalMode) ? req.query.rentalMode : null;
+    const propertyType = String(req.query.propertyType || '').trim().slice(0, 50);
+    const minPrice = Number(req.query.minPrice);
+    const maxPrice = Number(req.query.maxPrice);
+    const where = ['l.status="published"', 'l.deleted_at IS NULL'];
+    const params = [];
+    if (query) {
+      const like = `%${query}%`;
+      where.push('(l.title LIKE ? OR l.description LIKE ? OR l.city LIKE ? OR l.neighborhood LIKE ? OR pt.name LIKE ?)');
+      params.push(like, like, like, like, like);
+    }
+    if (location) {
+      const like = `%${location}%`;
+      where.push('(l.city LIKE ? OR l.neighborhood LIKE ? OR l.region LIKE ? OR l.address_line1 LIKE ?)');
+      params.push(like, like, like, like);
+    }
+    if (rentalMode) where.push('(l.rental_mode=? OR l.rental_mode="both")'), params.push(rentalMode);
+    if (propertyType) where.push('pt.name=?'), params.push(propertyType);
+    if (Number.isFinite(minPrice) && minPrice >= 0) {
+      where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) >= ?)');
+      params.push(minPrice);
+    }
+    if (Number.isFinite(maxPrice) && maxPrice >= 0) {
+      where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
+      params.push(maxPrice);
+    }
+    const order = req.query.sort === 'new'
+      ? 'l.published_at DESC, l.created_at DESC'
+      : req.query.sort === 'price_low'
+        ? 'COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
+        : req.query.sort === 'popular'
+          ? 'l.average_rating DESC, l.review_count DESC, l.updated_at DESC'
+          : 'l.updated_at DESC, l.published_at DESC';
+    const [listings] = await pool.execute(
+      `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
+        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        l.rental_mode rentalMode, pt.name propertyType, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        l.average_rating rating, l.review_count reviewCount,
+        up.first_name agentFirstName, up.last_name agentLastName,
+        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
+       FROM listings l
+       JOIN property_types pt ON pt.id=l.property_type_id
+       LEFT JOIN user_profiles up ON up.user_id=l.agent_user_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY ${order}
+       LIMIT 40`,
+      params
+    );
+    res.json({ listings, filters: { query, location, rentalMode, propertyType, minPrice: Number.isFinite(minPrice) ? minPrice : null, maxPrice: Number.isFinite(maxPrice) ? maxPrice : null } });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/search', async (req, res, next) => {
   try {
     const rawQuery = String(req.query.q || '').trim().slice(0, 100);
@@ -1656,13 +1712,17 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
     const [[listing]] = await pool.query(
       `SELECT l.id, l.title, l.description, l.address_line1 address, l.neighborhood, l.city, l.region, l.latitude, l.longitude,
         l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
-        l.average_rating rating, l.review_count reviewCount, l.bedrooms, l.bathrooms,
+        l.average_rating rating, l.review_count reviewCount, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
+        EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
+        (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
         (SELECT AVG(TIMESTAMPDIFF(MINUTE, b.created_at, b.confirmed_at))/60 FROM bookings b WHERE b.host_user_id=l.agent_user_id AND b.confirmed_at IS NOT NULL) responseHours,
         COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') coverUrl,
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved
-       FROM listings l LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
+       FROM listings l JOIN property_types pt ON pt.id=l.property_type_id
+       LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        LEFT JOIN user_profiles p ON p.user_id=l.agent_user_id
        WHERE l.id=? AND l.status="published" AND l.deleted_at IS NULL`,
       [req.session.user?.id || 0, req.params.id]
@@ -2519,6 +2579,21 @@ const serveAdminPage = async (req, res, next) => {
 };
 app.get('/admin', serveAdminPage);
 app.get('/admin.html', serveAdminPage);
+app.get(['/explore', '/explore/'], async (_req, res, next) => {
+  try {
+    const html = await readFile(path.resolve(process.cwd(), 'dist', 'index.html'), 'utf8');
+    res.type('html').send(html);
+  } catch (error) { next(error); }
+});
+app.get(['/privacy', '/terms', '/help'], (req, res) => {
+  const pages = {
+    '/privacy': ['Privacy at StayNest', 'We use account, booking, and device information only to provide secure marketplace features. Contact support to request access or correction of your data.'],
+    '/terms': ['StayNest terms', 'StayNest connects guests with property professionals. Listing information, availability, and booking requests are subject to host confirmation and the applicable laws of Tanzania.'],
+    '/help': ['StayNest help center', 'Need help with a listing, account, or booking? Contact support and include the listing title and request ID so our team can assist you quickly.']
+  };
+  const [title, body] = pages[req.path] || pages['/help'];
+  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/styles.css"></head><body><main class="section" style="max-width:760px;margin:0 auto;min-height:70vh"><p class="eyebrow">StayNest</p><h1>${title}</h1><p>${body}</p><p><a class="primary" href="/">Return home <span>→</span></a></p></main></body></html>`);
+});
 // Only the public application shell should be reachable from the project root.
 // Keep source, database files, dependencies, and private storage out of static hosting.
 app.use((req, res, next) => {
