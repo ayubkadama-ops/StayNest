@@ -138,6 +138,14 @@ body.role-view .topbar .header-actions #messageControl .notification-badge,
 body.agent-marketplace-view .topbar .header-actions #messageControl .notification-badge,
 body.role-view .topbar .header-actions #notificationControl .notification-badge,
 body.agent-marketplace-view .topbar .header-actions #notificationControl .notification-badge{margin-left:auto}
+body.agent-marketplace-view .topbar .header-actions #messageControl,
+body.role-view .topbar .header-actions #messageControl{background:rgba(126,185,143,.2);border-color:rgba(197,224,203,.42);color:#f4fbf5}
+body.agent-marketplace-view .topbar .header-actions #notificationControl,
+body.role-view .topbar .header-actions #notificationControl{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#e1f0e4}
+body.agent-marketplace-view .topbar .header-actions #messageControl + #notificationControl,
+body.role-view .topbar .header-actions #messageControl + #notificationControl{margin-top:0}
+body.agent-marketplace-view .topbar .header-actions #notificationControl:after,
+body.role-view .topbar .header-actions #notificationControl:after{content:'';position:absolute;left:12px;right:12px;bottom:-5px;height:1px;background:rgba(255,255,255,.12)}
 body.role-view .topbar .header-actions .profile-chip,
 body.agent-marketplace-view .topbar .header-actions .profile-chip{order:5;width:100%;justify-content:flex-start;border-radius:12px;padding:5px 11px 5px 5px}
 body.role-view .topbar .header-actions .settings-btn:hover,
@@ -243,6 +251,14 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
   body.agent-marketplace-view .topbar .header-actions #notificationControl:before{display:none}
   body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{width:auto}
   body.role-view .agent-page,.role-view .tenant-page{min-height:calc(100vh - 64px);padding-top:25px}
+}
+@media(max-width:850px){
+  body.agent-marketplace-view .topbar .header-actions #messageControl,
+  body.role-view .topbar .header-actions #messageControl{background:rgba(126,185,143,.24)!important;border:1px solid rgba(197,224,203,.42)!important}
+  body.agent-marketplace-view .topbar .header-actions #notificationControl,
+  body.role-view .topbar .header-actions #notificationControl{background:rgba(255,255,255,.12)!important;border:1px solid rgba(255,255,255,.24)!important}
+  body.agent-marketplace-view .topbar .header-actions #notificationControl:after,
+  body.role-view .topbar .header-actions #notificationControl:after{display:none}
 }
 @media (hover: none), (pointer: coarse) {
   .listing-card:hover,
