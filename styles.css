@@ -320,6 +320,39 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!import
   right:-4px!important;
   margin:0!important;
 }
+/* Keep settings, messages, and notifications together in the top header. */
+body.role-view .topbar .header-actions,
+body.agent-marketplace-view .topbar .header-actions{
+  width:auto!important;
+  margin:0 0 0 auto!important;
+  padding:0!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  gap:8px!important;
+}
+body.role-view .topbar .header-actions #settingsControl,
+body.agent-marketplace-view .topbar .header-actions #settingsControl,
+body.role-view .topbar .header-actions #messageControl,
+body.agent-marketplace-view .topbar .header-actions #messageControl,
+body.role-view .topbar .header-actions #notificationControl,
+body.agent-marketplace-view .topbar .header-actions #notificationControl{
+  order:initial!important;
+}
+body.role-view .topbar .header-actions .profile-chip,
+body.agent-marketplace-view .topbar .header-actions .profile-chip{
+  order:initial!important;
+  width:38px!important;
+  min-width:38px!important;
+  height:38px!important;
+  min-height:38px!important;
+  padding:4px!important;
+  justify-content:center!important;
+  border-radius:50%!important;
+}
+body.role-view .topbar .header-actions .profile-chip span,
+body.agent-marketplace-view .topbar .header-actions .profile-chip span{
+  display:none!important;
+}
 @media (hover: none), (pointer: coarse) {
   .listing-card:hover,
   .cinema-card:hover,
