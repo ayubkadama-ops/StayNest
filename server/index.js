@@ -416,11 +416,25 @@ const requireAuth = async (req, res, next) => {
   // Re-check account state so a suspended or pending account cannot keep using
   // a session that was created before an administrator changed its status.
   if (req.session.user.id) {
-    const [[account]] = await pool.query('SELECT status FROM users WHERE id=?', [req.session.user.id]);
+    const [[account]] = await pool.query(
+      `SELECT u.status, GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ',') roles
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id=u.id
+       LEFT JOIN roles r ON r.id=ur.role_id
+       WHERE u.id=?
+       GROUP BY u.id, u.status`,
+      [req.session.user.id]
+    );
     if (!account || account.status !== 'active') {
       req.session.destroy(() => {});
       return res.status(403).json({ error: account?.status === 'pending' ? 'Your account is awaiting founder approval' : 'Your account is not active' });
     }
+    const roles = String(account.roles || '').split(',').filter(role => ['tenant', 'agent', 'administrator'].includes(role));
+    if (!roles.length) {
+      req.session.destroy(() => {});
+      return res.status(403).json({ error: 'Your account has no active role' });
+    }
+    req.session.user.roles = roles;
   }
   next();
 };
