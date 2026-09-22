@@ -1625,10 +1625,19 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (!types.length) return res.status(400).json({ error: 'Invalid property type' });
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
     await connection.beginTransaction();
-    const [result] = await connection.execute(
-      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, beds, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
-    );
+    let result;
+    try {
+      [result] = await connection.execute(
+        'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, beds, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
+      );
+    } catch (error) {
+      if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+      [result] = await connection.execute(
+        'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
+      );
+    }
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
     for (const [index, file] of media.entries()) {
