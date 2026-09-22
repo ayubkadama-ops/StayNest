@@ -2150,23 +2150,23 @@ app.post('/api/admin/impersonation/stop', requireAuth, async (req, res, next) =>
 
 app.get('/api/admin/overview', requireAuth, requireAdminAccess, async (_req, res, next) => {
   try {
-    const [[stats]] = await pool.query(`
-      SELECT
-        (SELECT COUNT(*) FROM users WHERE status <> 'deleted') totalUsers,
-        (SELECT COUNT(*) FROM users WHERE status='active') activeUsers,
-        (SELECT COUNT(*) FROM users WHERE status='suspended') suspendedUsers,
-        (SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='agent' AND u.status='active') activeAgents,
-        (SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='tenant' AND u.status='active') activeTenants,
-        (SELECT COUNT(*) FROM agent_subaccounts sa JOIN users u ON u.id=sa.subagent_user_id WHERE sa.status='active' AND u.status='active') activeSubagents,
-        (SELECT COUNT(*) FROM listings WHERE status='published') activeListings,
-        (SELECT COUNT(*) FROM listings WHERE status IN ('pending_review','draft')) listingsNeedingReview,
-        (SELECT COUNT(*) FROM identity_verifications WHERE status='pending') pendingVerifications,
-        (SELECT COUNT(*) FROM bookings WHERE status='pending') pendingBookings,
-        (SELECT COUNT(*) FROM notifications WHERE read_at IS NULL) unreadNotifications,
-        (SELECT COUNT(*) FROM bookings WHERE created_at >= UTC_DATE()) todaysBookings,
-        (SELECT COALESCE(SUM(total_amount),0) FROM bookings WHERE status IN ('confirmed','completed')) grossBookingVolume,
-        (SELECT COUNT(*) FROM audit_logs WHERE created_at >= UTC_DATE()) todaysAuditEvents
-    `);
+    const count = async query => { try { const [[row]] = await pool.query(query); return Number(Object.values(row || {})[0] || 0); } catch (error) { console.warn('Admin overview count unavailable:', error.code || error.message); return 0; } };
+    const stats = {
+      totalUsers: await count("SELECT COUNT(*) FROM users WHERE status != 'deleted'"),
+      activeUsers: await count("SELECT COUNT(*) FROM users WHERE status='active'"),
+      suspendedUsers: await count("SELECT COUNT(*) FROM users WHERE status='suspended'"),
+      activeAgents: await count("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='agent' AND u.status='active'"),
+      activeTenants: await count("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='tenant' AND u.status='active'"),
+      activeSubagents: await count("SELECT COUNT(*) FROM agent_subaccounts sa JOIN users u ON u.id=sa.subagent_user_id WHERE sa.status='active' AND u.status='active'"),
+      activeListings: await count("SELECT COUNT(*) FROM listings WHERE status='published'"),
+      listingsNeedingReview: await count("SELECT COUNT(*) FROM listings WHERE status IN ('pending_review','draft')"),
+      pendingVerifications: await count("SELECT COUNT(*) FROM identity_verifications WHERE status='pending'"),
+      pendingBookings: await count("SELECT COUNT(*) FROM bookings WHERE status='pending'"),
+      unreadNotifications: await count('SELECT COUNT(*) FROM notifications WHERE read_at IS NULL'),
+      todaysBookings: await count('SELECT COUNT(*) FROM bookings WHERE created_at >= UTC_DATE()'),
+      grossBookingVolume: await count("SELECT COALESCE(SUM(total_amount),0) FROM bookings WHERE status IN ('confirmed','completed')"),
+      todaysAuditEvents: await count('SELECT COUNT(*) FROM audit_logs WHERE created_at >= UTC_DATE()')
+    };
     res.json(stats);
   } catch (error) { next(error); }
 });
