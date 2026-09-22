@@ -2776,7 +2776,7 @@ body > .topbar:has(+ .topbar) {
 
 .listing-detail-media-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 16px 0;
 }
@@ -2789,6 +2789,28 @@ body > .topbar:has(+ .topbar) {
   object-fit: cover;
   border-radius: 12px;
   background: var(--surface-soft);
+}
+
+.listing-detail-media-grid > :first-child {
+  grid-column: 1 / -1;
+  height: 360px;
+  max-height: 360px;
+}
+
+.listing-detail-media-grid > video:first-child {
+  object-fit: contain;
+}
+
+@media (max-width: 620px) {
+  .listing-detail-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .listing-detail-media-grid > :first-child {
+    grid-column: auto;
+    height: 260px;
+    max-height: 260px;
+  }
 }
 
 .listing-actions {
