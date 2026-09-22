@@ -252,37 +252,6 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn .notificat
   body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{width:auto}
   body.role-view .agent-page,.role-view .tenant-page{min-height:calc(100vh - 64px);padding-top:25px}
 }
-/* Final role-header placement overrides. */
-body.role-view .topbar .header-actions,
-body.agent-marketplace-view .topbar .header-actions{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:8px!important}
-body.role-view .topbar .header-actions #settingsControl,
-body.agent-marketplace-view .topbar .header-actions #settingsControl{order:1!important}
-body.role-view .topbar .header-actions #messageControl,
-body.agent-marketplace-view .topbar .header-actions #messageControl{order:2!important;position:relative!important;width:100%!important;min-height:42px!important;margin:8px 0 0!important;padding:10px 12px!important;display:flex!important;align-items:center!important;gap:10px!important;border:1px solid rgba(197,224,203,.42)!important;border-radius:10px!important;background:rgba(126,185,143,.2)!important}
-body.role-view .topbar .header-actions #notificationControl,
-body.agent-marketplace-view .topbar .header-actions #notificationControl{order:3!important;position:relative!important;width:100%!important;min-height:42px!important;margin:0!important;padding:10px 12px!important;display:flex!important;align-items:center!important;gap:10px!important;border:1px solid rgba(255,255,255,.2)!important;border-radius:10px!important;background:rgba(255,255,255,.08)!important}
-body.role-view .topbar .header-actions #messageControl .notification-badge,
-body.agent-marketplace-view .topbar .header-actions #messageControl .notification-badge,
-body.role-view .topbar .header-actions #notificationControl .notification-badge,
-body.agent-marketplace-view .topbar .header-actions #notificationControl .notification-badge{position:static!important;margin-left:auto!important}
-body.role-view .topbar .header-actions .profile-chip,
-body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important}
-@media(max-width:850px){
-  body.role-view .topbar .header-actions,
-  body.agent-marketplace-view .topbar .header-actions{flex-direction:row!important;align-items:center!important;gap:6px!important}
-  body.role-view .topbar .header-actions #settingsControl,
-  body.agent-marketplace-view .topbar .header-actions #settingsControl,
-  body.role-view .topbar .header-actions #messageControl,
-  body.agent-marketplace-view .topbar .header-actions #messageControl,
-  body.role-view .topbar .header-actions #notificationControl,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl{width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;margin:0!important;padding:8px!important;justify-content:center!important;border-radius:50%!important}
-  body.role-view .topbar .header-actions #messageControl:after,
-  body.agent-marketplace-view .topbar .header-actions #messageControl:after,
-  body.role-view .topbar .header-actions #notificationControl:before,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl:before{display:none!important}
-  body.role-view .topbar .header-actions .profile-chip,
-  body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important;width:38px!important;min-width:38px!important;height:38px!important;padding:4px!important;justify-content:center!important;border-radius:50%!important}
-}
 @media(max-width:850px){
   body.agent-marketplace-view .topbar .header-actions #messageControl,
   body.role-view .topbar .header-actions #messageControl{background:rgba(126,185,143,.24)!important;border:1px solid rgba(197,224,203,.42)!important}
@@ -290,68 +259,6 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!import
   body.role-view .topbar .header-actions #notificationControl{background:rgba(255,255,255,.12)!important;border:1px solid rgba(255,255,255,.24)!important}
   body.agent-marketplace-view .topbar .header-actions #notificationControl:after,
   body.role-view .topbar .header-actions #notificationControl:after{display:none}
-}
-/* Header tools use icons only; accessible names remain available to screen readers and tooltips. */
-.topbar .header-actions #messageControl,
-.topbar .header-actions #notificationControl,
-.topbar .header-actions #settingsControl{
-  position:relative!important;
-  display:inline-flex!important;
-  align-items:center!important;
-  justify-content:center!important;
-  width:38px!important;
-  min-width:38px!important;
-  height:38px!important;
-  min-height:38px!important;
-  margin:0!important;
-  padding:8px!important;
-  border-radius:50%!important;
-}
-.topbar .header-actions #messageControl:after,
-.topbar .header-actions #notificationControl:before,
-.topbar .header-actions #notificationControl:after{
-  content:none!important;
-  display:none!important;
-}
-.topbar .header-actions #messageControl .notification-badge,
-.topbar .header-actions #notificationControl .notification-badge{
-  position:absolute!important;
-  top:-4px!important;
-  right:-4px!important;
-  margin:0!important;
-}
-/* Keep settings, messages, and notifications together in the top header. */
-body.role-view .topbar .header-actions,
-body.agent-marketplace-view .topbar .header-actions{
-  width:auto!important;
-  margin:0 0 0 auto!important;
-  padding:0!important;
-  flex-direction:row!important;
-  align-items:center!important;
-  gap:8px!important;
-}
-body.role-view .topbar .header-actions #settingsControl,
-body.agent-marketplace-view .topbar .header-actions #settingsControl,
-body.role-view .topbar .header-actions #messageControl,
-body.agent-marketplace-view .topbar .header-actions #messageControl,
-body.role-view .topbar .header-actions #notificationControl,
-body.agent-marketplace-view .topbar .header-actions #notificationControl{
-  order:initial!important;
-}
-body.role-view .topbar .header-actions .profile-chip,
-body.agent-marketplace-view .topbar .header-actions .profile-chip{
-  order:initial!important;
-  width:38px!important;
-  min-width:38px!important;
-  height:38px!important;
-  min-height:38px!important;
-  padding:4px!important;
-  justify-content:center!important;
-  border-radius:50%!important;
-}
-body.role-view .topbar .header-actions .profile-chip span,
-body.agent-marketplace-view .topbar .header-actions .profile-chip span{
-  display:none!important;
 }
 @media (hover: none), (pointer: coarse) {
   .listing-card:hover,
@@ -361,112 +268,6 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip span{
   .agent-card:hover {
     transform: none;
     box-shadow: var(--shadow-sm, 0 6px 18px rgba(0,0,0,.08));
-  }
-  /* Keep role tools in a predictable order and prevent message/notification collisions. */
-  body.role-view .topbar .header-actions,
-  body.agent-marketplace-view .topbar .header-actions{
-    display:flex!important;
-    flex-direction:column!important;
-    align-items:stretch!important;
-    gap:8px!important;
-  }
-  body.role-view .topbar .header-actions #settingsControl,
-  body.agent-marketplace-view .topbar .header-actions #settingsControl{order:1!important}
-  body.role-view .topbar .header-actions #messageControl,
-  body.agent-marketplace-view .topbar .header-actions #messageControl{
-    order:2!important;
-    position:relative!important;
-    width:100%!important;
-    min-height:42px!important;
-    margin:8px 0 0!important;
-    padding:10px 12px!important;
-    display:flex!important;
-    align-items:center!important;
-    gap:10px!important;
-    border:1px solid rgba(197,224,203,.42)!important;
-    border-radius:10px!important;
-    background:rgba(126,185,143,.2)!important;
-  }
-  body.role-view .topbar .header-actions #notificationControl,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl{
-    order:3!important;
-    position:relative!important;
-    width:100%!important;
-    min-height:42px!important;
-    margin:0!important;
-    padding:10px 12px!important;
-    display:flex!important;
-    align-items:center!important;
-    gap:10px!important;
-    border:1px solid rgba(255,255,255,.2)!important;
-    border-radius:10px!important;
-    background:rgba(255,255,255,.08)!important;
-  }
-  body.role-view .topbar .header-actions #messageControl:after,
-  body.agent-marketplace-view .topbar .header-actions #messageControl:after,
-  body.role-view .topbar .header-actions #notificationControl:before,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl:before{
-    display:block!important;
-    font-size:13px!important;
-    font-weight:600!important;
-  }
-  body.role-view .topbar .header-actions #notificationControl:after,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl:after{
-    content:''!important;
-    position:absolute!important;
-    left:12px!important;
-    right:12px!important;
-    bottom:-5px!important;
-    height:1px!important;
-    background:rgba(255,255,255,.12)!important;
-  }
-  body.role-view .topbar .header-actions #messageControl .notification-badge,
-  body.agent-marketplace-view .topbar .header-actions #messageControl .notification-badge,
-  body.role-view .topbar .header-actions #notificationControl .notification-badge,
-  body.agent-marketplace-view .topbar .header-actions #notificationControl .notification-badge{
-    position:static!important;
-    margin-left:auto!important;
-  }
-  body.role-view .topbar .header-actions .profile-chip,
-  body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important}
-  @media(max-width:850px){
-    body.role-view .topbar .header-actions,
-    body.agent-marketplace-view .topbar .header-actions{
-      flex-direction:row!important;
-      align-items:center!important;
-      gap:6px!important;
-    }
-    body.role-view .topbar .header-actions #settingsControl,
-    body.agent-marketplace-view .topbar .header-actions #settingsControl,
-    body.role-view .topbar .header-actions #messageControl,
-    body.agent-marketplace-view .topbar .header-actions #messageControl,
-    body.role-view .topbar .header-actions #notificationControl,
-    body.agent-marketplace-view .topbar .header-actions #notificationControl{
-      width:36px!important;
-      min-width:36px!important;
-      height:36px!important;
-      min-height:36px!important;
-      margin:0!important;
-      padding:8px!important;
-      justify-content:center!important;
-      border-radius:50%!important;
-    }
-    body.role-view .topbar .header-actions #messageControl:after,
-    body.agent-marketplace-view .topbar .header-actions #messageControl:after,
-    body.role-view .topbar .header-actions #notificationControl:before,
-    body.agent-marketplace-view .topbar .header-actions #notificationControl:before,
-    body.role-view .topbar .header-actions #notificationControl:after,
-    body.agent-marketplace-view .topbar .header-actions #notificationControl:after{display:none!important}
-    body.role-view .topbar .header-actions .profile-chip,
-    body.agent-marketplace-view .topbar .header-actions .profile-chip{
-      order:4!important;
-      width:38px!important;
-      min-width:38px!important;
-      height:38px!important;
-      padding:4px!important;
-      justify-content:center!important;
-      border-radius:50%!important;
-    }
   }
 
   @media (max-width: 850px) {
@@ -730,18 +531,184 @@ body.agent-marketplace-view .topbar .header-actions .notification-btn:hover{colo
   body.role-view .topbar .header-actions .auth-login,
   body.agent-marketplace-view .topbar .header-actions .auth-login{display:none!important}
 }
-/* Final role-header placement overrides. */
-body.role-view .topbar .header-actions,body.agent-marketplace-view .topbar .header-actions{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:8px!important}
-body.role-view .topbar .header-actions #settingsControl,body.agent-marketplace-view .topbar .header-actions #settingsControl{order:1!important}
-body.role-view .topbar .header-actions #messageControl,body.agent-marketplace-view .topbar .header-actions #messageControl{order:2!important;position:relative!important;width:100%!important;min-height:42px!important;margin:8px 0 0!important;padding:10px 12px!important;display:flex!important;align-items:center!important;gap:10px!important;border:1px solid rgba(197,224,203,.42)!important;border-radius:10px!important;background:rgba(126,185,143,.2)!important}
-body.role-view .topbar .header-actions #notificationControl,body.agent-marketplace-view .topbar .header-actions #notificationControl{order:3!important;position:relative!important;width:100%!important;min-height:42px!important;margin:0!important;padding:10px 12px!important;display:flex!important;align-items:center!important;gap:10px!important;border:1px solid rgba(255,255,255,.2)!important;border-radius:10px!important;background:rgba(255,255,255,.08)!important}
-body.role-view .topbar .header-actions #messageControl .notification-badge,body.agent-marketplace-view .topbar .header-actions #messageControl .notification-badge,body.role-view .topbar .header-actions #notificationControl .notification-badge,body.agent-marketplace-view .topbar .header-actions #notificationControl .notification-badge{position:static!important;margin-left:auto!important}
-body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important}
-@media(max-width:850px){body.role-view .topbar .header-actions,body.agent-marketplace-view .topbar .header-actions{flex-direction:row!important;align-items:center!important;gap:6px!important}body.role-view .topbar .header-actions #settingsControl,body.agent-marketplace-view .topbar .header-actions #settingsControl,body.role-view .topbar .header-actions #messageControl,body.agent-marketplace-view .topbar .header-actions #messageControl,body.role-view .topbar .header-actions #notificationControl,body.agent-marketplace-view .topbar .header-actions #notificationControl{width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;margin:0!important;padding:8px!important;justify-content:center!important;border-radius:50%!important}body.role-view .topbar .header-actions #messageControl:after,body.agent-marketplace-view .topbar .header-actions #messageControl:after,body.role-view .topbar .header-actions #notificationControl:before,body.agent-marketplace-view .topbar .header-actions #notificationControl:before{display:none!important}body.role-view .topbar .header-actions .profile-chip,body.agent-marketplace-view .topbar .header-actions .profile-chip{order:4!important;width:38px!important;min-width:38px!important;height:38px!important;padding:4px!important;justify-content:center!important;border-radius:50%!important}}
-/* Keep the topbar icon-only even when role-view/sidebar rules are present. */
-.topbar .header-actions #messageControl:after,
-.topbar .header-actions #notificationControl:before,
-.topbar .header-actions #notificationControl:after{
-  content:none!important;
-  display:none!important;
+
+/* =============================================================
+   RESPONSIVENESS FIXES — small & medium screen overrides
+   Covers: listing grid, modals, agent profiles, tenant sections,
+   sidebar layout, cinema track, and posts page.
+   ============================================================= */
+
+/* 1. Listing grid — 3-column step between 601px and 849px
+      (avoids 4 cards squishing on tablets/medium phones)     */
+@media (min-width: 601px) and (max-width: 849px) {
+  .listing-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* 2. Modal — prevent horizontal overflow on phones <= 430px  */
+@media (max-width: 430px) {
+  .modal-backdrop {
+    padding: 10px 8px;
+  }
+  .modal {
+    padding: 24px 16px 20px;
+    max-width: 100%;
+    border-radius: 14px;
+  }
+  .modal h2 {
+    font-size: 24px;
+  }
+}
+
+/* 3. Agent post grid — 2-col when viewport is narrow
+      (3-col inside a wide modal clips on phones)             */
+@media (max-width: 600px) {
+  .agent-post-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* 4. Agent page hero h1 — clamp font-size so it never
+      overflows when the hero collapses to a single column    */
+.agent-page-copy h1 {
+  font-size: clamp(28px, 7vw, 52px);
+}
+
+/* 5. Tenant sections — raise breakpoint to 849px so the
+      2-col layout doesn't conflict with the 250px sidebar   */
+@media (max-width: 849px) {
+  .tenant-sections {
+    grid-template-columns: 1fr;
+    gap: 25px;
+  }
+}
+
+/* 6. Sidebar body padding — canonical reset at 850px
+      Ensures role-view and agent-marketplace-view both
+      drop the 250px left offset on screens <= 850px          */
+@media (max-width: 850px) {
+  body.role-view,
+  body.agent-marketplace-view {
+    padding-left: 0 !important;
+  }
+}
+
+/* 7. Cinema track — restore minimal scrollbar on mobile
+      (was hidden; show thin bar so horizontal scroll is
+      discoverable on touch devices)                          */
+@media (max-width: 850px) {
+  .cinema-track {
+    scrollbar-width: thin;
+    scrollbar-color: #9fc5aa #31594b;
+    padding-bottom: 14px;
+  }
+}
+
+/* 8. Posts page — ensure breathing room on very small screens */
+@media (max-width: 400px) {
+  .posts-page {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .posts-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .posts-filter {
+    width: 100%;
+  }
+}
+
+/* 9. Agent marketplace — full-width on narrow phones         */
+@media (max-width: 500px) {
+  .agent-marketplace {
+    max-width: 100%;
+    margin: -5px;
+  }
+  .agent-marketplace-head {
+    display: block;
+    padding: 14px;
+    margin: -5px -5px 14px;
+  }
+}
+
+/* 10. Search card — stack fields cleanly on tiny screens     */
+@media (max-width: 380px) {
+  .search-card {
+    grid-template-columns: 1fr;
+  }
+  .search-field {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    margin-right: 0;
+    padding-right: 0;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  .search-field:last-of-type {
+    border-bottom: 0;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* 11. Hero — prevent floating note & h1 overflow on phones
+      narrower than 360px                                     */
+@media (max-width: 360px) {
+  .floating-note {
+    left: 0;
+    right: 0;
+    max-width: 100%;
+  }
+  .image-tag {
+    left: 0;
+  }
+  .hero h1 {
+    font-size: clamp(32px, 10vw, 43px);
+  }
+}
+
+/* 12. Listing card photo — keep cards usable on tiny screens */
+@media (max-width: 380px) {
+  .listing-photo,
+  .listing-card .listing-card-image {
+    height: 140px;
+    min-height: 140px;
+  }
+  .listing-grid {
+    gap: 10px;
+  }
+}
+
+/* 13. Host banner — prevent text clipping at <= 380px        */
+@media (max-width: 380px) {
+  .host-banner {
+    margin: 0 3%;
+    padding: 38px 6%;
+  }
+  .host-banner h2 {
+    font-size: 26px;
+  }
+}
+
+/* 14. Conversation list — limit height & ensure scroll on mobile */
+@media (max-width: 500px) {
+  .conversation-list {
+    max-height: 220px;
+  }
+}
+
+/* 15. Agent page stats — grid layout on very small hero areas */
+@media (max-width: 400px) {
+  .agent-page-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    text-align: center;
+  }
+  .agent-page-stats span {
+    font-size: 11px;
+  }
 }
