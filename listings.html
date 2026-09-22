@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Browse StayNest homes in Tanzania.">
+  <meta name="theme-color" content="#2d5a3d">
+  <title>Listings | StayNest</title>
+  <link rel="icon" href="/assets/staynest-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/accessibility.css">
+</head>
+<body class="listings-page-shell">
+  <header class="topbar listings-page-header">
+    <a class="brand" href="/index.html#top" aria-label="StayNest home"><span class="brand-mark">⌂</span><span>stay<span>nest</span></span></a>
+    <nav class="main-nav" aria-label="Primary navigation">
+      <a class="active" href="/listings.html">Listings</a>
+      <a href="/index.html#agent-marketplace">Explore agents</a>
+      <a href="/index.html#how">How it works</a>
+    </nav>
+    <a class="primary small host-nav-cta" href="/index.html#host">List your place</a>
+  </header>
+
+  <main class="listings-page" id="listingsPage">
+    <section class="listings-page-heading">
+      <div>
+        <p class="eyebrow">StayNest homes</p>
+        <h1>Find a place that fits your life.</h1>
+        <p>Browse verified homes across Tanzania, then open any listing for its complete gallery, details, and responsible agent.</p>
+      </div>
+    </section>
+    <form class="listings-filter-bar" id="listingFilters">
+      <label>Search<input name="q" placeholder="City, neighborhood, or home"></label>
+      <label>Stay type<select name="rentalMode"><option value="">Any stay</option><option value="short_term">Short-term</option><option value="long_term">Long-term</option></select></label>
+      <label>Sort<select name="sort"><option value="new">Newest</option><option value="popular">Most loved</option><option value="price_low">Price: low to high</option></select></label>
+      <button class="primary" type="submit">Search homes</button>
+    </form>
+    <p class="listings-result-note" id="listingsResultNote" role="status"></p>
+    <section class="all-listings-grid" id="allListingsGrid" aria-live="polite"></section>
+    <section class="listing-detail-page" id="listingDetailPage" hidden></section>
+  </main>
+  <div class="toast" id="listingToast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/listings-page.js"></script>
+</body>
+</html>

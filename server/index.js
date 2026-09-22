@@ -746,7 +746,7 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
       const [[follow]] = await pool.query('SELECT 1 AS followed FROM agent_follows WHERE follower_user_id=? AND agent_user_id=?', [req.session.user.id, req.params.id]);
       following = Boolean(follow);
     }
-    res.json({ profile, posts, following });
+    res.json({ profile, listings: posts, posts, following });
   } catch (error) { next(error); }
 });
 

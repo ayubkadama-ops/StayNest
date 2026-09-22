@@ -15,7 +15,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(process.cwd(), 'index.html'),
-        admin: path.resolve(process.cwd(), 'admin.html')
+        admin: path.resolve(process.cwd(), 'admin.html'),
+        listings: path.resolve(process.cwd(), 'listings.html')
       }
     }
   },
