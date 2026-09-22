@@ -2608,6 +2608,11 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip {
   accent-color: var(--rausch);
 }
 
+body.role-view #messageControl,
+body.tenant-view #messageControl {
+  display: none !important;
+}
+
 .modal-open {
   overflow: hidden;
 }

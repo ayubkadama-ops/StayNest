@@ -1606,6 +1606,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
   try {
     const { title, description, city, addressLine1, countryCode = 'TZ', propertyType = 'apartment', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
     const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
+    const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
     const maxGuests = Math.max(1, Math.min(Number(req.body.maxGuests) || 1, 999));
     const amenities = String(req.body.amenities || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 20);
@@ -1625,8 +1626,8 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
     await connection.beginTransaction();
     const [result] = await connection.execute(
-      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
+      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, beds, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
     );
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
