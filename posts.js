@@ -235,26 +235,59 @@ async function likePost(card, event) {
   }
 }
 
+async function savePost(card, event) {
+  event.stopPropagation();
+  const button = event.currentTarget;
+  const saved = card.dataset.saved === 'true';
+  button.disabled = true;
+  try {
+    const token = await getCsrfToken();
+    const response = await fetch(`/api/listings/${card.dataset.postId}/save`, {
+      method: saved ? 'DELETE' : 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRF-Token': token }
+    });
+    const data = response.status === 204 ? { saved: false } : await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to update saved listing');
+    card.dataset.saved = String(!saved);
+    button.classList.toggle('saved', !saved);
+    button.setAttribute('aria-pressed', String(!saved));
+  } catch (error) {
+    button.setAttribute('aria-label', error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderPost(post) {
   const name = escapeHtml(`${post.firstName || ''} ${post.lastName || ''}`.trim() || 'StayNest agent');
   const agentId = Number(post.agentId || post.agent_user_id);
+  const listingId = Number(post.listingId || post.id);
+  const postTypeLabels = { new_listing: 'New listing', price_drop: 'Price drop', fresh_photos: 'Fresh photos', now_available: 'Now available' };
+  let amenityTags = post.amenityTags;
+  if (typeof amenityTags === 'string') {
+    try { amenityTags = JSON.parse(amenityTags); } catch { amenityTags = []; }
+  }
+  amenityTags = Array.isArray(amenityTags) ? amenityTags : [];
   const media = post.mediaType === 'video'
     ? `<video class="post-media" src="${escapeHtml(bustMedia(post.mediaUrl))}" controls playsinline preload="metadata"></video>`
     : `<img class="post-media" src="${escapeHtml(bustMedia(post.mediaUrl))}" alt="${escapeHtml(post.title)}" loading="lazy" onerror="this.onerror=null;this.src='${avatar}'">`;
 
   return `
-    <article class="post-card" data-post-id="${post.id}" data-agent-id="${agentId}" data-liked="${post.liked ? 'true' : 'false'}">
+    <article class="post-card" data-post-id="${listingId}" data-agent-id="${agentId}" data-liked="${post.liked ? 'true' : 'false'}" data-saved="${post.saved ? 'true' : 'false'}">
       <a class="post-byline" href="/index.html?agent=${agentId}&from=post" aria-label="Open ${name}'s agent profile">
         <img class="post-avatar" src="${escapeHtml(bustMedia(post.profileImageUrl))}" alt="" onerror="this.onerror=null;this.src='${avatar}'">
-        <div><strong>${name}${badge(post.badgeLabel)}</strong><small>${escapeHtml(post.city || '')} · ${post.mediaType === 'video' ? 'Video tour' : 'Photo post'}</small></div>
+        <div><strong>${name}${post.verifiedAgent ? badge(true) : ''}</strong><small>${escapeHtml(post.city || '')} · ${post.mediaType === 'video' ? 'Video tour' : 'Photo post'}</small></div>
       </a>
       ${media}
       <div class="post-copy">
+        <div class="post-type-row"><span class="post-type-badge">${postTypeLabels[post.postType] || 'Property update'}</span><span class="post-price">${escapeHtml(post.currency || '')} ${escapeHtml(post.nightlyPrice || post.monthlyPrice || post.yearlyPrice || 'Contact agent')}</span></div>
         <h2>${escapeHtml(post.title)}</h2>
-        <p>${escapeHtml(post.description || '')}</p>
+        <p>${escapeHtml(post.caption || post.description || '')}</p>
+        ${amenityTags.length ? `<div class="post-amenity-tags">${amenityTags.map(tag => `<span>${escapeHtml(tag.en || '')}${tag.sw ? ` · ${escapeHtml(tag.sw)}` : ''}</span>`).join('')}</div>` : ''}
         <div class="post-meta">
           <span>★ ${escapeHtml(post.rating || '0')} · ${escapeHtml(post.reviewCount || 0)} reviews</span>
-          <span><button class="post-like-button ${post.liked ? 'liked' : ''}" data-like aria-label="Like post" aria-pressed="${Boolean(post.liked)}">♥</button> <b data-likes>${escapeHtml(post.likes || 0)} likes</b> · <b data-views>${escapeHtml(post.views || 0)} views</b></span>
+          <span class="post-engagement"><button class="post-like-button ${post.liked ? 'liked' : ''}" data-like aria-label="Like post" aria-pressed="${Boolean(post.liked)}">♥</button><button class="post-save-button ${post.saved ? 'saved' : ''}" data-save aria-label="Save listing" aria-pressed="${Boolean(post.saved)}">♡</button> <b data-likes>${escapeHtml(post.likes || 0)} likes</b> · <b data-views>${escapeHtml(post.views || 0)} views</b></span>
         </div>
         <button class="primary small post-book-button" data-book-post type="button">Book this place</button>
       </div>
@@ -265,6 +298,7 @@ function bindPostCard(card) {
   viewPost(card);
   card.addEventListener('pointerenter', () => viewPost(card), { once: true });
   card.querySelector('[data-like]').addEventListener('click', event => likePost(card, event));
+  card.querySelector('[data-save]').addEventListener('click', event => savePost(card, event));
   card.querySelector('[data-book-post]').addEventListener('click', event => {
     event.stopPropagation();
     fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' })
@@ -313,6 +347,7 @@ async function load() {
   });
   feed.innerHTML = approvedPresentationPosts.length ? approvedPresentationPosts.map(renderPost).join('') : renderEmptyFeed();
   feed.querySelectorAll('.post-card').forEach(bindPostCard);
+  showInitialGuestGate();
 }
 
 function refreshFeed() {
@@ -331,4 +366,3 @@ window.setInterval(() => {
   if (document.visibilityState === 'visible') refreshFeed();
 }, 30000);
 refreshFeed();
-showInitialGuestGate();

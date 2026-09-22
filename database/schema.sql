@@ -162,6 +162,8 @@ CREATE TABLE listings (
   owner_user_id BIGINT UNSIGNED NOT NULL,
   agent_user_id BIGINT UNSIGNED NULL,
   property_type_id SMALLINT UNSIGNED NOT NULL,
+  structure_type VARCHAR(40) NULL,
+  privacy_type VARCHAR(30) NULL,
   title VARCHAR(180) NOT NULL,
   slug VARCHAR(220) NOT NULL UNIQUE,
   description TEXT NOT NULL,
@@ -250,6 +252,19 @@ CREATE TABLE listing_views (
   CONSTRAINT fk_view_listing FOREIGN KEY (listing_id) REFERENCES listings(id),
   CONSTRAINT fk_view_user FOREIGN KEY (viewer_user_id) REFERENCES users(id),
   INDEX idx_views_listing (listing_id, viewed_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE posts (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  listing_id BIGINT UNSIGNED NOT NULL,
+  post_type ENUM('new_listing','price_drop','fresh_photos','now_available') NOT NULL,
+  caption TEXT NOT NULL,
+  amenity_tags JSON NULL,
+  status ENUM('draft','pending_review','published') NOT NULL DEFAULT 'draft',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_post_listing FOREIGN KEY (listing_id) REFERENCES listings(id),
+  INDEX idx_posts_feed (status, created_at),
+  INDEX idx_posts_listing (listing_id, status)
 ) ENGINE=InnoDB;
 
 CREATE TABLE listing_availability (

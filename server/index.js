@@ -864,46 +864,100 @@ app.get('/api/showcase/posts', async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get('/api/agent/posts/listings', requireAuth, requireAgentAccess('listings.create'), async (req, res, next) => {
+  try {
+    const [listings] = await pool.query(
+      `SELECT l.id, l.title, l.description, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl
+       FROM listings l WHERE l.agent_user_id=? AND l.status='published' AND l.deleted_at IS NULL ORDER BY l.published_at DESC, l.created_at DESC`,
+      [agentOwnerId(req)]
+    );
+    res.json({ listings });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/agent/posts', requireAuth, requireAgentAccess('listings.create'), async (req, res, next) => {
+  try {
+    const listingId = Number(req.body?.listingId);
+    const postType = String(req.body?.postType || '');
+    const caption = String(req.body?.caption || '').trim().slice(0, 5000);
+    const allowedTypes = new Set(['new_listing', 'price_drop', 'fresh_photos', 'now_available']);
+    if (!Number.isSafeInteger(listingId) || !allowedTypes.has(postType) || !caption) return res.status(400).json({ error: 'Choose a listing, post type, and caption' });
+    const amenityTags = Array.isArray(req.body?.amenityTags) ? req.body.amenityTags.map(tag => ({
+      en: String(tag?.en || '').trim().slice(0, 80),
+      sw: String(tag?.sw || '').trim().slice(0, 80)
+    })).filter(tag => tag.en || tag.sw).slice(0, 12) : [];
+    const [[listing]] = await pool.query('SELECT id FROM listings WHERE id=? AND agent_user_id=? AND status="published" AND deleted_at IS NULL', [listingId, agentOwnerId(req)]);
+    if (!listing) return res.status(404).json({ error: 'Choose one of your published listings' });
+    const [result] = await pool.execute('INSERT INTO posts (listing_id, post_type, caption, amenity_tags, status) VALUES (?, ?, ?, ?, "pending_review")', [listingId, postType, caption, JSON.stringify(amenityTags)]);
+    await audit(req, 'agent_post_created', 'post', result.insertId, { listingId, postType });
+    void notifyAdministrators({ type: 'post_pending_moderation', title: 'New agent post needs moderation', body: `A ${postType.replaceAll('_', ' ')} post is ready for review.`, data: { postId: result.insertId, listingId } }).catch(error => console.error('Post moderation notification failed:', error.message));
+    res.status(201).json({ id: result.insertId, status: 'pending_review' });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/posts', async (req, res, next) => {
   try {
     res.setHeader('Cache-Control', 'no-store');
+    const sort = String(req.query.sort || 'rank');
+    const order = sort === 'recent' ? 'po.created_at DESC' : sort === 'trusted' ? 'COALESCE(ap.followers_count, 0) DESC, rankScore DESC, po.created_at DESC' : 'rankScore DESC, po.created_at DESC';
     const [posts] = await pool.query(
-      `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
+      `SELECT po.id postId, po.listing_id listingId, po.post_type postType, po.caption, po.amenity_tags amenityTags,
+        l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.average_rating rating, l.review_count reviewCount,
         p.first_name firstName, p.last_name lastName, ap.profile_image_url profileImageUrl,
         ab.badge_label badgeLabel,
+        EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status='approved' AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE)) verifiedAgent,
         COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') mediaUrl,
         (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
         (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes,
         (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views,
-        0 liked
-       FROM listings l
+        ROUND((COALESCE(l.average_rating, 0) * 2) + (LOG10(1 + l.review_count) * 1.5) + (LOG10(1 + (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id)) * 2) + (LOG10(1 + COALESCE(ap.followers_count, 0)) * 1.5), 3) rankScore,
+        0 liked, 0 saved
+       FROM posts po JOIN listings l ON l.id=po.listing_id AND l.status='published' AND l.deleted_at IS NULL
        JOIN users u ON u.id=l.agent_user_id AND u.status='active'
        JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
-       WHERE l.status='published' AND l.deleted_at IS NULL
+       WHERE po.status='published' ORDER BY ${order} LIMIT 60`
+    );
+    const [legacyPosts] = await pool.query(
+      `SELECT NULL postId, l.id listingId, 'new_listing' postType, l.description caption, NULL amenityTags,
+        l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
+        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        l.average_rating rating, l.review_count reviewCount, p.first_name firstName, p.last_name lastName,
+        ap.profile_image_url profileImageUrl, ab.badge_label badgeLabel,
+        EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status='approved' AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE)) verifiedAgent,
+        COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') mediaUrl,
+        (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
+        (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes, (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views, 0 liked, 0 saved
+       FROM listings l JOIN users u ON u.id=l.agent_user_id AND u.status='active' JOIN user_profiles p ON p.user_id=u.id
+       LEFT JOIN agent_profiles ap ON ap.user_id=u.id LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
+       WHERE l.status='published' AND l.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM posts po WHERE po.listing_id=l.id AND po.status='published')
        ORDER BY l.published_at DESC, l.created_at DESC LIMIT 60`
     );
-    res.json({ posts, algorithm: 'published-agents+engagement+freshness+quality', personalized: false });
+    const combined = [...posts, ...legacyPosts].slice(0, 60);
+    res.json({ posts: combined, algorithm: posts.length ? 'posts+published-listings+engagement+agent-trust' : 'published-agents-basic-fallback', personalized: false });
   } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') return next(error);
     try {
       const [posts] = await pool.query(
-        `SELECT l.id, l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
-          l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.average_rating rating, l.review_count reviewCount,
-          p.first_name firstName, p.last_name lastName, '/assets/ezgif-frame-018.jpg' mediaUrl,
-          NULL mediaType, 0 likes, 0 views, 0 liked
-         FROM listings l
-         JOIN users u ON u.id=l.agent_user_id AND u.status='active'
-         JOIN user_profiles p ON p.user_id=u.id
-         WHERE l.status='published' AND l.deleted_at IS NULL
-         ORDER BY l.created_at DESC LIMIT 60`
+        `SELECT NULL postId, l.id listingId, 'new_listing' postType, l.description caption, NULL amenityTags,
+          l.agent_user_id agentId, l.title, l.description, l.city, l.currency,
+          l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+          l.average_rating rating, l.review_count reviewCount, p.first_name firstName, p.last_name lastName,
+          ap.profile_image_url profileImageUrl, ab.badge_label badgeLabel,
+          EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status='approved' AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE)) verifiedAgent,
+          COALESCE((SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1), '/assets/ezgif-frame-018.jpg') mediaUrl,
+          (SELECT lm.media_type FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) mediaType,
+          (SELECT COUNT(*) FROM listing_likes ll WHERE ll.listing_id=l.id) likes, (SELECT COUNT(*) FROM listing_views lv WHERE lv.listing_id=l.id) views, 0 liked, 0 saved
+         FROM listings l JOIN users u ON u.id=l.agent_user_id AND u.status='active' JOIN user_profiles p ON p.user_id=u.id
+         LEFT JOIN agent_profiles ap ON ap.user_id=u.id LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
+         WHERE l.status='published' AND l.deleted_at IS NULL ORDER BY l.published_at DESC, l.created_at DESC LIMIT 60`
       );
-      return res.json({ posts, algorithm: 'published-agents-basic-fallback', personalized: false });
-    } catch {
-      next(error);
-    }
+      return res.json({ posts, algorithm: 'published-agents-legacy-fallback', personalized: false });
+    } catch (fallbackError) { next(fallbackError); }
   }
 });
 
@@ -1550,7 +1604,7 @@ app.patch('/api/agent/subagents/:id', requireAuth, requireRole('agent'), async (
 app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create'), agentListingUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'media', maxCount: 10 }]), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const { title, description, city, addressLine1, countryCode = 'TZ', propertyType = 'apartment', nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
+    const { title, description, city, addressLine1, countryCode = 'TZ', propertyType = 'apartment', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
     const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
     const maxGuests = Math.max(1, Math.min(Number(req.body.maxGuests) || 1, 999));
@@ -1560,16 +1614,19 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (!title || !description || !city || !addressLine1 || (!nightlyPrice && !monthlyPrice && !yearlyPrice)) return res.status(400).json({ error: 'Title, description, address, city, and a price are required' });
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return res.status(400).json({ error: 'Choose the listing location on the OpenStreetMap preview' });
     if (!document) return res.status(400).json({ error: 'Agent registration document is required before publishing a property' });
-    if (!media.length) return res.status(400).json({ error: 'Upload at least one estate image or video' });
+    if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
     if (!['short_term', 'long_term', 'both'].includes(rentalMode)) return res.status(400).json({ error: 'Choose a valid rental duration' });
+    if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
+    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
+    if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
     const [types] = await connection.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
     if (!types.length) return res.status(400).json({ error: 'Invalid property type' });
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
     await connection.beginTransaction();
     const [result] = await connection.execute(
-      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
+      'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
     );
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
@@ -2161,24 +2218,49 @@ app.get('/api/admin/listings', requireAuth, requireAdminAccess, async (req, res,
 app.get('/api/admin/posts', requireAuth, requireAdminAccess, async (req, res, next) => {
   try {
     const status = ['draft','pending_review','published','unpublished','rejected','archived'].includes(req.query.status) ? req.query.status : null;
-    const sortMap = { recent: 'l.created_at DESC', oldest: 'l.created_at ASC', title: 'l.title ASC', engagement: 'engagement DESC' };
+    const sortMap = { recent: 'created_at DESC', oldest: 'created_at ASC', title: 'title ASC', engagement: 'engagement DESC' };
     const sort = sortMap[String(req.query.sort)] || 'l.created_at DESC';
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
     const params = [];
     const where = [];
-    if (status) { where.push('l.status=?'); params.push(status); }
+    if (status && ['draft','pending_review','published'].includes(status)) { where.push('po.status=?'); params.push(status); }
     if (req.query.q) { where.push('(l.title LIKE ? OR l.city LIKE ? OR CONCAT(p.first_name," ",p.last_name) LIKE ?)'); const q=`%${String(req.query.q).slice(0,100)}%`; params.push(q,q,q); }
     const [posts] = await pool.query(
-      `SELECT l.id,l.title,l.city,l.status,l.created_at,l.updated_at,
+      `SELECT po.id post_id,po.listing_id listing_id,l.title,l.city,po.status,po.created_at,po.created_at updated_at,
         COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) agent_name,
         COALESCE(lk.likes,0) likes,COALESCE(vw.views,0) views,
         (COALESCE(lk.likes,0)*3+COALESCE(vw.views,0)) engagement
-       FROM listings l JOIN users u ON u.id=l.agent_user_id
+       FROM posts po JOIN listings l ON l.id=po.listing_id JOIN users u ON u.id=l.agent_user_id
        LEFT JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN (SELECT listing_id,COUNT(*) likes FROM listing_likes GROUP BY listing_id) lk ON lk.listing_id=l.id
        LEFT JOIN (SELECT listing_id,COUNT(*) views FROM listing_views GROUP BY listing_id) vw ON vw.listing_id=l.id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} LIMIT ${limit}`, params);
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort.replace('l.', '')} LIMIT ${limit}`, params);
     res.json({ posts });
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') return next(error);
+    try {
+      const [posts] = await pool.query(
+        `SELECT NULL post_id,l.id listing_id,l.title,l.city,l.status,l.created_at,l.updated_at,
+          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) agent_name,
+          COALESCE(lk.likes,0) likes,COALESCE(vw.views,0) views,(COALESCE(lk.likes,0)*3+COALESCE(vw.views,0)) engagement
+         FROM listings l JOIN users u ON u.id=l.agent_user_id LEFT JOIN user_profiles p ON p.user_id=u.id
+         LEFT JOIN (SELECT listing_id,COUNT(*) likes FROM listing_likes GROUP BY listing_id) lk ON lk.listing_id=l.id
+         LEFT JOIN (SELECT listing_id,COUNT(*) views FROM listing_views GROUP BY listing_id) vw ON vw.listing_id=l.id
+         ORDER BY l.created_at DESC LIMIT 200`
+      );
+      return res.json({ posts });
+    } catch (fallbackError) { next(fallbackError); }
+  }
+});
+
+app.post('/api/admin/posts/:id/moderation', requireAuth, requireAdminAccess, async (req, res, next) => {
+  try {
+    const status = ['draft', 'pending_review', 'published'].includes(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: 'Choose a valid post status' });
+    const [result] = await pool.execute('UPDATE posts SET status=? WHERE id=?', [status, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Post not found' });
+    await audit(req, `post_${status}`, 'post', req.params.id);
+    res.json({ ok: true, status });
   } catch (error) { next(error); }
 });
 
