@@ -39,6 +39,6 @@ export async function notifyUser(userId, { type, title, body, data = {} }) {
     await pool.execute('UPDATE notification_deliveries SET status=?, delivered_at=UTC_TIMESTAMP(), metadata=? WHERE id=?', [emailSent || smsSent ? 'sent' : 'in_app', JSON.stringify({ emailSent, smsSent }), delivery.insertId]);
   } catch (error) {
     await pool.execute('UPDATE notification_deliveries SET status="failed", error_message=? WHERE id=?', [error.message.slice(0, 500), delivery.insertId]);
-    throw error;
+    // The in-app notification is already stored; provider outages must not erase it.
   }
 }

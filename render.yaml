@@ -19,6 +19,10 @@ services:
         generateValue: true
       - key: APP_ENCRYPTION_KEY
         generateValue: true
+      - key: ADMIN_GATE_USERNAME
+        sync: false
+      - key: ADMIN_GATE_PASSWORD_HASH
+        sync: false
       - key: MYSQL_HOST
         sync: false
       - key: MYSQL_PORT
