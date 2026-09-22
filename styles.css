@@ -2612,12 +2612,25 @@ body.role-view #messageControl,
 body.tenant-view #messageControl {
   display: none !important;
 }
+
+.topbar #messageControl {
+  display: none !important;
+}
 body > .topbar:has(+ .topbar) {
   display: none !important;
 }
 
 .main-nav a[href="/posts.html"] {
   display: none !important;
+}
+
+.main-nav a[href="/index.html#explore"] {
+  font-size: 0;
+}
+
+.main-nav a[href="/index.html#explore"]::after {
+  content: "Listings";
+  font-size: 13px;
 }
 
 .modal-open {

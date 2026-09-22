@@ -764,3 +764,4 @@ document.addEventListener('click',event=>{const button=event.target.closest('#cr
 document.addEventListener('click',event=>{const button=event.target.closest('.host-nav-cta');if(button){event.preventDefault();startHosting()}},true);
 document.querySelectorAll('#postsNav').forEach(link=>{link.href='/index.html#explore';link.textContent='Explore stays';link.removeAttribute('id')});
 document.querySelectorAll('#createProfilePost').forEach(button=>button.remove());
+document.querySelectorAll('.main-nav a[href="/index.html#explore"]').forEach(link=>{link.textContent='Listings';link.setAttribute('aria-label','Browse listings')});
