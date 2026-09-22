@@ -2612,6 +2612,13 @@ body.role-view #messageControl,
 body.tenant-view #messageControl {
   display: none !important;
 }
+body > .topbar:has(+ .topbar) {
+  display: none !important;
+}
+
+.main-nav a[href="/posts.html"] {
+  display: none !important;
+}
 
 .modal-open {
   overflow: hidden;

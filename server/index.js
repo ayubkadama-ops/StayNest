@@ -2711,6 +2711,7 @@ const serveAdminPage = async (req, res, next) => {
   }
 };
 app.get('/admin', serveAdminPage);
+app.get('/posts.html', (_req, res) => res.redirect('/index.html#explore'));
 app.get('/admin.html', serveAdminPage);
 app.get(['/explore', '/explore/'], async (_req, res, next) => {
   try {

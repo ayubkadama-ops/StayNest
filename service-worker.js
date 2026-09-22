@@ -1,5 +1,5 @@
+const APP_SHELL = ['/','/index.html','/styles.css','/accessibility.css'];
 const CACHE_NAME = 'staynest-shell-v2';
-const APP_SHELL = ['/', '/index.html', '/posts.html', '/styles.css'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));

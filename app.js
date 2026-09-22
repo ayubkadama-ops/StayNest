@@ -58,7 +58,7 @@ document.querySelector('#toast .toast-close')?.addEventListener('click',()=>{cle
 const modal=document.querySelector('#modal'),content=document.querySelector('#modalContent');
 const hasKnownAccountSession = Boolean(sessionStorage.getItem('stayNest.tabUser'));
 const sharedListingLink = new URLSearchParams(location.search).has('listing');
-let marketplaceGuestMode = ['/','/index.html','/posts.html'].includes(location.pathname)
+let marketplaceGuestMode = ['/','/index.html'].includes(location.pathname)
   && !new URLSearchParams(location.search).has('auth')
   && !['view','agent','discover'].some(key => new URLSearchParams(location.search).has(key))
   && (sharedListingLink || !hasKnownAccountSession);
@@ -762,3 +762,5 @@ async function openAgentPostForm(){
 }
 document.addEventListener('click',event=>{const button=event.target.closest('#createProfilePost');if(button){event.preventDefault();event.stopImmediatePropagation();openAgentPostForm()}},true);
 document.addEventListener('click',event=>{const button=event.target.closest('.host-nav-cta');if(button){event.preventDefault();startHosting()}},true);
+document.querySelectorAll('#postsNav').forEach(link=>{link.href='/index.html#explore';link.textContent='Explore stays';link.removeAttribute('id')});
+document.querySelectorAll('#createProfilePost').forEach(button=>button.remove());

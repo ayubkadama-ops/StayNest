@@ -65,12 +65,6 @@ styles.css
   presentation.
 
 posts.html
-- Social feed page for agent posts and followed content.
-
-posts.js
-- Loads posts, filters posts, handles likes and views, and navigates to agent
-  profiles.
-
 admin.html
 - Founder administration center.
 - Includes dashboard metrics, people management, listing moderation, booking
