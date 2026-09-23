@@ -9,6 +9,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'listings', 'posts', 'bookings', 'verifications', 'audit', 'settings', 'analytics'}
+SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'timezone', 'maintenance_mode', 'maintenance_message'}
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -84,7 +85,7 @@ def dashboard(request):
         elif section == 'listings':
             data['rows'] = rows("SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.updated_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM listings l JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY l.updated_at DESC LIMIT 200")
         elif section == 'posts':
-            data['rows'] = rows("SELECT po.id,COALESCE(po.caption,'') title,po.status,po.created_at,l.title listing_title FROM posts po JOIN listings l ON l.id=po.listing_id ORDER BY po.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT po.id,po.post_type,po.caption,po.status,po.created_at,l.title listing_title FROM posts po JOIN listings l ON l.id=po.listing_id ORDER BY po.created_at DESC LIMIT 200")
         elif section == 'bookings':
             data['rows'] = rows("SELECT b.id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
@@ -115,6 +116,10 @@ def action(request, action):
                 listing_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'published', 'rejected', 'unpublished'}: raise ValueError('Invalid listing status')
                 execute('UPDATE listings SET status=%s WHERE id=%s', [status, listing_id]); audit(f'listing_{status}', 'listing', listing_id)
+            elif action == 'post-status':
+                post_id = int(request.POST['id']); status = request.POST['status']
+                if status not in {'draft', 'pending_review', 'published'}: raise ValueError('Invalid post status')
+                execute('UPDATE posts SET status=%s WHERE id=%s', [status, post_id]); audit(f'post_{status}', 'post', post_id)
             elif action == 'booking-status':
                 booking_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'confirmed', 'declined', 'cancelled', 'completed'}: raise ValueError('Invalid booking status')
@@ -125,41 +130,13 @@ def action(request, action):
                 execute('UPDATE identity_verifications SET status=%s, reviewed_at=UTC_TIMESTAMP(), rejection_reason=%s WHERE id=%s', [status, None if status == 'approved' else 'Rejected by administrator', verification_id]); audit(f'verification_{status}', 'identity_verification', verification_id)
             elif action == 'feature':
                 execute('UPDATE feature_flags SET enabled=%s WHERE feature_key=%s', [1 if request.POST.get('enabled') == '1' else 0, request.POST['key']]); audit('feature_updated', 'feature', None, {'key': request.POST['key']})
-            elif action == 'user-role':
-                user_id = int(request.POST['id']); role = request.POST['role']
-                if role not in {'tenant', 'agent', 'administrator'}: raise ValueError('Invalid role')
-                execute('INSERT IGNORE INTO user_roles (user_id, role_id) SELECT %s, id FROM roles WHERE name=%s', [user_id, role]); audit('user_role_added', 'user', user_id, {'role': role})
-            elif action == 'mfa-reset':
-                user_id = int(request.POST['id']); execute('UPDATE users SET mfa_enabled=FALSE,mfa_secret_encrypted=NULL WHERE id=%s', [user_id]); audit('user_mfa_reset', 'user', user_id)
-            elif action == 'email-verify':
-                user_id = int(request.POST['id']); execute('UPDATE users SET email_verified_at=COALESCE(email_verified_at,UTC_TIMESTAMP()) WHERE id=%s', [user_id]); audit('user_email_verified', 'user', user_id)
-            elif action == 'post-status':
-                post_id = int(request.POST['id']); status = request.POST['status']
-                if status not in {'draft', 'pending_review', 'published'}: raise ValueError('Invalid post status')
-                execute('UPDATE posts SET status=%s WHERE id=%s', [status, post_id]); audit(f'post_{status}', 'post', post_id)
-            elif action == 'badge':
-                agent_id = int(request.POST['id']); label = request.POST.get('label', 'Featured agent')[:80]
-                execute('UPDATE agent_badges SET expires_at=UTC_TIMESTAMP() WHERE agent_user_id=%s AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP())', [agent_id])
-                execute('INSERT INTO agent_badges (agent_user_id,badge_label,starts_at,expires_at,assigned_by) VALUES (%s,%s,UTC_TIMESTAMP(),NULL,NULL)', [agent_id, label]); audit('agent_badge_assigned', 'user', agent_id, {'label': label})
             elif action == 'setting':
-                key = request.POST['key']; value = request.POST.get('value', '')
-                execute('UPDATE app_settings SET setting_value=%s WHERE setting_key=%s', [value, key]); audit('setting_updated', 'app_setting', None, {'key': key})
-            elif action == 'ip-rule':
-                rule_type = request.POST['rule_type']; cidr = request.POST['cidr'][:64]; label = request.POST.get('label', '')[:120]
-                if rule_type not in {'allow', 'deny'}: raise ValueError('Invalid IP rule')
-                execute('INSERT INTO admin_ip_rules (rule_type,cidr,label,created_by) VALUES (%s,%s,%s,NULL)', [rule_type, cidr, label]); audit('admin_ip_rule_added', 'admin_ip_rule')
-            elif action == 'announcement':
-                title = request.POST['title'][:180]; body = request.POST['body']; audience = request.POST.get('audience', 'all')
-                if audience not in {'all', 'tenants', 'agents', 'administrators'}: raise ValueError('Invalid audience')
-                status = 'published' if request.POST.get('publish_now') == '1' else 'scheduled'
-                execute('INSERT INTO announcements (title,body,audience,status,scheduled_for,published_at,created_by) VALUES (%s,%s,%s,%s,%s,IF(%s=\'published\',UTC_TIMESTAMP(),NULL),NULL)', [title, body, audience, status, request.POST.get('scheduled_for') or None, status]); audit('announcement_created', 'announcement')
-            elif action == 'admin-create':
-                first_name = request.POST['first_name'][:80]; last_name = request.POST['last_name'][:80]; email = request.POST['email'][:254]; password = request.POST['password'].encode()
-                password_hash = bcrypt.hashpw(password, bcrypt.gensalt()).decode()
-                with connection.cursor() as cursor:
-                    cursor.execute('INSERT INTO users (email,password_hash,status,email_verified_at) VALUES (%s,%s,\'active\',UTC_TIMESTAMP())', [email, password_hash]); user_id = cursor.lastrowid
-                execute('INSERT INTO user_profiles (user_id,first_name,last_name,display_name) VALUES (%s,%s,%s,%s)', [user_id, first_name, last_name, f'{first_name} {last_name}'])
-                execute('INSERT INTO user_roles (user_id,role_id) SELECT %s,id FROM roles WHERE name=\'administrator\'', [user_id]); audit('administrator_created', 'user', user_id)
+                key = request.POST.get('key', '').strip()
+                value = request.POST.get('value', '').strip()
+                if key not in SETTING_KEYS: raise ValueError('Unknown marketplace setting')
+                if key == 'maintenance_mode' and value not in {'0', '1'}: raise ValueError('Invalid maintenance mode value')
+                if len(value) > 5000: raise ValueError('Setting value is too long')
+                execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})
             else:
                 raise ValueError('Unknown admin action')
         messages.success(request, 'Administrative action completed.')

@@ -1,3 +1,6 @@
 from django.urls import include, path
 
-urlpatterns = [path('', include('console.urls'))]
+urlpatterns = [
+	path('admin/', include('console.urls')),
+	path('', include('console.urls')),
+]

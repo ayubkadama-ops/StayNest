@@ -32,6 +32,7 @@ const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV ==
 const defaultProductionOrigin = process.env.NODE_ENV === 'production'
   ? 'https://staynest-np7j.onrender.com'
   : '';
+const djangoAdminUrl = String(process.env.DJANGO_ADMIN_URL || 'http://127.0.0.1:8000/').replace(/\/$/, '');
 const configuredOrigins = new Set(
   [defaultProductionOrigin, process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
     .map(origin => typeof origin === 'string' ? origin.trim().replace(/\/$/, '') : '')
@@ -304,7 +305,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(async (req, res, next) => {
-  if (!runtimeConfig.maintenanceMode || req.path.startsWith('/api/auth') || req.path === '/api/health' || req.path === '/api/ready' || req.path.startsWith('/api/admin') || req.path === '/admin' || req.path === '/admin.html') return next();
+  if (!runtimeConfig.maintenanceMode || req.path.startsWith('/api/auth') || req.path === '/api/health' || req.path === '/api/ready' || req.path.startsWith('/api/admin') || req.path === '/admin/') return next();
   if (req.session.user?.roles?.includes('administrator')) return next();
   if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html')) return res.status(503).send(`<!doctype html><title>${runtimeConfig.siteName}</title><h1>${runtimeConfig.siteName} is temporarily unavailable</h1><p>${runtimeConfig.maintenanceMessage}</p>`);
   if (req.path.startsWith('/api/')) return res.status(503).json({ error: runtimeConfig.maintenanceMessage, maintenance: true });
@@ -2102,7 +2103,7 @@ app.post('/api/admin/gate', adminGateLimiter, async (req, res, next) => {
       permissions: []
     };
     req.session.csrfToken = crypto.randomBytes(32).toString('hex');
-    res.json({ ok: true, redirect: '/admin.html' });
+    res.json({ ok: true, redirect: `${djangoAdminUrl}/admin/` });
   } catch (error) { next(error); }
 });
 
@@ -2266,7 +2267,7 @@ app.post('/api/admin/impersonation/stop', requireAuth, async (req, res, next) =>
     const administrator = req.session.impersonator;
     req.session.user = administrator;
     delete req.session.impersonator;
-    res.json({ ok: true, redirect: '/admin.html' });
+    res.json({ ok: true, redirect: `${djangoAdminUrl}/admin/` });
   } catch (error) { next(error); }
 });
 
@@ -2814,41 +2815,10 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'StayNest API route not found. Refresh the page and restart the application.' }));
 
-// The admin UI is a separate path and requires an administrator session.
-// Serve the admin shell so users can authenticate consistently from any browser.
-// Every admin API remains protected by requireAdminAccess.
-const serveAdminPage = async (req, res, next) => {
-  const allowed = req.session.user?.roles?.includes('administrator') || req.session.adminGate === true;
-  if (!allowed) return res.redirect('/index.html?admin=1');
-  try {
-    const nonce = crypto.randomBytes(16).toString('base64');
-    let adminHtml;
-    try {
-      adminHtml = await readFile(path.resolve(process.cwd(), 'dist', 'admin.html'), 'utf8');
-    } catch {
-      adminHtml = await readFile(path.resolve(process.cwd(), 'admin.html'), 'utf8');
-    }
-    const htmlWithNonce = adminHtml.replace(/<script(\s|>)/g, `<script nonce="${nonce}"$1`);
-    res.setHeader('Content-Security-Policy', [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "frame-ancestors 'none'",
-      "object-src 'none'",
-      "img-src 'self' data: blob:",
-      "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://region1.google-analytics.com",
-      `script-src 'self' 'nonce-${nonce}'`,
-      "script-src-attr 'none'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com data:"
-    ].join('; '));
-    return res.type('html').send(htmlWithNonce);
-  } catch (error) {
-    return next(error);
-  }
-};
-app.get('/admin', serveAdminPage);
+// The Django service owns the administrator console.
+const redirectToDjangoAdmin = (_req, res) => res.redirect(302, `${djangoAdminUrl}/admin/`);
+app.get('/admin/', redirectToDjangoAdmin);
 app.get('/posts.html', (_req, res) => res.redirect('/index.html#explore'));
-app.get('/admin.html', serveAdminPage);
 app.get(['/explore', '/explore/'], async (_req, res, next) => {
   try {
     const html = await readFile(path.resolve(process.cwd(), 'dist', 'index.html'), 'utf8');

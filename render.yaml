@@ -41,6 +41,8 @@ services:
         sync: false
       - key: GOOGLE_CALLBACK_URL
         value: https://staynest-np7j.onrender.com/api/auth/google/callback
+      - key: DJANGO_ADMIN_URL
+        value: https://staynest-django-admin.onrender.com
   - type: web
     name: staynest-django-admin
     runtime: python
@@ -54,6 +56,10 @@ services:
       - key: DJANGO_ALLOWED_HOSTS
         sync: false
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: ADMIN_GATE_USERNAME
+        sync: false
+      - key: ADMIN_GATE_PASSWORD_HASH
         sync: false
       - key: MYSQL_HOST
         sync: false

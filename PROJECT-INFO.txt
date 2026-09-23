@@ -65,7 +65,7 @@ styles.css
   presentation.
 
 posts.html
-admin.html
+- Django admin service at /admin/.
 - Founder administration center.
 - Includes dashboard metrics, people management, listing moderation, booking
   management, badges, trust and safety, identity verification, and audit logs.
@@ -427,7 +427,7 @@ After deployment, verify:
 - Identity documents are not public.
 - /server/index.js returns 404.
 - /database/schema.sql returns 404.
-- /admin.html requires administrator authentication.
+- /admin/ redirects to the Django admin service and requires administrator authentication.
 
 
 SEO

@@ -3,13 +3,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR.parent / '.env')
+load_dotenv(BASE_DIR.parent / '.env', override=True)
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY') or os.getenv('SESSION_SECRET', 'change-this-django-secret')
 DEBUG = os.getenv('DJANGO_DEBUG', 'false').lower() == 'true'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if host.strip()]
 ROOT_URLCONF = 'staynest_admin.urls'
 WSGI_APPLICATION = 'staynest_admin.wsgi.application'
-INSTALLED_APPS = ['django.contrib.messages', 'django.contrib.staticfiles', 'console']
+INSTALLED_APPS = ['django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'console']
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
