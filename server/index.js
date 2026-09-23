@@ -145,6 +145,30 @@ async function ensureSchemaMigrations() {
       try {
         await pool.query(statement);
       } catch (error) {
+        if (/ALTER TABLE listings\s+ADD COLUMN structure_type/i.test(statement)) {
+          try { await pool.query('ALTER TABLE listings ADD COLUMN structure_type VARCHAR(40) NULL'); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          try { await pool.query('ALTER TABLE listings ADD COLUMN privacy_type VARCHAR(30) NULL'); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          continue;
+        }
+        if (/ALTER TABLE listings\s+ADD COLUMN beds/i.test(statement)) {
+          try { await pool.query('ALTER TABLE listings ADD COLUMN beds TINYINT UNSIGNED NULL'); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          continue;
+        }
+        if (/ALTER TABLE bookings\s+ADD COLUMN booking_kind/i.test(statement)) {
+          try { await pool.query('ALTER TABLE bookings ADD COLUMN booking_kind ENUM(\'stay\',\'viewing\') NOT NULL DEFAULT \'stay\''); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          try { await pool.query('ALTER TABLE bookings ADD COLUMN appointment_at DATETIME NULL'); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          continue;
+        }
         if (/ALTER TABLE users\s+ADD COLUMN google_id/i.test(statement) && /unsupported add column|unique key/i.test(error.message || '')) {
           try { await pool.query('ALTER TABLE users ADD COLUMN google_id VARCHAR(255) NULL'); } catch (columnError) {
             if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
