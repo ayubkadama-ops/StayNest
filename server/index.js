@@ -122,6 +122,40 @@ async function loadRuntimeConfig() {
     console.warn('Runtime settings unavailable; using defaults:', error.code || error.message);
   }
 }
+async function ensureOperationalTables() {
+  await pool.execute(`CREATE TABLE IF NOT EXISTS request_idempotency (
+    user_id BIGINT UNSIGNED NOT NULL,
+    idempotency_key VARCHAR(128) NOT NULL,
+    response_json JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, idempotency_key),
+    CONSTRAINT fk_idempotency_user_runtime FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_idempotency_created_runtime (created_at)
+  ) ENGINE=InnoDB`);
+  await pool.execute(`CREATE TABLE IF NOT EXISTS user_blocks (
+    blocker_user_id BIGINT UNSIGNED NOT NULL,
+    blocked_user_id BIGINT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (blocker_user_id, blocked_user_id),
+    CONSTRAINT fk_runtime_blocker_user FOREIGN KEY (blocker_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_runtime_blocked_user FOREIGN KEY (blocked_user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`);
+  await pool.execute(`CREATE TABLE IF NOT EXISTS user_reports (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reporter_user_id BIGINT UNSIGNED NOT NULL,
+    reported_user_id BIGINT UNSIGNED NULL,
+    entity_type VARCHAR(40) NOT NULL,
+    entity_id BIGINT UNSIGNED NULL,
+    reason VARCHAR(120) NOT NULL,
+    details VARCHAR(1000) NULL,
+    status ENUM('open','reviewing','resolved','dismissed') NOT NULL DEFAULT 'open',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_runtime_reporter_user FOREIGN KEY (reporter_user_id) REFERENCES users(id),
+    CONSTRAINT fk_runtime_reported_user FOREIGN KEY (reported_user_id) REFERENCES users(id),
+    INDEX idx_runtime_reports_queue (status, created_at),
+    INDEX idx_runtime_reports_entity (entity_type, entity_id)
+  ) ENGINE=InnoDB`);
+}
 async function isFeatureEnabled(featureKey) {
   try {
     const [[feature]] = await pool.query('SELECT enabled FROM feature_flags WHERE feature_key=?', [featureKey]);
@@ -2803,6 +2837,7 @@ app.use((error, req, res, _next) => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 assertDatabaseConnection()
+  .then(ensureOperationalTables)
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)
   .then(() => app.listen(port, host, () => {

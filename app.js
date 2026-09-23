@@ -57,7 +57,8 @@ function showToast(message,type='success'){
 document.querySelector('#toast .toast-close')?.addEventListener('click',()=>{clearTimeout(toastTimer);toast.classList.remove('show');setTimeout(()=>{toast.hidden=true},320)});
 const modal=document.querySelector('#modal'),content=document.querySelector('#modalContent');
 const hasKnownAccountSession = Boolean(sessionStorage.getItem('stayNest.tabUser'));
-const sharedListingLink = new URLSearchParams(location.search).has('listing');
+const sharedListingLink = new URLSearchParams(location.search).has('listing')
+  && new URLSearchParams(location.search).get('book') !== '1';
 let marketplaceGuestMode = ['/','/index.html'].includes(location.pathname)
   && !new URLSearchParams(location.search).has('auth')
   && !['view','agent','discover'].some(key => new URLSearchParams(location.search).has(key))
