@@ -66,18 +66,7 @@ function detailMarkup(result) {
 }
 async function getCsrf() { return (await api('/api/auth/csrf')).token; }
 async function openDetail(id) {
-  try {
-    const result = await api(`/api/listings/${encodeURIComponent(id)}/details`);
-    history.pushState({}, '', `/listings.html?listing=${encodeURIComponent(id)}`);
-    document.querySelector('.listings-page-heading').hidden = true;
-    filters.hidden = true;
-    resultNote.hidden = true;
-    grid.hidden = true;
-    detail.hidden = false;
-    detail.innerHTML = detailMarkup(result);
-    wireDetail(result.listing);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  } catch (error) { showToast(error.message); }
+  location.href = `/listing-detail.html?listing=${encodeURIComponent(id)}`;
 }
 function wireDetail(listing) {
   document.querySelector('#backToListings').onclick = () => { history.pushState({}, '', '/listings.html'); detail.hidden = true; filters.hidden = false; resultNote.hidden = false; grid.hidden = false; loadListings(); window.scrollTo({ top: 0, behavior: 'smooth' }); };

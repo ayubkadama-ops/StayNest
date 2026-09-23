@@ -359,6 +359,11 @@ body .auth-signup[hidden] {
   display: none !important;
 }
 
+body.guest-view #notificationControl,
+body.guest-view #settingsControl {
+  display: none !important;
+}
+
 /* User Menu Profile Capsule (Airbnb Pill with Avatar) */
 .profile-chip {
   display: inline-flex;
@@ -2930,12 +2935,18 @@ body > .topbar:has(+ .topbar) {
 .listing-page-actions button:last-child { grid-column: 1 / -1; }
 
 @media (max-width: 900px) {
+  .listings-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .all-listings-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .listing-page-layout { grid-template-columns: 1fr; gap: 28px; }
   .listing-page-aside { position: static; }
 }
 
 @media (max-width: 620px) {
+  .listings-filter-bar { grid-template-columns: 1fr; gap: 10px; }
+  .listings-filter-bar button { width: 100%; }
+  .all-listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+  .listing-page-gallery { grid-template-columns: 1fr; gap: 8px; }
+  .listing-page-media, .listing-page-cover-media { height: 240px; }
   .listing-detail-media-grid {
     grid-template-columns: 1fr;
   }
@@ -3318,6 +3329,34 @@ html[data-network="offline"] body::before {
     display: none;
   }
 
+  body.mobile-nav-open .main-nav {
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0;
+    right: 0;
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 10px 4%;
+    background: var(--canvas);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: var(--shadow-float);
+    z-index: 41;
+  }
+
+  body.mobile-nav-open .main-nav a,
+  body.mobile-nav-open .nav-dropdown summary {
+    padding: 12px 10px;
+    border-radius: 8px;
+  }
+
+  body.mobile-nav-open .nav-dropdown-menu {
+    position: static;
+    box-shadow: none;
+    border: 0;
+    padding: 0 0 0 12px;
+  }
+
   .host-nav-cta {
     display: none;
   }
@@ -3453,7 +3492,9 @@ html[data-network="offline"] body::before {
 @media (max-width: 500px) {
   .topbar {
     height: 64px;
+    min-height: 64px;
     padding: 0 4%;
+    gap: 8px;
   }
 
   .brand {
@@ -3467,12 +3508,27 @@ html[data-network="offline"] body::before {
   }
 
   .header-actions {
-    gap: 6px;
+    min-width: 0;
+    gap: 4px;
   }
 
-  .header-actions [data-auth-control="signup"],
-  .header-actions [data-auth-control="login"] {
-    display: none;
+  .header-actions .icon-btn {
+    padding: 6px;
+    font-size: 11px;
+  }
+
+  .header-actions .auth-login {
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .header-actions .auth-signup {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .brand {
+    flex-shrink: 0;
   }
 
   .hero {
@@ -3595,6 +3651,22 @@ html[data-network="offline"] body::before {
 
 /* 5. Compact Modals on Phones <= 430px */
 @media (max-width: 430px) {
+  .topbar {
+    padding-inline: 3%;
+  }
+
+  .header-actions .icon-btn {
+    display: none;
+  }
+
+  .header-actions .auth-login {
+    padding-inline: 8px;
+  }
+
+  .header-actions .auth-signup {
+    padding-inline: 8px;
+  }
+
   .modal-backdrop {
     padding: 10px 8px;
   }

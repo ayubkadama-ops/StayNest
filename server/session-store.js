@@ -43,7 +43,7 @@ export class MySqlSessionStore extends session.Store {
   async touch(sid, sessionData, callback) {
     try {
       const expires = new Date(sessionData.cookie.expires || Date.now() + 28800000);
-      await pool.execute('UPDATE web_sessions SET expires_at=? WHERE sid=?', [expires, sid]);
+      await pool.execute('UPDATE web_sessions SET expires_at=?, data=? WHERE sid=?', [expires, JSON.stringify(sessionData), sid]);
       callback?.(null);
     } catch (error) { callback?.(error); }
   }

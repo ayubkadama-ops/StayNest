@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="StayNest listing details and booking request.">
+  <meta name="theme-color" content="#2d5a3d">
+  <title>Listing details | StayNest</title>
+  <link rel="icon" href="/assets/staynest-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/accessibility.css">
+</head>
+<body class="listings-page-shell listing-detail-shell">
+  <header class="topbar listings-page-header">
+    <a class="brand" href="/index.html#top" aria-label="StayNest home"><span class="brand-mark">⌂</span><span>stay<span>nest</span></span></a>
+    <nav class="main-nav" aria-label="Primary navigation">
+      <a href="/listings.html">Listings</a>
+      <a href="/index.html#agent-marketplace">Explore agents</a>
+      <a href="/index.html#how">How it works</a>
+    </nav>
+    <a class="primary small host-nav-cta" href="/index.html#host">List your place</a>
+    <button class="menu" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+  </header>
+  <main class="listings-page listing-detail-content" id="listingDetailPage" aria-live="polite">
+    <p class="feed-empty">Loading listing details...</p>
+  </main>
+  <div class="toast" id="listingToast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/listing-detail-page.js"></script>
+</body>
+</html>
