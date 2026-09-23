@@ -145,6 +145,15 @@ async function ensureSchemaMigrations() {
       try {
         await pool.query(statement);
       } catch (error) {
+        if (/ALTER TABLE users\s+ADD COLUMN google_id/i.test(statement) && /unsupported add column|unique key/i.test(error.message || '')) {
+          try { await pool.query('ALTER TABLE users ADD COLUMN google_id VARCHAR(255) NULL'); } catch (columnError) {
+            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
+          }
+          try { await pool.query('CREATE UNIQUE INDEX uq_users_google_id_runtime ON users (google_id)'); } catch (indexError) {
+            if (!['ER_DUP_KEYNAME', 'ER_DUP_ENTRY'].includes(indexError.code)) throw indexError;
+          }
+          continue;
+        }
         if (!['ER_TABLE_EXISTS_ERROR', 'ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME'].includes(error.code)) throw error;
       }
     }
