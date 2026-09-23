@@ -694,6 +694,7 @@ function openGoogleSetupWithPassword() {
     true,
   );
 }
+const authParams = new URLSearchParams(window.location.search);
 if(authParams.get('auth')==='google-setup'){history.replaceState({},'',window.location.pathname);openGoogleSetupWithPassword();}
 if(authParams.get('auth')==='google'){history.replaceState({},'',window.location.pathname);showToast('Signed in with Google successfully.');}
 if(authParams.get('authError')){showToast(authParams.get('authError'));history.replaceState({},'',window.location.pathname);}
