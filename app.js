@@ -212,11 +212,10 @@ async function updateAuthControls(user){
   if(roles.includes('administrator')){if(agentButton)agentButton.hidden=true;if(tenantButton)tenantButton.hidden=true}
 }
 async function startHosting(){try{const user=currentUser||(await apiJson('/api/auth/me')).user;if(user?.roles?.includes('agent'))return openAgentListingForm();if(user?.roles?.includes('tenant'))return showHostApproval();if(user)return showHostApproval();auth('host')}catch(error){if(currentUser?.roles?.includes('agent'))return openAgentListingForm();auth('host')}}
-const mobileMenu=document.querySelector('.menu');
-mobileMenu?.addEventListener('click',()=>{
+document.querySelectorAll('.menu').forEach(mobileMenu=>mobileMenu.addEventListener('click',()=>{
   const isOpen=document.body.classList.toggle('mobile-nav-open');
-  mobileMenu.setAttribute('aria-expanded',String(isOpen));
-});
+  document.querySelectorAll('.menu').forEach(menu=>menu.setAttribute('aria-expanded',String(isOpen)));
+}));
 document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>b.dataset.open==='host'?startHosting():auth(b.dataset.open)));document.querySelector('#modalClose').addEventListener('click',closeModal);modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal.classList.contains('open'))closeModal()});document.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>{document.querySelector('.chip.active').classList.remove('active');b.classList.add('active');render(b.dataset.filter)}));document.querySelector('#viewAll').addEventListener('click',()=>{document.querySelector('[data-filter="all"]').click()});render();
 document.querySelector('#discoverAction').addEventListener('click',openDiscover);
 function searchLabel(type){return {estate:'Homes',location:'Homes near',price:'Homes under',agent:'Agents',tenant:'Tenants'}[type]||'Search results'}

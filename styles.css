@@ -3231,6 +3231,10 @@ html[data-network="offline"] body::before {
 
 /* 1. Sidebar Body Padding Reset & Topbar Sticky for Screens <= 850px */
 @media (max-width: 850px) {
+  body:not(.listings-page-shell):not(.listing-detail-shell) > header.topbar:first-of-type {
+    display: none;
+  }
+
   body.role-view,
   body.agent-marketplace-view {
     padding-left: 0 !important;
