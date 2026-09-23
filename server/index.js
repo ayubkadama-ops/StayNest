@@ -122,6 +122,34 @@ async function loadRuntimeConfig() {
     console.warn('Runtime settings unavailable; using defaults:', error.code || error.message);
   }
 }
+async function ensureSchemaMigrations() {
+  const migrationFiles = [
+    'admin-control-migration.sql',
+    'agent-migration.sql',
+    'agent-search-migration.sql',
+    'founder-approval-migration.sql',
+    'google-oauth-migration.sql',
+    'listing-beds-migration.sql',
+    'listing-wizard-migration.sql',
+    'password-recovery-migration.sql',
+    'posts-badges-migration.sql',
+    'posts-migration.sql',
+    'security-hardening-migration.sql',
+    'sub-agent-migration.sql',
+    'tenant-experience-migration.sql'
+  ];
+  for (const file of migrationFiles) {
+    const source = await readFile(path.resolve(process.cwd(), 'database', file), 'utf8');
+    const statements = source.split(/;\s*(?:\r?\n|$)/).map(statement => statement.replace(/^(?:--.*\r?\n|\s)+/gm, '').trim()).filter(Boolean);
+    for (const statement of statements) {
+      try {
+        await pool.query(statement);
+      } catch (error) {
+        if (!['ER_TABLE_EXISTS_ERROR', 'ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME'].includes(error.code)) throw error;
+      }
+    }
+  }
+}
 async function ensureOperationalTables() {
   await pool.execute(`CREATE TABLE IF NOT EXISTS request_idempotency (
     user_id BIGINT UNSIGNED NOT NULL,
@@ -2761,7 +2789,12 @@ const serveAdminPage = async (req, res, next) => {
   if (!allowed) return res.redirect('/index.html?admin=1');
   try {
     const nonce = crypto.randomBytes(16).toString('base64');
-    const adminHtml = await readFile(path.resolve(process.cwd(), 'admin.html'), 'utf8');
+    let adminHtml;
+    try {
+      adminHtml = await readFile(path.resolve(process.cwd(), 'dist', 'admin.html'), 'utf8');
+    } catch {
+      adminHtml = await readFile(path.resolve(process.cwd(), 'admin.html'), 'utf8');
+    }
     const htmlWithNonce = adminHtml.replace(/<script(\s|>)/g, `<script nonce="${nonce}"$1`);
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
@@ -2837,6 +2870,7 @@ app.use((error, req, res, _next) => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 assertDatabaseConnection()
+  .then(ensureSchemaMigrations)
   .then(ensureOperationalTables)
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)
