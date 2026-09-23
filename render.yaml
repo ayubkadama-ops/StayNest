@@ -41,6 +41,10 @@ services:
         sync: false
       - key: GOOGLE_CALLBACK_URL
         value: https://staynest-fb9b.onrender.com/api/auth/google/callback
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: DJANGO_ADMIN_URL
         value: https://staynest-django-admin.onrender.com
   - type: web
