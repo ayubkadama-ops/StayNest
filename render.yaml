@@ -12,9 +12,9 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: APP_ORIGIN
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: CORS_ORIGINS
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_ENCRYPTION_KEY
@@ -40,7 +40,7 @@ services:
       - key: ADMIN_GATE_PASSWORD_HASH
         sync: false
       - key: GOOGLE_CALLBACK_URL
-        value: https://staynest-np7j.onrender.com/api/auth/google/callback
+        value: https://staynest-fb9b.onrender.com/api/auth/google/callback
       - key: DJANGO_ADMIN_URL
         value: https://staynest-django-admin.onrender.com
   - type: web
@@ -58,7 +58,7 @@ services:
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         sync: false
       - key: MARKETPLACE_URL
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: ADMIN_GATE_USERNAME
         sync: false
       - key: ADMIN_GATE_PASSWORD_HASH
