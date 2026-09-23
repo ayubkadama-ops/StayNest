@@ -45,3 +45,4 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
+MARKETPLACE_URL = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:3000').rstrip('/')

@@ -55,21 +55,21 @@ def login_view(request):
         if valid:
             request.session['admin_authenticated'] = True
             request.session['admin_label'] = username
-            return redirect(request.GET.get('next') or '/')
+            return redirect(request.GET.get('next') or '/admin/')
         messages.error(request, 'Invalid administrator credentials.')
     return render(request, 'login.html')
 
 @require_http_methods(['POST'])
 def logout_view(request):
     request.session.flush()
-    return redirect('/login/')
+    return redirect('/admin/login/')
 
 @admin_required
 def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('listings', 'Listings moderation'), ('posts', 'Posts and badges'), ('bookings', 'Reservations'), ('verifications', 'Trust and safety'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'stats': {}, 'rows': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': ''}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('listings', 'Listings moderation'), ('posts', 'Posts and badges'), ('bookings', 'Reservations'), ('verifications', 'Trust and safety'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'stats': {}, 'rows': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:3000').rstrip('/')}
     try:
         if section == 'overview':
             data['stats'] = {
