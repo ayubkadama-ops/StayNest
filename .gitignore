@@ -7,3 +7,6 @@ storage/media/
 storage/private/
 *.pem
 *_backup.sql
+django_admin/.venv/
+__pycache__/
+*.py[cod]

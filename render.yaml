@@ -35,5 +35,35 @@ services:
         sync: false
       - key: MYSQL_PASSWORD
         sync: false
+      - key: ADMIN_GATE_USERNAME
+        sync: false
+      - key: ADMIN_GATE_PASSWORD_HASH
+        sync: false
       - key: GOOGLE_CALLBACK_URL
         value: https://staynest-np7j.onrender.com/api/auth/google/callback
+  - type: web
+    name: staynest-django-admin
+    runtime: python
+    plan: free
+    buildCommand: pip install -r django_admin/requirements.txt
+    startCommand: gunicorn --chdir django_admin staynest_admin.wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /health/
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        value: "4000"
+      - key: MYSQL_SSL
+        value: "true"
+      - key: MYSQL_DATABASE
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
