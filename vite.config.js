@@ -16,7 +16,8 @@ export default defineConfig({
       input: {
         main: path.resolve(process.cwd(), 'index.html'),
         admin: path.resolve(process.cwd(), 'admin.html'),
-        listings: path.resolve(process.cwd(), 'listings.html')
+        listings: path.resolve(process.cwd(), 'listings.html'),
+        listingDetail: path.resolve(process.cwd(), 'listing-detail.html')
       }
     }
   },
