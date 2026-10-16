@@ -15,15 +15,15 @@ and emerald visual identity.
 TECHNOLOGY STACK
 ----------------
 
-Frontend:
-- HTML5
-- CSS3
-- Vanilla JavaScript modules
-- Vite for development and production builds
-- Responsive desktop, tablet, and mobile layouts
-- Glassmorphism content surfaces with an opaque green navigation system
+Marketplace and admin web framework:
+- Python 3.13 and Django 5.2
+- Server-rendered pages for the home, property search, property details,
+  agent directory, agent profile, account, tenant workspace, and agent workspace
+- Existing Django operations console remains at /admin/
+- WhiteNoise serves production static assets
+- Responsive templates with small vanilla JavaScript interactions
 
-Backend:
+API and business services (compatibility layer during migration):
 - Node.js
 - Express
 - MySQL-compatible database through mysql2
@@ -47,22 +47,22 @@ MAIN APPLICATION FILES
 ----------------------
 
 index.html
-- Public Makazi Go marketplace shell.
-- Contains the homepage, navigation, search area, showcase, listings,
-  hosting section, modal shell, and role-aware controls.
+- Retained Vite-built legacy marketplace entry point; the public root is now
+  served by the Django marketplace.
 
-app.js
-- Main frontend controller.
-- Handles authentication state, tenant and agent routing, listing discovery,
-  profile pages, agent discovery, posts, likes, views, messages, notifications,
-  settings, bookings, and modal interactions.
-- Includes safe dynamic markup handling and media URL validation.
+django_admin/marketplace/
+- Django views and routes for the multipage marketplace.
+- Proxies same-origin /api and /media requests to the existing Express service
+  while preserving its session cookies, CSRF headers, upload behavior, and API
+  contracts.
+- Uses the existing API for property discovery, authentication, booking
+  requests, agent actions, and customer messages.
 
-styles.css
-- Main marketplace and profile styling.
-- Contains the Makazi Go green palette, responsive layouts, profile sidebars,
-  opaque navigation, cards, modals, glass surfaces, buttons, and accessibility
-  presentation.
+django_admin/marketplace/static/marketplace/
+- Styles and browser interactions for Django marketplace pages and workspaces.
+
+django_admin/console/
+- Existing Django operations console and moderation tools at /admin/.
 
 posts.html
 - Django admin service at /admin/.
@@ -223,6 +223,26 @@ Migrations:
 - database/property-categories-migration.sql
 
 Apply the schema first, then apply migrations in the order listed above.
+
+LOCAL DEVELOPMENT
+-----------------
+
+- Create/install the Python environment with django_admin/requirements.txt.
+- Run npm run dev to start the Express API and Django marketplace.
+- The marketplace is available at http://localhost:8000/ and the API at
+  http://localhost:3000/.
+- Run npm run test:django and npm test for Django page-flow and API rules tests.
+
+DEPLOYMENT
+----------
+
+- Render serves the public marketplace and existing Django admin from the
+  Django service; Express remains the API upstream during the staged migration.
+- Set API_UPSTREAM_URL on the Django service to the Express service URL.
+- Update the Google OAuth callback URL to the Django public domain at
+  /api/auth/google/callback.
+- Configure DJANGO_ALLOWED_HOSTS, Django secrets, database values, and the
+  Django public URL in the deployment environment before cutover.
 
 Important database areas:
 - users

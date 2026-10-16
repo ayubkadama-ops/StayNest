@@ -8,5 +8,6 @@ storage/private/
 *.pem
 *_backup.sql
 django_admin/.venv/
+django_admin/staticfiles/
 __pycache__/
 *.py[cod]

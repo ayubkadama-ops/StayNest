@@ -12,9 +12,9 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: APP_ORIGIN
-        value: https://staynest-fb9b.onrender.com
+        value: https://staynest-django-admin.onrender.com
       - key: CORS_ORIGINS
-        value: https://staynest-fb9b.onrender.com
+        value: https://staynest-django-admin.onrender.com
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_ENCRYPTION_KEY
@@ -40,7 +40,7 @@ services:
       - key: ADMIN_GATE_PASSWORD_HASH
         sync: false
       - key: GOOGLE_CALLBACK_URL
-        value: https://staynest-fb9b.onrender.com/api/auth/google/callback
+        value: https://staynest-django-admin.onrender.com/api/auth/google/callback
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -51,18 +51,24 @@ services:
     name: staynest-django-admin
     runtime: python
     plan: free
-    buildCommand: pip install -r django_admin/requirements.txt
+    buildCommand: pip install -r django_admin/requirements.txt && python django_admin/manage.py collectstatic --noinput && python django_admin/manage.py check
     startCommand: gunicorn --chdir django_admin staynest_admin.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /health/
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
-      - key: DJANGO_ALLOWED_HOSTS
-        sync: false
-      - key: DJANGO_CSRF_TRUSTED_ORIGINS
-        sync: false
-      - key: MARKETPLACE_URL
+      - key: NODE_ENV
+        value: production
+      - key: API_UPSTREAM_URL
         value: https://staynest-fb9b.onrender.com
+      - key: DJANGO_ALLOWED_HOSTS
+        value: staynest-django-admin.onrender.com
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://staynest-django-admin.onrender.com
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: MARKETPLACE_URL
+        value: https://staynest-django-admin.onrender.com
       - key: ADMIN_GATE_USERNAME
         sync: false
       - key: ADMIN_GATE_PASSWORD_HASH

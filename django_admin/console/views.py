@@ -35,13 +35,13 @@ def admin_required(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
         if not request.session.get('admin_authenticated'):
-            return redirect(f'/login/?next={request.path}')
+            return redirect(f'/admin/login/?next={request.path}')
         return view(request, *args, **kwargs)
     return wrapped
 
 def login_view(request):
     if request.session.get('admin_authenticated'):
-        return redirect('/')
+        return redirect('/admin/')
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').encode()
@@ -69,7 +69,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('listings', 'Listings moderation'), ('posts', 'Posts and badges'), ('bookings', 'Reservations'), ('verifications', 'Trust and safety'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'stats': {}, 'rows': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:3000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('listings', 'Listings moderation'), ('posts', 'Posts and badges'), ('bookings', 'Reservations'), ('verifications', 'Trust and safety'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'stats': {}, 'rows': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     try:
         if section == 'overview':
             data['stats'] = {

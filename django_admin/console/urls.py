@@ -2,6 +2,8 @@ from django.http import JsonResponse
 from django.urls import path
 from . import views
 
+app_name = 'console'
+
 urlpatterns = [
     path('health/', lambda request: JsonResponse({'ok': True, 'service': 'staynest-django-admin'}), name='health'),
     path('', views.dashboard, name='dashboard'),
