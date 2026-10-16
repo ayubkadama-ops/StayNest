@@ -25,6 +25,8 @@ class MarketplaceRoutingTests(SimpleTestCase):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
                     self.assertContains(response, 'Makazi Go')
+                    self.assertContains(response, 'Browse property categories')
+                    self.assertContains(response, '<svg', count=5)
 
     @patch('marketplace.views._api_json')
     def test_stay_detail_uses_booking_flow(self, api_json):

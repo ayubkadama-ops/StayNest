@@ -9,6 +9,7 @@
   <title>{% block title %}Makazi Go | Find your place. Make your move.{% endblock %}</title>
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
   <link rel="stylesheet" href="{% static 'marketplace/site.css' %}">
+  <link rel="stylesheet" href="{% static 'marketplace/navigation.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/workspace.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
@@ -23,6 +24,17 @@
     <div class="header-actions"><a class="host-link" href="/agent/">List a property</a><a class="account-link" href="/account/">Sign in</a></div>
     <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">Menu</button>
   </header>
+  <nav class="category-quick-nav" aria-label="Browse property categories">
+    {% for value,label in property_types %}<a href="/properties/?propertyType={{ value }}">
+      <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        {% if value == 'house' %}<path d="m3 14 13-11 13 11M6 12v17h20V12M12 29v-9h8v9M12 14h3m4 0"/>
+        {% elif value == 'apartment' %}<path d="M6 29V4h20v25M3 29h26M11 9h3m5 0h3m-11 5h3m5 0h3m-11 5h3m5 0h3m-11 5h3m5 0h3m-4 5v-5h4v5"/>
+        {% elif value == 'land' %}<path d="M16 29s10-8.2 10-16a10 10 0 1 0-20 0c0 7.8 10 16 10 16Z"/><path d="m9 19 4-5 3 3 3-4 4 6M16 10h.01"/>
+        {% elif value == 'hotel' %}<path d="M4 28V8M4 19h24v9M7 18v-5h8v5m2 0v-4a4 4 0 0 1 8 0v4M3 29h26"/>
+        {% else %}<path d="M4 29V13h24v16M3 13l3-8h20l3 8M3 13a4 4 0 0 0 8 0 4 4 0 0 0 8 0 4 4 0 0 0 8 0M9 29v-8h7v8m4-10h4"/>{% endif %}
+      </svg><span>{{ label }}</span>
+    </a>{% endfor %}
+  </nav>
   <main id="main-content">{% block content %}{% endblock %}</main>
   <footer class="site-footer"><a class="brand" href="/" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a><p>Find your place. Make your move.</p><nav aria-label="Footer navigation"><a href="/properties/">Properties</a><a href="/agents/">Agents</a><a href="/admin/">Admin</a></nav></footer>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
