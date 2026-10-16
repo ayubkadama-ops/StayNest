@@ -1,5 +1,5 @@
-const APP_SHELL = ['/','/index.html','/styles.css','/accessibility.css'];
-const CACHE_NAME = 'staynest-shell-v2';
+const APP_SHELL = ['/','/index.html','/styles.css','/accessibility.css','/manifest.webmanifest','/assets/makazi-go-icon.png'];
+const CACHE_NAME = 'makazi-go-shell-v3';
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));

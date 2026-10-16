@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Browse StayNest homes in Tanzania.">
-  <meta name="theme-color" content="#2d5a3d">
-  <title>Listings | StayNest</title>
-  <link rel="icon" href="/assets/staynest-mark.svg" type="image/svg+xml">
+  <meta name="description" content="Browse homes, apartments, land, hotels, and commercial property across Tanzania with Makazi Go.">
+  <meta name="theme-color" content="#062b22">
+  <title>Property listings | Makazi Go</title>
+  <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/accessibility.css">
 </head>
 <body class="listings-page-shell">
   <header class="topbar listings-page-header">
-    <a class="brand" href="/index.html#top" aria-label="StayNest home"><span class="brand-mark">⌂</span><span>stay<span>nest</span></span></a>
+    <a class="brand" href="/index.html#top" aria-label="Makazi Go home"><span class="brand-mark" aria-hidden="true">⌂</span><span>Makazi <span>Go</span></span></a>
     <nav class="main-nav" aria-label="Primary navigation">
       <a class="active" href="/listings.html">Listings</a>
       <a href="/index.html#agent-marketplace">Explore agents</a>
@@ -25,16 +25,17 @@
   <main class="listings-page" id="listingsPage">
     <section class="listings-page-heading">
       <div>
-        <p class="eyebrow">StayNest homes</p>
+        <p class="eyebrow">Makazi Go properties</p>
         <h1>Find a place that fits your life.</h1>
-        <p>Browse verified homes across Tanzania, then open any listing for its complete gallery, details, and responsible agent.</p>
+        <p>Browse verified homes, apartments, land, hotels, and commercial spaces across Tanzania.</p>
       </div>
     </section>
     <form class="listings-filter-bar" id="listingFilters">
-      <label>Search<input name="q" placeholder="City, neighborhood, or home"></label>
+      <label>Search<input name="q" placeholder="City, neighborhood, or property"></label>
+      <label>Property type<select name="propertyType"><option value="">All properties</option><option value="house">Homes</option><option value="apartment">Apartments</option><option value="land">Land</option><option value="hotel">Hotels</option><option value="commercial">Commercial</option></select></label>
       <label>Stay type<select name="rentalMode"><option value="">Any stay</option><option value="short_term">Short-term</option><option value="long_term">Long-term</option></select></label>
       <label>Sort<select name="sort"><option value="new">Newest</option><option value="popular">Most loved</option><option value="price_low">Price: low to high</option></select></label>
-      <button class="primary" type="submit">Search homes</button>
+      <button class="primary" type="submit">Search properties</button>
     </form>
     <p class="listings-result-note" id="listingsResultNote" role="status"></p>
     <section class="all-listings-grid" id="allListingsGrid" aria-live="polite"></section>

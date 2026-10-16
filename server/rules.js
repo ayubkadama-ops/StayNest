@@ -1,5 +1,20 @@
 import crypto from 'node:crypto';
 
+const STRUCTURE_CATEGORIES = Object.freeze({
+  house: 'house',
+  apartment: 'apartment',
+  room: 'room',
+  land_plot: 'land',
+  guesthouse: 'hotel',
+  serviced_apartment: 'apartment',
+  hotel: 'hotel',
+  commercial: 'commercial'
+});
+
+export function resolvePropertyType(propertyType, structureType) {
+  return String(propertyType || STRUCTURE_CATEGORIES[structureType] || 'apartment').trim().toLowerCase();
+}
+
 export function datesOverlap(checkIn, checkOut, existingCheckIn, existingCheckOut) {
   return checkIn < existingCheckOut && checkOut > existingCheckIn;
 }

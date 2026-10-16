@@ -5,15 +5,15 @@
 
 :root {
   /* StayNest brand colors */
-  --rausch: #2d5a3d;
-  --rausch-hover: #234a31;
-  --rausch-active: #183a25;
-  --rausch-soft: #eef5ef;
-  --rausch-tint: rgba(45, 90, 61, 0.1);
+  --rausch: #087f5b;
+  --rausch-hover: #066747;
+  --rausch-active: #064c37;
+  --rausch-soft: #e9f6ef;
+  --rausch-tint: rgba(8, 127, 91, 0.1);
 
   /* Typography Colors */
-  --ink: #222222;
-  --body: #484848;
+  --ink: #092a22;
+  --body: #344a43;
   --muted: #717171;
   --muted-light: #b0b0b0;
 
@@ -22,14 +22,14 @@
   --surface-soft: #f7f7f7;
   --surface-alt: #f0f0f0;
   --white: #ffffff;
-  --deep: #222222;
-  --green: #2d5a3d;
+  --deep: #062b22;
+  --green: #087f5b;
 
   /* Borders & Lines */
   --hairline: #ebebeb;
   --line: #ebebeb;
   --line-strong: #dddddd;
-  --line-focus: #222222;
+  --line-focus: #087f5b;
 
   /* Status Colors */
   --success-bg: #e6f7ec;
@@ -53,6 +53,64 @@
   --radius-btn: 8px;
 
   color-scheme: light;
+}
+
+.property-category-section {
+  padding: 24px clamp(20px, 5vw, 72px) 28px;
+  background: #062b22;
+  color: #fff;
+}
+
+.property-category-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.property-category-inner .eyebrow {
+  margin: 0 0 12px;
+  color: #72e0b1;
+}
+
+.property-category-nav {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.property-category {
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+
+.property-category:hover,
+.property-category.is-active {
+  border-color: #34d399;
+  background: #087f5b;
+}
+
+.brand > span:last-child > span {
+  color: #20c98b;
+}
+
+@media (max-width: 720px) {
+  .property-category-section {
+    padding: 20px 16px;
+  }
+
+  .property-category-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .property-category-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 * {
@@ -136,15 +194,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .brand-mark {
-  background: var(--rausch);
-  color: #fff;
+  background: url('/assets/makazi-go-icon.png') center / cover no-repeat;
+  color: transparent;
   width: 32px;
   height: 32px;
   border-radius: 8px;
   display: grid;
   place-items: center;
-  font-size: 18px;
-  box-shadow: 0 2px 8px rgba(255, 56, 92, 0.35);
+  font-size: 0 !important;
+  box-shadow: 0 2px 8px rgba(6, 43, 34, 0.24);
 }
 
 .main-nav {
@@ -3231,10 +3289,6 @@ html[data-network="offline"] body::before {
 
 /* 1. Sidebar Body Padding Reset & Topbar Sticky for Screens <= 850px */
 @media (max-width: 850px) {
-  body:not(.listings-page-shell):not(.listing-detail-shell) > header.topbar:first-of-type {
-    display: none;
-  }
-
   body.role-view,
   body.agent-marketplace-view {
     padding-left: 0 !important;

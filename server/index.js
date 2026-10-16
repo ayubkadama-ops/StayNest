@@ -13,7 +13,7 @@ import { pool, assertDatabaseConnection } from './db.js';
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasRole } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, hasRole, resolvePropertyType } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -94,13 +94,13 @@ const approvalContact = {
 };
 const PASSWORD_RESET_TTL_MINUTES = 30;
 let runtimeConfig = {
-  siteName: 'StayNest',
+  siteName: 'Makazi Go',
   siteLogoUrl: '',
   contactEmail: 'cleysir54@gmail.com',
   contactPhone: '0794 442 907',
   timezone: 'Africa/Dar_es_Salaam',
   maintenanceMode: false,
-  maintenanceMessage: 'StayNest is being updated. Please check back shortly.'
+  maintenanceMessage: 'Makazi Go is being updated. Please check back shortly.'
 };
 const adminSettingKeys = {
   site_name: 'siteName',
@@ -394,7 +394,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
     const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : '';
     const googleId = typeof profile.sub === 'string' ? profile.sub.trim() : '';
     if (!googleId || !email || profile.email_verified !== true) return redirectError('Google must provide a verified email address.');
-    const firstName = String(profile.given_name || profile.name || 'StayNest').trim().slice(0, 80) || 'StayNest';
+    const firstName = String(profile.given_name || profile.name || 'Makazi Go').trim().slice(0, 80) || 'Makazi Go';
     const lastName = String(profile.family_name || 'Member').trim().slice(0, 80) || 'Member';
     const avatarUrl = typeof profile.picture === 'string' && /^https:\/\//i.test(profile.picture) ? profile.picture.slice(0, 2048) : DEFAULT_PROFILE_AVATAR;
     const connection = await pool.getConnection();
@@ -410,11 +410,11 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
       user = matches[0];
       if (user?.status === 'suspended' || user?.status === 'deleted') {
         await connection.rollback();
-        return redirectError('This StayNest account is not active.');
+        return redirectError('This Makazi Go account is not active.');
       }
       if (user?.status === 'pending') {
         await connection.rollback();
-        return redirectError('This StayNest account is awaiting approval.');
+        return redirectError('This Makazi Go account is awaiting approval.');
       }
         if (!user) {
           await connection.rollback();
@@ -448,7 +448,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
       return res.redirect('/index.html?auth=google');
     } catch (error) {
       await connection.rollback();
-      if (error.code === 'ER_DUP_ENTRY') return redirectError('This Google account is already linked to another StayNest account.');
+      if (error.code === 'ER_DUP_ENTRY') return redirectError('This Google account is already linked to another Makazi Go account.');
       throw error;
     } finally {
       connection.release();
@@ -658,9 +658,9 @@ app.post('/api/auth/login', async (req, res, next) => {
     }
     const roles = user.roles ? user.roles.split(',') : [];
     if (user.status === 'pending') {
-      return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact StayNest support if you need an update.' });
+      return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
     }
-    if (!roles.some(role => ['tenant', 'agent', 'administrator'].includes(role))) return res.status(403).json({ error: 'This account role is no longer supported. Contact StayNest support.' });
+    if (!roles.some(role => ['tenant', 'agent', 'administrator'].includes(role))) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
     if (user.mfa_enabled) {
       if (!req.body.mfaCode) return res.json({ mfaRequired: true });
       if (!user.mfa_secret_encrypted || !(await verify({ token: req.body.mfaCode, secret: decryptSecret(user.mfa_secret_encrypted) })).valid) return res.status(401).json({ error: 'Invalid MFA code' });
@@ -891,7 +891,7 @@ app.get('/api/agents', async (req, res, next) => {
   try {
     const { page, limit, offset } = boundedPage(req.query, { defaultLimit: 30, maxLimit: 100 });
     const [agents] = await pool.query(
-      `SELECT u.id, COALESCE(p.first_name, 'StayNest') firstName, COALESCE(p.last_name, 'Agent') lastName, p.city, ap.profile_image_url profileImageUrl, ap.bio,
+      `SELECT u.id, COALESCE(p.first_name, 'Makazi Go') firstName, COALESCE(p.last_name, 'Agent') lastName, p.city, ap.profile_image_url profileImageUrl, ap.bio,
         (u.last_login_at >= UTC_TIMESTAMP() - INTERVAL 15 MINUTE) online,
         MAX(ab.badge_label) badgeLabel,
         ap.followers_count followers,
@@ -1228,7 +1228,7 @@ app.post('/api/agents/:id/follow', requireAuth, async (req, res, next) => {
     void notifyUser(agentId, {
       type: 'agent_followed',
       title: 'You have a new follower',
-      body: 'Someone followed your StayNest agent profile.',
+      body: 'Someone followed your Makazi Go agent profile.',
       data: { followerId: req.session.user.id }
     }).catch(error => console.error('Follow notification failed:', error.message));
     const [[count]] = await pool.query('SELECT followers_count followers FROM agent_profiles WHERE user_id=?', [agentId]);
@@ -1284,7 +1284,7 @@ app.post('/api/messages', requireAuth, async (req, res, next) => {
     }
     const [message] = await connection.execute('INSERT INTO messages (conversation_id, sender_user_id, body) VALUES (?, ?, ?)', [conversationId, req.session.user.id, body]);
     await connection.commit();
-    const senderName = `${req.session.user.firstName || 'A StayNest member'} ${req.session.user.lastName || ''}`.trim();
+    const senderName = `${req.session.user.firstName || 'A Makazi Go member'} ${req.session.user.lastName || ''}`.trim();
     void notifyUser(recipient.id, {
       type: 'new_message',
       title: `New message from ${senderName}`,
@@ -1657,7 +1657,7 @@ app.post('/api/agent/subagents', requireAuth, requireRole('agent'), upload.singl
     await connection.beginTransaction();
     const [result] = await connection.execute('INSERT INTO users (email, phone, password_hash, status) VALUES (?, ?, ?, "pending")', [email, phone || null, await bcrypt.hash(password, 12)]);
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, city, avatar_url) VALUES (?, ?, ?, ?, ?)', [result.insertId, firstName, lastName, location || null, req.file ? (await storeUserProfileImage(req.file, result.insertId)).url : DEFAULT_PROFILE_AVATAR]);
-    await connection.execute('INSERT INTO agent_profiles (user_id, bio) VALUES (?, ?)', [result.insertId, `Sub-agent for ${req.session.user.firstName || 'StayNest agent'}`]);
+    await connection.execute('INSERT INTO agent_profiles (user_id, bio) VALUES (?, ?)', [result.insertId, `Sub-agent for ${req.session.user.firstName || 'Makazi Go agent'}`]);
     await connection.execute('INSERT INTO user_roles (user_id, role_id, assigned_by) SELECT ?, id, ? FROM roles WHERE name="agent"', [result.insertId, req.session.user.id]);
     const [account] = await connection.execute('INSERT INTO agent_subaccounts (main_agent_user_id, subagent_user_id, label, status) VALUES (?, ?, ?, "pending")', [req.session.user.id, result.insertId, label]);
     for (const permission of permissions) await connection.execute('INSERT INTO agent_subaccount_permissions (subaccount_id, permission_key) VALUES (?, ?)', [account.insertId, permission]);
@@ -1688,7 +1688,7 @@ app.post('/api/agent/subagents', requireAuth, requireRole('agent'), upload.singl
     void notifyUser(result.insertId, {
       type: 'subagent_pending',
       title: `Your ${label} account is pending approval`,
-      body: `Your StayNest sub-agent account was created by your main agent. You can sign in after founder approval.`,
+      body: `Your Makazi Go sub-agent account was created by your main agent. You can sign in after founder approval.`,
       data: { ...notificationData, mainAgentId: req.session.user.id }
     }).catch(error => console.error('Sub-agent welcome notification failed:', error.message));
     res.status(201).json({
@@ -1728,7 +1728,8 @@ app.patch('/api/agent/subagents/:id', requireAuth, requireRole('agent'), async (
 app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create'), agentListingUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'media', maxCount: 10 }]), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const { title, description, city, addressLine1, countryCode = 'TZ', propertyType = 'apartment', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
+    const { title, description, city, addressLine1, countryCode = 'TZ', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
+    const propertyType = resolvePropertyType(req.body.propertyType, structureType);
     const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
     const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
@@ -1742,7 +1743,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
     if (!['short_term', 'long_term', 'both'].includes(rentalMode)) return res.status(400).json({ error: 'Choose a valid rental duration' });
     if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
-    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
+    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
     const [types] = await connection.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
@@ -2064,7 +2065,7 @@ app.post('/api/listings/:id/geocode', requireAuth, requireHostRole, async (req, 
 app.post('/api/auth/mfa/setup', requireAuth, (req, res) => {
   const secret = generateSecret();
   req.session.mfaSecret = secret;
-  res.json({ secret, otpauth: generateURI({ issuer: 'StayNest', label: String(req.session.user.id), secret }) });
+  res.json({ secret, otpauth: generateURI({ issuer: 'Makazi Go', label: String(req.session.user.id), secret }) });
 });
 
 app.post('/api/auth/mfa/enable', requireAuth, async (req, res, next) => {
@@ -2524,7 +2525,7 @@ app.post('/api/admin/agent-verifications/:id/decision', requireAuth, requireAdmi
     if (status === 'approved') {
       void notifyUser(userId, {
         type: user.subaccount_id ? 'subagent_approved' : 'agent_approved',
-        title: 'Your StayNest agent account was approved',
+        title: 'Your Makazi Go agent account was approved',
         body: 'Founder verification is complete. You can now sign in and use agent features.',
         data: { userId, subaccountId: user.subaccount_id || null }
       }).catch(error => console.error('Agent approval notification failed:', error.message));
@@ -2591,7 +2592,7 @@ app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess, async (re
     await audit(req, 'user_role_assigned', 'user', userId, { role });
     void notifyUser(userId, {
       type: 'role_changed',
-      title: 'Your StayNest role was changed',
+      title: 'Your Makazi Go role was changed',
       body: `An administrator changed your account role to ${role}. Your previous role data remains stored securely.`,
       data: { role }
     }).catch(error => console.error('Role change notification failed:', error.message));
@@ -2813,7 +2814,7 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
   } finally { connection.release(); }
 });
 
-app.use('/api', (_req, res) => res.status(404).json({ error: 'StayNest API route not found. Refresh the page and restart the application.' }));
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Makazi Go API route not found. Refresh the page and restart the application.' }));
 
 // The Django service owns the administrator console.
 const redirectToDjangoAdmin = (_req, res) => res.redirect(302, `${djangoAdminUrl}/admin/`);
@@ -2827,12 +2828,12 @@ app.get(['/explore', '/explore/'], async (_req, res, next) => {
 });
 app.get(['/privacy', '/terms', '/help'], (req, res) => {
   const pages = {
-    '/privacy': ['Privacy at StayNest', 'We use account, booking, and device information only to provide secure marketplace features. Contact support to request access or correction of your data.'],
-    '/terms': ['StayNest terms', 'StayNest connects guests with property professionals. Listing information, availability, and booking requests are subject to host confirmation and the applicable laws of Tanzania.'],
-    '/help': ['StayNest help center', 'Need help with a listing, account, or booking? Contact support and include the listing title and request ID so our team can assist you quickly.']
+    '/privacy': ['Privacy at Makazi Go', 'We use account, booking, and device information only to provide secure marketplace features. Contact support to request access or correction of your data.'],
+    '/terms': ['Makazi Go terms', 'Makazi Go connects guests with property professionals. Listing information, availability, and booking requests are subject to host confirmation and the applicable laws of Tanzania.'],
+    '/help': ['Makazi Go help center', 'Need help with a listing, account, or booking? Contact support and include the listing title and request ID so our team can assist you quickly.']
   };
   const [title, body] = pages[req.path] || pages['/help'];
-  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/styles.css"></head><body><main class="section" style="max-width:760px;margin:0 auto;min-height:70vh"><p class="eyebrow">StayNest</p><h1>${title}</h1><p>${body}</p><p><a class="primary" href="/">Return home <span>→</span></a></p></main></body></html>`);
+  res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/styles.css"></head><body><main class="section" style="max-width:760px;margin:0 auto;min-height:70vh"><p class="eyebrow">Makazi Go</p><h1>${title}</h1><p>${body}</p><p><a class="primary" href="/">Return home <span>→</span></a></p></main></body></html>`);
 });
 // Only the public application shell should be reachable from the project root.
 // Keep source, database files, dependencies, and private storage out of static hosting.
@@ -2878,7 +2879,7 @@ assertDatabaseConnection()
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)
   .then(() => app.listen(port, host, () => {
-    console.log(`StayNest server listening on http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`);
+    console.log(`Makazi Go server listening on http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`);
     console.log(JSON.stringify({
       level: 'info',
       event: 'ga4_configuration',

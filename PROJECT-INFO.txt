@@ -1,15 +1,15 @@
-STAYNEST PROJECT INFORMATION
+MAKAZI GO PROJECT INFORMATION
 ============================
 
 Project
 -------
-StayNest is a full-stack real-estate marketplace for discovering homes,
-short stays, long-term rentals, agents, tenants, social property posts,
-messaging, bookings, notifications, moderation, and founder administration.
+Makazi Go is a real-estate marketplace for discovering homes, apartments,
+land, hotels, and commercial property, with agents, tenants, messaging,
+booking requests, notifications, moderation, and founder administration.
 
 The application is designed around trust, role separation, secure sessions,
-verified property professionals, transparent listings, and a green glass-style
-user interface.
+verified property professionals, transparent listings, and the forest-green
+and emerald visual identity.
 
 
 TECHNOLOGY STACK
@@ -47,7 +47,7 @@ MAIN APPLICATION FILES
 ----------------------
 
 index.html
-- Public StayNest marketplace shell.
+- Public Makazi Go marketplace shell.
 - Contains the homepage, navigation, search area, showcase, listings,
   hosting section, modal shell, and role-aware controls.
 
@@ -60,7 +60,7 @@ app.js
 
 styles.css
 - Main marketplace and profile styling.
-- Contains the StayNest green palette, responsive layouts, profile sidebars,
+- Contains the Makazi Go green palette, responsive layouts, profile sidebars,
   opaque navigation, cards, modals, glass surfaces, buttons, and accessibility
   presentation.
 
@@ -214,11 +214,13 @@ Primary schema:
 - database/schema.sql
 
 Migrations:
+- database/admin-control-migration.sql
 - database/agent-migration.sql
 - database/founder-approval-migration.sql
 - database/posts-badges-migration.sql
 - database/sub-agent-migration.sql
 - database/security-hardening-migration.sql
+- database/property-categories-migration.sql
 
 Apply the schema first, then apply migrations in the order listed above.
 
@@ -307,7 +309,7 @@ Static file protection:
   files, and package internals are not served publicly.
 
 Tanzania operations:
-- New agent applications show an approval message with StayNest support email and WhatsApp contact.
+- New agent applications show an approval message with Makazi Go support email and WhatsApp contact.
 - Future applicant and administrator email copy is prepared in EMAIL-TEMPLATES.txt.
 - Default sample marketplace locations use Tanzania examples such as Dar es Salaam and Arusha.
 
@@ -475,7 +477,7 @@ The local repository is initialized on the main branch.
 
 The GitHub remote is:
 
-    https://github.com/ayubkadama-ops/StayNest.git
+    https://github.com/ayubkadama-ops/Makazi Go.git
 
 The local project has been prepared with .gitignore rules for:
 - .env files

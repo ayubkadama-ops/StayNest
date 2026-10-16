@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { calculateBooking, datesOverlap, hasRole, isListingAvailable, verifyWebhookSignature } from '../server/rules.js';
+import { calculateBooking, datesOverlap, hasRole, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature } from '../server/storage.js';
 import { boundedPage, isValidDate, positiveId } from '../server/validation.js';
 
@@ -25,6 +25,13 @@ test('payment signatures are verified with timing-safe comparison', () => {
 test('permissions require an exact assigned role', () => {
   assert.equal(hasRole(['tenant', 'agent'], 'agent'), true);
   assert.equal(hasRole(['tenant'], 'administrator'), false);
+});
+
+test('listing structures resolve to searchable property categories', () => {
+  assert.equal(resolvePropertyType(undefined, 'land_plot'), 'land');
+  assert.equal(resolvePropertyType(undefined, 'hotel'), 'hotel');
+  assert.equal(resolvePropertyType(undefined, 'commercial'), 'commercial');
+  assert.equal(resolvePropertyType('hotel', 'guesthouse'), 'hotel');
 });
 
 test('availability rejects a date that is already locked', () => {

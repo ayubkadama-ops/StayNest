@@ -9,13 +9,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
 ) ENGINE=InnoDB;
 
 INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES
-  ('site_name', 'StayNest'),
+  ('site_name', 'Makazi Go'),
   ('site_logo_url', ''),
   ('contact_email', 'cleysir54@gmail.com'),
   ('contact_phone', '0794 442 907'),
   ('timezone', 'Africa/Dar_es_Salaam'),
   ('maintenance_mode', '0'),
-  ('maintenance_message', 'StayNest is being updated. Please check back shortly.'),
+  ('maintenance_message', 'Makazi Go is being updated. Please check back shortly.'),
   ('cookie_consent_required', '1');
 
 CREATE TABLE IF NOT EXISTS feature_flags (
@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS email_templates (
 ) ENGINE=InnoDB;
 
 INSERT IGNORE INTO email_templates (template_key, subject, body) VALUES
-  ('agent_approval_pending', 'Your StayNest agent application is under review', 'Hello {{firstName}}, your Tanzania agent application is waiting for founder approval.'),
-  ('agent_approved', 'Your StayNest agent account is approved', 'Hello {{firstName}}, your StayNest agent account is now active.');
+  ('agent_approval_pending', 'Your Makazi Go agent application is under review', 'Hello {{firstName}}, your Tanzania agent application is waiting for founder approval.'),
+  ('agent_approved', 'Your Makazi Go agent account is approved', 'Hello {{firstName}}, your Makazi Go agent account is now active.');
 
 CREATE TABLE IF NOT EXISTS admin_ip_rules (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

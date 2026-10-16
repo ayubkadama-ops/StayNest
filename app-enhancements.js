@@ -54,10 +54,10 @@ function enhanceModal() {
 window.addEventListener('online', updateConnectionStatus);
 window.addEventListener('offline', updateConnectionStatus);
 window.addEventListener('error', event => {
-  if (event.error) console.error('StayNest client error', event.error);
+  if (event.error) console.error('Makazi Go client error', event.error);
 });
 window.addEventListener('unhandledrejection', event => {
-  console.error('StayNest asynchronous error', event.reason);
+  console.error('Makazi Go asynchronous error', event.reason);
 });
 document.addEventListener('keydown', trapModalFocus);
 updateConnectionStatus();
@@ -65,6 +65,6 @@ enhanceModal();
 
 if ('serviceWorker' in navigator && window.location.protocol === 'http:') {
   navigator.serviceWorker.register('/service-worker.js').catch(error => {
-    console.warn('StayNest offline cache is unavailable', error);
+    console.warn('Makazi Go offline cache is unavailable', error);
   });
 }

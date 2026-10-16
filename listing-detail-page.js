@@ -10,7 +10,7 @@ async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...options });
   const text = await response.text();
   let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error('StayNest returned an invalid response.'); }
+  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error('Makazi Go returned an invalid response.'); }
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
 }
@@ -31,18 +31,20 @@ function markup(result) {
   const listing = result.listing;
   const media = Array.isArray(result.media) && result.media.length ? result.media : [{ mediaUrl: listing.coverUrl, mediaType: 'image' }];
   const amenities = String(listing.amenities || '').split(',').filter(Boolean);
-  const agentName = `${listing.firstName || ''} ${listing.lastName || ''}`.trim() || listing.agencyName || 'StayNest agent';
+  const agentName = `${listing.firstName || ''} ${listing.lastName || ''}`.trim() || listing.agencyName || 'Makazi Go agent';
+  const enquiryOnly = ['land', 'commercial'].includes(listing.propertyType);
+  const propertyFacts = enquiryOnly ? '<span>Contact agent for terms</span>' : `<span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span>`;
   return `<button class="listing-back-button" type="button" id="backToListings">← All listings</button>
     <div class="listing-page-gallery">${mediaMarkup(media, listing.title)}</div>
     <div class="listing-page-layout">
-      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'StayNest home')} · ${listing.verifiedAgent ? 'Verified agent' : 'StayNest agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts"><span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span></div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented StayNest home in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Contact the responsible agent for more information about the area.</p></article>
-      <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(mediaUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/staynest-mark.svg'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible StayNest agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">Request to book <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
+      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'property')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts">${propertyFacts}</div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented property in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Contact the responsible agent for more information about the area.</p></article>
+      <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(mediaUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/makazi-go-icon.png'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">${enquiryOnly ? 'Enquire about property' : 'Request to book'} <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }
 function wire(listing) {
   document.querySelector('#backToListings').onclick = () => { location.href = '/listings.html'; };
   document.querySelector('#viewAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}`; };
-  document.querySelector('#requestBooking').onclick = () => { location.href = `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
+  document.querySelector('#requestBooking').onclick = () => { location.href = ['land', 'commercial'].includes(listing.propertyType) ? `/index.html?messageAgent=${encodeURIComponent(listing.agentId || '')}` : `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
   document.querySelector('#shareListing').onclick = async () => {
     try {
       if (navigator.share) await navigator.share({ title: listing.title, url: location.href });
@@ -65,11 +67,11 @@ function wire(listing) {
   };
   document.querySelector('#messageAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?messageAgent=${encodeURIComponent(listing.agentId)}`; };
   document.querySelector('#reportListing').onclick = async () => {
-    const reason = window.prompt('Tell StayNest why you are reporting this listing:');
+    const reason = window.prompt('Tell Makazi Go why you are reporting this listing:');
     if (!reason) return;
     try {
       await api('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await csrf() }, body: JSON.stringify({ entityType: 'listing', entityId: listing.id, reason: 'other', details: reason }) });
-      toast('Report sent to StayNest administrators');
+      toast('Report sent to Makazi Go administrators');
     } catch (error) { toast(error.message); }
   };
 }

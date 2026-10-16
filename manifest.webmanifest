@@ -1,16 +1,16 @@
 {
-  "name": "StayNest",
-  "short_name": "StayNest",
-  "description": "Trusted homes, short stays, and people you can trust.",
+  "name": "Makazi Go",
+  "short_name": "Makazi Go",
+  "description": "Discover homes, apartments, land, hotels, and commercial property.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8f6f0",
-  "theme_color": "#2d5a3d",
+  "background_color": "#062b22",
+  "theme_color": "#062b22",
   "icons": [
     {
-      "src": "/assets/staynest-mark.svg",
-      "sizes": "64x64",
-      "type": "image/svg+xml",
+      "src": "/assets/makazi-go-icon.png",
+      "sizes": "128x128",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

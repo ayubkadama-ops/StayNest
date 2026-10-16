@@ -1,4 +1,4 @@
--- StayNest rental and short-term stay platform
+-- Makazi Go rental and short-term stay platform
 -- MySQL 8.0+ / InnoDB / UTC timestamps
 --
 -- Security notes:
@@ -155,7 +155,7 @@ CREATE TABLE property_types (
 ) ENGINE=InnoDB;
 
 INSERT IGNORE INTO property_types (name)
-VALUES ('apartment'), ('house'), ('room'), ('commercial'), ('short_stay');
+VALUES ('apartment'), ('house'), ('room'), ('commercial'), ('short_stay'), ('land'), ('hotel');
 
 CREATE TABLE listings (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
