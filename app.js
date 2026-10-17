@@ -46,6 +46,13 @@ mountPropertyCategories();
 const DEFAULT_AGENT_AVATAR='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"%3E%3Crect width="240" height="240" fill="%23dfe9e2"/%3E%3Ccircle cx="120" cy="86" r="42" fill="%2372807b"/%3E%3Cpath d="M42 222c8-55 35-82 78-82s70 27 78 82" fill="%2372807b"/%3E%3C/svg%3E';
 function applyMakaziBrand(){document.title='Makazi Go | Find your place. Make your move.';document.querySelector('meta[name="description"]')?.setAttribute('content','Discover homes, apartments, land, hotels, and commercial property across Tanzania with Makazi Go.');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#062b22');document.querySelectorAll('.brand').forEach(brand=>{brand.setAttribute('aria-label','Makazi Go home');brand.innerHTML='<span class="brand-mark" aria-hidden="true">⌂</span><span>Makazi <span>Go</span></span>'});document.querySelector('.admin-shortcut')?.remove();const eyebrow=document.querySelector('.hero-copy .eyebrow'),heading=document.querySelector('.hero-copy h1'),lead=document.querySelector('.hero-lead');if(eyebrow)eyebrow.textContent='Find your place in Tanzania';if(heading)heading.innerHTML='Find your place.<br><em>Make your move.</em>';if(lead)lead.textContent='Discover homes, apartments, land, hotels, and commercial spaces in one trusted marketplace';const footer=document.querySelector('footer .footer-brand p');if(footer)footer.textContent='Find your place. Make your move.';document.querySelectorAll('footer h4').forEach(heading=>{if(heading.textContent.trim()==='Makazi Go')heading.textContent='Makazi Go'})}
 applyMakaziBrand();
+document.querySelectorAll('.brand').forEach(brand=>{
+  brand.title='Double-click to open the administrator page';
+  brand.addEventListener('dblclick',event=>{
+    event.preventDefault();
+    location.assign('/admin/');
+  });
+});
 document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(link=>{link.href='/assets/makazi-go-icon.png';link.type='image/png'});
 const cacheBustUrl=value=>{const url=String(value||'');return url&&url.startsWith('/')?`${url}${url.includes('?')?'&':'?'}v=${Date.now()}`:url};
 const agentBadge=active=>active?'<span class="agent-badge" role="img" aria-label="Verified agent" title="Verified agent">✓</span>':'';
