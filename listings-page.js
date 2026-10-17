@@ -1,7 +1,13 @@
+import { installLiveFormValidation } from './form-validation.js';
+import { markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
+
+installLiveFormValidation();
+
 const grid = document.querySelector('#allListingsGrid');
 const detail = document.querySelector('#listingDetailPage');
 const filters = document.querySelector('#listingFilters');
 const resultNote = document.querySelector('#listingsResultNote');
+const inlineDetail = document.querySelector('#listingInlineDetail');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const imageUrl = value => { const source = /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg'; return window.cloudinaryAssetUrl?.(source) || source; };
 const categoryCopy = {
@@ -51,21 +57,30 @@ function cardMarkup(listing) {
     <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p><p class="all-listing-agent-row">Posted by ${agent}</p></div>
   </article>`;
 }
-async function loadListings(event) {
+let searchTimer;
+let searchController;
+let detailController;
+async function loadListings(event, { historyMode = 'replace' } = {}) {
   event?.preventDefault();
+  clearTimeout(searchTimer);
+  searchController?.abort();
+  const controller = new AbortController();
+  searchController = controller;
   const values = new FormData(filters);
-  const query = new URLSearchParams([...values.entries()].filter(([, value]) => value));
+  const query = new URLSearchParams([...values.entries()].map(([name, value]) => [name, String(value).trim()]).filter(([, value]) => value));
   updateCategoryHeading();
-  history.replaceState({}, '', `${location.pathname}${query.size ? `?${query}` : ''}`);
+  if (historyMode !== 'none') history[`${historyMode}State`]({ filters: query.toString() }, '', `${location.pathname}${query.size ? `?${query}` : ''}`);
   grid.innerHTML = '<p class="feed-empty">Finding Makazi Go properties...</p>';
   try {
-    const result = await api(`/api/listings/discover?${query}`);
+    const result = await api(`/api/listings/discover?${query}`, { signal: controller.signal });
+    if (controller.signal.aborted) return;
     const listings = Array.isArray(result.listings) ? result.listings : [];
     resultNote.textContent = `${listings.length} listing${listings.length === 1 ? '' : 's'} available`;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', () => openDetail(card.dataset.listingId)));
     grid.querySelectorAll('[data-agent-link]').forEach(link => link.addEventListener('click', event => event.stopPropagation()));
   } catch (error) {
+    if (error.name === 'AbortError') return;
     resultNote.textContent = '';
     grid.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p>`;
   }
@@ -88,12 +103,55 @@ function detailMarkup(result) {
     </div>`;
 }
 async function getCsrf() { return (await api('/api/auth/csrf')).token; }
-async function openDetail(id) {
-  const returnTo = `${location.pathname}${location.search}`;
-  location.href = `/listing-detail.html?listing=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`;
+function showListingResults({ historyMode = 'none' } = {}) {
+  detailController?.abort();
+  const url = new URL(location.href);
+  url.searchParams.delete('listing');
+  if (historyMode !== 'none') history[`${historyMode}State`]({ filters: url.searchParams.toString() }, '', `${url.pathname}${url.search}`);
+  inlineDetail.hidden = true;
+  filters.hidden = false;
+  resultNote.hidden = false;
+  grid.hidden = false;
+  void loadListings(null, { historyMode: 'none' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function syncFiltersFromUrl() {
+  const params = new URLSearchParams(location.search);
+  for (const name of ['q', 'propertyType', 'rentalMode', 'sort']) {
+    const control = filters.elements.namedItem(name);
+    if (!control) continue;
+    const value = params.get(name) || '';
+    if (control instanceof HTMLSelectElement && ![...control.options].some(option => option.value === value)) continue;
+    control.value = value;
+  }
+  updateCategoryHeading();
+}
+async function openDetail(id, { updateHistory = true } = {}) {
+  detailController?.abort();
+  const controller = new AbortController();
+  detailController = controller;
+  const url = new URL(location.href);
+  url.searchParams.set('listing', id);
+  if (updateHistory) history.pushState({ listingId: String(id) }, '', `${url.pathname}${url.search}`);
+  inlineDetail.hidden = false;
+  filters.hidden = true;
+  resultNote.hidden = true;
+  grid.hidden = true;
+  inlineDetail.innerHTML = '<p class="feed-empty" role="status">Loading property details...</p>';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  try {
+    const result = await api(`/api/listings/${encodeURIComponent(id)}/details`, { signal: controller.signal });
+    if (controller.signal.aborted) return;
+    inlineDetail.innerHTML = sharedDetailMarkup(result);
+    wireListingDetail(result.listing, { onBack: () => showListingResults({ historyMode: 'replace' }) });
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    inlineDetail.innerHTML = `<button class="listing-back-button" type="button" data-return-to-results>← All listings</button><p class="feed-empty">${escapeHtml(error.message)}</p>`;
+    inlineDetail.querySelector('[data-return-to-results]').onclick = () => showListingResults({ historyMode: 'replace' });
+  }
 }
 function wireDetail(listing) {
-  document.querySelector('#backToListings').onclick = () => { history.pushState({}, '', '/listings.html'); detail.hidden = true; filters.hidden = false; resultNote.hidden = false; grid.hidden = false; loadListings(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  document.querySelector('#backToListings').onclick = () => showListingResults({ historyMode: 'push' });
   document.querySelector('#viewAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}`; };
   document.querySelector('#requestBooking').onclick = () => { location.href = `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
   document.querySelector('#shareListing').onclick = async () => { const url = location.href; if (navigator.share) await navigator.share({ title: listing.title, url }); else { await navigator.clipboard.writeText(url); showToast('Listing link copied'); } };
@@ -102,14 +160,13 @@ function wireDetail(listing) {
   document.querySelector('#messageAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?messageAgent=${encodeURIComponent(listing.agentId)}`; };
   document.querySelector('#reportListing').onclick = async () => { const reason = window.prompt('Tell Makazi Go why you are reporting this listing:'); if (!reason) return; try { await api('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await getCsrf() }, body: JSON.stringify({ entityType: 'listing', entityId: listing.id, reason: 'other', details: reason }) }); showToast('Report sent to Makazi Go administrators'); } catch (error) { showToast(error.message); } };
 }
-filters.addEventListener('submit', loadListings);
-const initialFilters = new URLSearchParams(location.search);
-for (const fieldName of ['q', 'propertyType', 'rentalMode', 'sort']) {
-  const value = initialFilters.get(fieldName);
-  const control = filters.elements.namedItem(fieldName);
-  if (value && control && [...control.options].some(option => option.value === value)) control.value = value;
-}
-updateCategoryHeading();
-window.addEventListener('popstate', () => { if (new URLSearchParams(location.search).get('listing')) openDetail(new URLSearchParams(location.search).get('listing')); else document.querySelector('#backToListings')?.click(); });
+filters.addEventListener('submit', event => loadListings(event, { historyMode: 'push' }));
+filters.elements.q.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => void loadListings(null), 280);
+});
+filters.querySelectorAll('select').forEach(select => select.addEventListener('change', () => void loadListings(null)));
+syncFiltersFromUrl();
+window.addEventListener('popstate', () => { syncFiltersFromUrl(); const listingId = new URLSearchParams(location.search).get('listing'); if (listingId) void openDetail(listingId, { updateHistory: false }); else showListingResults(); });
 const initialListing = new URLSearchParams(location.search).get('listing');
-if (initialListing) openDetail(initialListing); else loadListings();
+if (initialListing) void openDetail(initialListing, { updateHistory: false }); else void loadListings();

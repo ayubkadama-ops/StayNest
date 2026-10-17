@@ -27,7 +27,7 @@ function mediaMarkup(media, title) {
     ? `<video class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(mediaUrl(item.mediaUrl))}" controls playsinline preload="metadata"></video>`
     : `<img class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(mediaUrl(item.mediaUrl))}" alt="${escapeHtml(item.caption || title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'">`).join('');
 }
-function markup(result) {
+export function markup(result) {
   const listing = result.listing;
   const media = Array.isArray(result.media) && result.media.length ? result.media : [{ mediaUrl: listing.coverUrl, mediaType: 'image' }];
   const amenities = String(listing.amenities || '').split(',').filter(Boolean);
@@ -41,14 +41,14 @@ function markup(result) {
       <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(mediaUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/makazi-go-icon.png'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">${enquiryOnly ? 'Enquire about property' : 'Request to book'} <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }
-function wire(listing) {
+export function wire(listing, { onBack } = {}) {
   const returnParameter = new URLSearchParams(location.search).get('returnTo') || '/listings.html';
   let returnTo = '/listings.html';
   try {
     const target = new URL(returnParameter, location.origin);
     if (target.origin === location.origin && target.pathname === '/listings.html') returnTo = `${target.pathname}${target.search}`;
   } catch {}
-  document.querySelector('#backToListings').onclick = () => { location.href = returnTo; };
+  document.querySelector('#backToListings').onclick = onBack || (() => { location.href = returnTo; });
   document.querySelector('#viewAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}`; };
   document.querySelector('#requestBooking').onclick = () => { location.href = ['land', 'commercial'].includes(listing.propertyType) ? `/index.html?messageAgent=${encodeURIComponent(listing.agentId || '')}` : `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
   document.querySelector('#shareListing').onclick = async () => {
@@ -86,6 +86,8 @@ menu?.addEventListener('click', () => {
   const open = document.body.classList.toggle('mobile-nav-open');
   menu.setAttribute('aria-expanded', String(open));
 });
-const id = new URLSearchParams(location.search).get('listing');
-if (!id) location.replace('/listings.html');
-else api(`/api/listings/${encodeURIComponent(id)}/details`).then(result => { page.innerHTML = markup(result); wire(result.listing); }).catch(error => { page.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p><a class="primary" href="/listings.html">Back to listings</a>`; });
+if (page) {
+  const id = new URLSearchParams(location.search).get('listing');
+  if (!id) location.replace('/listings.html');
+  else api(`/api/listings/${encodeURIComponent(id)}/details`).then(result => { page.innerHTML = markup(result); wire(result.listing); }).catch(error => { page.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p><a class="primary" href="/listings.html">Back to listings</a>`; });
+}

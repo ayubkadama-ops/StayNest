@@ -2311,6 +2311,19 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip {
   font-weight: 600;
 }
 
+.field-validation-message {
+  display: block;
+  margin-top: 5px;
+  color: var(--danger-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.is-invalid {
+  border-color: var(--danger-text) !important;
+}
+
 .modal:has(.listing-wizard) {
   max-width: 720px;
 }

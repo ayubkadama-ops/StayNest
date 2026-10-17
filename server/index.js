@@ -53,6 +53,11 @@ app.use((req, res, next) => {
   res.setHeader('X-Request-ID', requestId);
   next();
 });
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 app.use((req, res, next) => {
   const requestOrigin = req.get('origin');
   const allowed = requestOrigin
@@ -319,7 +324,7 @@ app.use(session({
   saveUninitialized: false,
   proxy: trustProxy,
   rolling: true,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: SESSION_IDLE_TIMEOUT }
+  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: SESSION_IDLE_TIMEOUT }
 }));
 app.use((req, res, next) => {
   const now = Date.now();

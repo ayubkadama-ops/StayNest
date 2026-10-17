@@ -1,5 +1,8 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { installLiveFormValidation } from './form-validation.js';
+
+installLiveFormValidation();
 
 const duplicateTopbars=[...document.querySelectorAll('body > .topbar')];
 duplicateTopbars.slice(0,-1).forEach(topbar=>topbar.remove());
@@ -24,9 +27,21 @@ function mountPropertyCategories(){
   section.innerHTML=`<div class="property-category-inner"><div class="property-category-heading"><div><p class="eyebrow">Find your place</p><h2>Explore by property type</h2></div><button class="property-category-reset" type="button" data-property-category-reset>All properties</button></div><nav class="property-category-nav" aria-label="Property type">${propertyCategoryOptions.map(({value,label,caption,image,icon})=>`<button type="button" class="property-category" data-property-category="${value}" aria-pressed="false"><span class="property-category-photo"><img src="${image}" alt="" loading="lazy"></span><span class="property-category-shade"></span><span class="property-category-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><span class="property-category-copy"><strong>${label}</strong><small>${caption}</small></span></button>`).join('')}</nav></div>`;
   hero.after(section);
   section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',()=>{
-    location.assign(`/listings.html?propertyType=${encodeURIComponent(button.dataset.propertyCategory)}`);
+    const propertyType=document.querySelector('#searchType');
+    if(propertyType)propertyType.value=button.dataset.propertyCategory;
+    const query=document.querySelector('#locationInput');
+    if(query)query.value='';
+    void runSearch();
+    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
   }));
-  section.querySelector('[data-property-category-reset]').addEventListener('click',()=>location.assign('/listings.html'));
+  section.querySelector('[data-property-category-reset]').addEventListener('click',()=>{
+    const propertyType=document.querySelector('#searchType');
+    if(propertyType)propertyType.value='';
+    const query=document.querySelector('#locationInput');
+    if(query)query.value='';
+    void runSearch();
+    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
+  });
 }
 mountPropertyCategories();
 const DEFAULT_AGENT_AVATAR='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"%3E%3Crect width="240" height="240" fill="%23dfe9e2"/%3E%3Ccircle cx="120" cy="86" r="42" fill="%2372807b"/%3E%3Cpath d="M42 222c8-55 35-82 78-82s70 27 78 82" fill="%2372807b"/%3E%3C/svg%3E';
@@ -58,9 +73,47 @@ function requireAccount(){if(currentUser)return true;showMemberGate();return fal
 const savedIds=new Set(JSON.parse(localStorage.getItem('staynest_saved')||'[]'));
 const bookings=JSON.parse(localStorage.getItem('staynest_bookings')||'[]');
 function updatePersonalGreeting(user){const greeting=document.querySelector('#personalGreeting'),detail=document.querySelector('#personalGreetingDetail');if(!greeting||!detail)return;const hour=new Date().getHours(),timeGreeting=hour<5?'Good night':hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';if(user?.firstName){greeting.textContent=`${timeGreeting}, ${user.firstName}`;detail.textContent='Your Makazi Go recommendations are ready';}else{greeting.textContent=`${timeGreeting}`;detail.textContent='Discover homes made for real life';}}
-async function apiJson(url, options={}){let response;try{const headers=new Headers(options.headers||{});if(marketplaceGuestMode)headers.set('X-StayNest-Guest','1');response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers})}catch(error){throw new Error('Makazi Go is temporarily unavailable. Please make sure the app is running and try again.')}const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch{throw new Error(response.status===404?'The requested Makazi Go service could not be found. Refresh the page and try again.':response.status===429?'Too many attempts. Please wait a few minutes and try again.':response.ok?'The server returned an invalid response.':`Makazi Go could not complete the request (HTTP ${response.status}).`)}if(!response.ok){if(response.status===429)throw new Error('Too many attempts. Please wait a few minutes and try again.');throw new Error(data.error||`Makazi Go could not complete the request (HTTP ${response.status}).`)}return data}
+async function apiJson(url,options={},retryInvalidCsrf=true){
+  const headers=new Headers(options.headers||{});
+  if(marketplaceGuestMode)headers.set('X-StayNest-Guest','1');
+  let response;
+  try{response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options,headers})}
+  catch(error){if(error.name==='AbortError')throw error;throw new Error('Makazi Go is temporarily unavailable. Please make sure the app is running and try again.')}
+  const text=await response.text();
+  let data={};
+  try{data=text?JSON.parse(text):{}}
+  catch{throw new Error(response.status===404?'The requested Makazi Go service could not be found. Refresh the page and try again.':response.status===429?'Too many attempts. Please wait a few minutes and try again.':response.ok?'The server returned an invalid response.':`Makazi Go could not complete the request (HTTP ${response.status}).`)}
+  if(!response.ok&&response.status===403&&data.error==='Invalid CSRF token'&&retryInvalidCsrf&&headers.has('X-CSRF-Token')){
+    try{
+      const csrfResponse=await fetch('/api/auth/csrf',{credentials:'same-origin',cache:'no-store'});
+      const csrfData=await csrfResponse.json();
+      if(csrfResponse.ok&&csrfData.token){headers.set('X-CSRF-Token',csrfData.token);return apiJson(url,{...options,headers},false)}
+    }catch{}
+  }
+  if(!response.ok){if(response.status===429)throw new Error('Too many attempts. Please wait a few minutes and try again.');throw new Error(data.error||`Makazi Go could not complete the request (HTTP ${response.status}).`)}
+  return data;
+}
 function render(filter='all'){const data=filter==='popular'?currentListings.filter(x=>Number(x.rating||0)>0||Number(x.reviewCount||0)>0):filter==='new'?currentListings.slice().sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||''))):filter==='short'?currentListings.filter(x=>x.rentalMode==='short_term'||x.rentalMode==='both'):filter==='long'?currentListings.filter(x=>x.rentalMode==='long_term'||x.rentalMode==='both'):currentListings;if(!grid)return;if(!data.length){grid.innerHTML='<div class="feed-empty">No published homes match these filters yet. Try another location or clear the filters.</div>';return}grid.innerHTML=data.map(x=>{const price=x.nightlyPrice?`${x.currency} ${Number(x.nightlyPrice).toLocaleString()} / night`:x.monthlyPrice?`${x.currency} ${Number(x.monthlyPrice).toLocaleString()} / month`:`${x.currency} ${Number(x.yearlyPrice||0).toLocaleString()} / year`;const image=safeMediaUrl(x.coverUrl||'/assets/ezgif-frame-018.jpg');const rating=Number(x.rating||0);return `<article class="listing-card reveal-on-scroll is-visible" data-listing-id="${escapeHtml(x.id)}"><div class="listing-photo"><img class="listing-card-image" src="${escapeHtml(image)}" alt="${escapeHtml(x.title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'"><button class="heart" data-id="${escapeHtml(x.id)}" aria-label="Save ${escapeHtml(x.title)}">♡</button>${x.propertyType?`<span class="rating">${escapeHtml(x.propertyType)}</span>`:''}</div><div class="listing-info"><h3>${escapeHtml(x.title)}</h3><div class="listing-meta">${escapeHtml([x.neighborhood,x.city].filter(Boolean).join(', '))} · ${escapeHtml(x.propertyType||'Home')} · ${x.bedrooms||0} bed${Number(x.bedrooms)===1?'':'s'}</div><div class="listing-price"><strong>${escapeHtml(price)}</strong> <span class="listing-meta">${rating?` · ★ ${rating.toFixed(1)} (${x.reviewCount||0})`: ' · New listing'}</span></div></div></article>`}).join('');grid.querySelectorAll('.heart').forEach(btn=>btn.addEventListener('click',event=>{event.stopPropagation();if(!requireAccount('save homes'))return;btn.classList.toggle('saved');btn.textContent=btn.classList.contains('saved')?'♥':'♡';showToast(btn.classList.contains('saved')?'Saved to your wishlist':'Removed from wishlist')}));grid.querySelectorAll('.listing-card').forEach(card=>card.addEventListener('click',e=>{if(e.target.closest('.heart'))return;void openListingDetails({id:card.dataset.listingId})}))}
-async function loadListings(filters={}){if(!grid)return;grid.innerHTML='<div class="feed-empty">Finding published homes…</div>';try{const params=new URLSearchParams(filters);const result=await apiJson(`/api/listings/discover?${params}`);const live=Array.isArray(result.listings)?result.listings:[];currentListings=(live.length?live:listings).slice(0,8);render(document.querySelector('.chip.active')?.dataset.filter||'all')}catch(error){currentListings=listings;render(document.querySelector('.chip.active')?.dataset.filter||'all')}}
+let homeListingController;
+async function loadListings(filters={}){
+  if(!grid)return;
+  homeListingController?.abort();
+  const controller=new AbortController();
+  homeListingController=controller;
+  grid.innerHTML='<div class="feed-empty">Finding published homes…</div>';
+  try{
+    const params=new URLSearchParams(filters);
+    const result=await apiJson(`/api/listings/discover?${params}`,{signal:controller.signal});
+    if(controller.signal.aborted)return;
+    const live=Array.isArray(result.listings)?result.listings:[];
+    currentListings=(live.length?live:listings).slice(0,8);
+    render(document.querySelector('.chip.active')?.dataset.filter||'all');
+  }catch(error){
+    if(controller.signal.aborted||error.name==='AbortError')return;
+    currentListings=listings;
+    render(document.querySelector('.chip.active')?.dataset.filter||'all');
+  }
+}
 let toastTimer;
 function showToast(message,type='success'){
   if(!toast)return;
@@ -298,7 +351,49 @@ document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',(
 document.querySelector('#discoverAction').addEventListener('click',openDiscover);
 function searchLabel(type){return {estate:'Homes',location:'Homes near',price:'Homes under',agent:'Agents',tenant:'Tenants'}[type]||'Search results'}
 async function runSearch(){const input=document.querySelector('#locationInput'),type=document.querySelector('#searchType').value,query=input.value.trim();const valid=type==='price'?/^\$?\s*\d[\d,\s]*(\.\d+)?$/.test(query):query.length>=2;if(!valid){showToast(type==='price'?'Enter a maximum price, such as 1200':'Enter at least two characters to search');input.focus();return}if(['estate','location','price'].includes(type)){const normalized=query.toLowerCase().replace(/[tzs$,\s]/g,'');const matches=currentListings.filter(item=>{const text=[item.title,item.city,item.neighborhood,item.propertyType].join(' ').toLowerCase();return type==='price'?Number(item.nightlyPrice||item.monthlyPrice||item.yearlyPrice)<=Number(normalized):text.includes(query.toLowerCase())});openModal(`<p class="eyebrow">Makazi Go search</p><h2>${matches.length?`${searchLabel(type)} “${escapeHtml(query)}”`:'No homes found'}</h2>${matches.length?matches.map(item=>`<button class="search-result" data-demo-listing="${escapeHtml(item.id)}"><img src="${safeMediaUrl(item.coverUrl)}" alt=""><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.city)} · ${item.currency} ${Number(item.nightlyPrice||item.monthlyPrice||item.yearlyPrice).toLocaleString()} · ${item.bedrooms} bedrooms</small></span></button>`).join(''):'<p class="empty-copy">Try another neighborhood, city, or price range. Makazi Go will show matching published homes here.</p>'}`);content.querySelectorAll('[data-demo-listing]').forEach(button=>button.onclick=()=>{closeModal();void openListingDetails({id:button.dataset.demoListing})});return}try{const result=await apiJson(`/api/search?type=${encodeURIComponent(type)}&q=${encodeURIComponent(query)}`);if(type==='agent'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Sorted by relevance, active listings, ratings, trusted engagement, and delegated account labels.</p>${result.agents.length?result.agents.map(agent=>`<button class="search-result" data-agent-id="${agent.id}"><img src="${safeMediaUrl(agent.profileImageUrl)}" alt=""><span><strong>${agent.firstName} ${agent.lastName}${agent.badgeLabel?` ${agentBadge(agent.badgeLabel)}`:''}</strong><small>${agent.agencyName?`${agent.agencyName} · `:''}${agent.subagentLabel?`Sub-agent · ${agent.subagentLabel}`:(agent.bio||'Makazi Go agent')} · ${agent.followers||0} followers</small></span></button>`).join(''):'<p class="empty-copy">No agents or sub-agents matched that search. Try a full name, account label, or part of their bio.</p>'}`);content.querySelectorAll('[data-agent-id]').forEach(button=>button.onclick=()=>{closeModal();openAgentProfile(button.dataset.agentId,false)})}else if(type==='tenant'){openModal(`<p class="eyebrow">People</p><h2>${searchLabel(type)} matching “${query}”</h2><p class="search-note">Tenant discovery is private to agent accounts.</p>${result.tenants.length?result.tenants.map(tenant=>`<div class="search-result">${avatarMarkup(tenant.avatarUrl,`${tenant.firstName} ${tenant.lastName}`)}<span><strong>${tenant.firstName} ${tenant.lastName}</strong><small>${tenant.city||'Registered Makazi Go tenant'}</small></span></div>`).join(''):'<p class="empty-copy">No tenants matched that name.</p>'}`)}else{openModal(`<p class="eyebrow">Makazi Go search</p><h2>${type==='price'?`${searchLabel(type)} ${query.replace(/[$,\s]/g,'')}`:`${searchLabel(type)} “${query}”`}</h2><p class="search-note">Ranked by relevance, location, freshness, ratings, saves, views, and likes.</p>${result.listings.length?result.listings.map(listing=>`<button class="search-result listing-result" data-listing='${JSON.stringify(listing).replace(/'/g,'&#39;')}'><img src="${listing.coverUrl||DEFAULT_AGENT_AVATAR}" alt=""><span><strong>${listing.title}</strong><small>${listing.city} · ${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'} · ${listing.rating?`★ ${listing.rating}`:'New listing'}</small></span></button>`).join(''):'<p class="empty-copy">No published homes matched. Try a nearby location, property type, or a higher price.</p>'}`);content.querySelectorAll('[data-listing]').forEach(button=>button.onclick=()=>{const listing=JSON.parse(button.dataset.listing);closeModal();openListing({...listing,title:listing.title,location:listing.city,price:`${listing.currency} ${listing.nightlyPrice||listing.monthlyPrice||listing.yearlyPrice||'Contact agent'}`,rating:listing.rating||'New',reviews:listing.reviewCount||0,image:listing.coverUrl||DEFAULT_AGENT_AVATAR,tag:'Search result'})})}}catch(error){showToast(error.message)}}
-document.querySelector('#searchBtn').onclick=runSearch;document.querySelector('#locationInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();runSearch()}});document.querySelector('#exploreAgentsNav')?.addEventListener('click',event=>{event.preventDefault();openDiscover()});document.querySelector('#searchType').addEventListener('change',event=>{const input=document.querySelector('#locationInput'),dates=document.querySelector('.search-field.dates'),type=event.target.value,people=type==='agent'||type==='tenant';input.placeholder=type==='price'?'Maximum price, e.g. 1200':type==='agent'?'Search agent or agency name':type==='tenant'?'Search tenant name or city':'Search homes, places, or property types';dates.hidden=people;document.querySelector('#dateInput').disabled=people});
+let homeSearchTimer;
+let homeSearchController;
+runSearch=async()=>{
+  clearTimeout(homeSearchTimer);
+  homeListingController?.abort();
+  homeSearchController?.abort();
+  const controller=new AbortController();
+  homeSearchController=controller;
+  const params=new URLSearchParams();
+  const propertyType=document.querySelector('#searchType').value;
+  const query=document.querySelector('#locationInput').value.trim().replace(/\s+/g,' ');
+  const rentalMode=document.querySelector('#dateInput').value;
+  if(propertyType)params.set('propertyType',propertyType);
+  if(query)params.set('q',query);
+  if(rentalMode)params.set('rentalMode',rentalMode);
+  const url=new URL(location.href);
+  for(const name of ['q','propertyType','rentalMode'])url.searchParams.delete(name);
+  for(const [name,value] of params)url.searchParams.set(name,value);
+  history.replaceState(history.state,'',`${url.pathname}${url.search}${url.hash}`);
+  grid.setAttribute('aria-live','polite');
+  grid.innerHTML='<div class="feed-empty" role="status">Finding matching homes...</div>';
+  try{
+    const result=await apiJson(`/api/listings/discover?${params}`,{signal:controller.signal});
+    if(controller.signal.aborted)return;
+    currentListings=Array.isArray(result.listings)?result.listings:[];
+    document.querySelector('.chip.active')?.classList.remove('active');
+    document.querySelector('.chip[data-filter="all"]')?.classList.add('active');
+    render('all');
+  }catch(error){
+    if(error.name==='AbortError')return;
+    currentListings=[];
+    render('all');
+    showToast(error.message,'error');
+  }
+};
+const scheduleHomeSearch=()=>{clearTimeout(homeSearchTimer);homeListingController?.abort();homeSearchTimer=setTimeout(()=>void runSearch(),260)};
+document.querySelector('#searchBtn').onclick=()=>void runSearch();
+document.querySelector('#locationInput').addEventListener('input',scheduleHomeSearch);
+document.querySelector('#locationInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void runSearch()}});
+document.querySelector('#searchType').addEventListener('change',()=>void runSearch());
+document.querySelector('#dateInput').addEventListener('change',()=>void runSearch());
+document.querySelector('#exploreAgentsNav')?.addEventListener('click',event=>{event.preventDefault();openDiscover()});
+document.querySelector('#searchType').addEventListener('change',()=>{document.querySelector('#locationInput').placeholder='City, neighbourhood, or property name'});
 updatePersonalGreeting(null);const requestedParams=new URLSearchParams(location.search),requestedAgentId=requestedParams.get('agent'),requestedView=requestedParams.get('view'),requestedListingId=requestedParams.get('listing'),requestedMessageAgent=requestedParams.get('messageAgent'),requestedBook=requestedParams.get('book')==='1',requestedAuth=requestedParams.get('auth'),requestedDiscover=requestedParams.get('discover')==='1'||location.pathname==='/explore';loadListings();(sharedListingLink?Promise.resolve({user:null,sharedLinkGuest:true}):apiJson("/api/auth/me"))
   .then(async (result) => {
     updatePersonalGreeting(result.user);
