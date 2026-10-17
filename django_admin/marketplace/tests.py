@@ -180,3 +180,8 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'List a property')
         self.assertContains(response, 'Submit for review')
+        self.assertContains(response, 'listing-wizard.js')
+        self.assertContains(response, 'data-agent-listing-form')
+        self.assertContains(response, 'value="apartment"')
+        self.assertContains(response, 'value="land_plot"')
+        self.assertContains(response, 'value="commercial"')

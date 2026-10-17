@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="{% static 'marketplace/home.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/auth.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/workspace.css' %}">
+    <link rel="stylesheet" href="{% static 'marketplace/listing-wizard.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -43,6 +44,7 @@
   <footer class="site-footer"><a class="brand" href="/" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a><p>Find your place. Make your move.</p><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/properties/">Properties</a><a href="/agents/">Agents</a><a href="/login/">Sign in</a><a href="/signup/">Create account</a><a href="/admin/">Admin</a></nav></footer>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
   <script src="{% static 'marketplace/auth-wizard.js' %}" defer></script>
+  <script src="{% static 'marketplace/listing-wizard.js' %}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
