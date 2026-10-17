@@ -973,7 +973,7 @@ app.get('/api/discover', async (req, res, next) => {
     const locationLike = `%${location}%`;
     const [listings] = await pool.execute(
       `SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
-        l.average_rating rating, l.review_count reviewCount,
+        l.agent_user_id agentId, l.average_rating rating, l.review_count reviewCount,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl,
         ROUND(
           (CASE WHEN ? <> "" AND (l.title LIKE ? OR l.description LIKE ? OR l.city LIKE ? OR l.neighborhood LIKE ?) THEN 8 ELSE 0 END) +

@@ -4,6 +4,22 @@ const filters = document.querySelector('#listingFilters');
 const resultNote = document.querySelector('#listingsResultNote');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const imageUrl = value => { const source = /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg'; return window.cloudinaryAssetUrl?.(source) || source; };
+const categoryCopy = {
+  house: ['Homes', 'Homes for every stage of life', 'Browse published houses from Makazi Go agents.'],
+  apartment: ['Apartments', 'Apartments for city living', 'Browse published apartments from Makazi Go agents.'],
+  land: ['Land', 'Land ready for your plans', 'Browse published land listings and contact the responsible agents.'],
+  hotel: ['Hotels', 'Stays with a warm welcome', 'Browse hotels and guesthouses posted by Makazi Go agents.'],
+  commercial: ['Commercial', 'Space for your business', 'Browse published commercial properties and contact their agents.']
+};
+function updateCategoryHeading() {
+  const category = filters.elements.propertyType.value;
+  const [label, title, description] = categoryCopy[category] || ['Properties', 'Find a place that fits your life.', 'Browse verified homes, apartments, land, hotels, and commercial spaces across Tanzania.'];
+  const heading = document.querySelector('.listings-page-heading');
+  heading.querySelector('.eyebrow').textContent = `Makazi Go ${label.toLowerCase()}`;
+  heading.querySelector('h1').textContent = title;
+  heading.querySelector('p:not(.eyebrow)').textContent = description;
+  document.title = `${label} | Makazi Go`;
+}
 const money = listing => {
   const value = listing.nightlyPrice || listing.monthlyPrice || listing.yearlyPrice || 0;
   const period = listing.nightlyPrice ? 'night' : listing.monthlyPrice ? 'month' : 'year';
@@ -28,15 +44,19 @@ function cardMarkup(listing) {
   const cover = imageUrl(listing.coverUrl);
   const enquiryOnly = ['land', 'commercial'].includes(listing.propertyType);
   const facts = enquiryOnly ? 'Contact agent for area and terms' : `${listing.bedrooms || 0} bedrooms · Up to ${listing.maxGuests || 0} guests`;
+  const agentName = [listing.agentFirstName, listing.agentLastName].filter(Boolean).join(' ') || listing.agencyName || 'Makazi Go agent';
+  const agent = listing.agentId ? `<a class="all-listing-agent" href="/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}" data-agent-link>${escapeHtml(agentName)}</a>` : `<span class="all-listing-agent">${escapeHtml(agentName)}</span>`;
   return `<article class="all-listing-card" data-listing-id="${escapeHtml(listing.id)}">
     <button class="all-listing-cover" type="button" aria-label="Open ${escapeHtml(listing.title)}"><img src="${escapeHtml(cover)}" alt="${escapeHtml(listing.title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'"><span class="cover-label">View property</span></button>
-    <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p></div>
+    <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p><p class="all-listing-agent-row">Posted by ${agent}</p></div>
   </article>`;
 }
 async function loadListings(event) {
   event?.preventDefault();
   const values = new FormData(filters);
   const query = new URLSearchParams([...values.entries()].filter(([, value]) => value));
+  updateCategoryHeading();
+  history.replaceState({}, '', `${location.pathname}${query.size ? `?${query}` : ''}`);
   grid.innerHTML = '<p class="feed-empty">Finding Makazi Go properties...</p>';
   try {
     const result = await api(`/api/listings/discover?${query}`);
@@ -44,6 +64,7 @@ async function loadListings(event) {
     resultNote.textContent = `${listings.length} listing${listings.length === 1 ? '' : 's'} available`;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', () => openDetail(card.dataset.listingId)));
+    grid.querySelectorAll('[data-agent-link]').forEach(link => link.addEventListener('click', event => event.stopPropagation()));
   } catch (error) {
     resultNote.textContent = '';
     grid.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p>`;
@@ -68,7 +89,8 @@ function detailMarkup(result) {
 }
 async function getCsrf() { return (await api('/api/auth/csrf')).token; }
 async function openDetail(id) {
-  location.href = `/listing-detail.html?listing=${encodeURIComponent(id)}`;
+  const returnTo = `${location.pathname}${location.search}`;
+  location.href = `/listing-detail.html?listing=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`;
 }
 function wireDetail(listing) {
   document.querySelector('#backToListings').onclick = () => { history.pushState({}, '', '/listings.html'); detail.hidden = true; filters.hidden = false; resultNote.hidden = false; grid.hidden = false; loadListings(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -81,6 +103,13 @@ function wireDetail(listing) {
   document.querySelector('#reportListing').onclick = async () => { const reason = window.prompt('Tell Makazi Go why you are reporting this listing:'); if (!reason) return; try { await api('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await getCsrf() }, body: JSON.stringify({ entityType: 'listing', entityId: listing.id, reason: 'other', details: reason }) }); showToast('Report sent to Makazi Go administrators'); } catch (error) { showToast(error.message); } };
 }
 filters.addEventListener('submit', loadListings);
+const initialFilters = new URLSearchParams(location.search);
+for (const fieldName of ['q', 'propertyType', 'rentalMode', 'sort']) {
+  const value = initialFilters.get(fieldName);
+  const control = filters.elements.namedItem(fieldName);
+  if (value && control && [...control.options].some(option => option.value === value)) control.value = value;
+}
+updateCategoryHeading();
 window.addEventListener('popstate', () => { if (new URLSearchParams(location.search).get('listing')) openDetail(new URLSearchParams(location.search).get('listing')); else document.querySelector('#backToListings')?.click(); });
 const initialListing = new URLSearchParams(location.search).get('listing');
 if (initialListing) openDetail(initialListing); else loadListings();

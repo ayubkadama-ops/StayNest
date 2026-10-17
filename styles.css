@@ -2960,6 +2960,9 @@ body > .topbar:has(+ .topbar) {
 .all-listing-copy p { margin: 0; color: var(--muted); font-size: 13px; }
 .all-listing-copy > strong { display: block; margin-top: 9px; font-size: 14px; }
 .all-listing-meta { margin-top: 5px !important; }
+.all-listing-agent-row { margin-top: 9px !important; color: var(--muted); font-size: 12px !important; }
+.all-listing-agent { color: var(--brand-forest); font-weight: 700; }
+.all-listing-agent:hover { text-decoration: underline; }
 
 .listing-detail-page { max-width: 1120px; margin: 0 auto; }
 .listing-back-button { border: 0; padding: 0; margin-bottom: 20px; color: var(--ink); background: transparent; font-weight: 700; cursor: pointer; }

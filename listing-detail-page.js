@@ -42,7 +42,13 @@ function markup(result) {
     </div>`;
 }
 function wire(listing) {
-  document.querySelector('#backToListings').onclick = () => { location.href = '/listings.html'; };
+  const returnParameter = new URLSearchParams(location.search).get('returnTo') || '/listings.html';
+  let returnTo = '/listings.html';
+  try {
+    const target = new URL(returnParameter, location.origin);
+    if (target.origin === location.origin && target.pathname === '/listings.html') returnTo = `${target.pathname}${target.search}`;
+  } catch {}
+  document.querySelector('#backToListings').onclick = () => { location.href = returnTo; };
   document.querySelector('#viewAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}`; };
   document.querySelector('#requestBooking').onclick = () => { location.href = ['land', 'commercial'].includes(listing.propertyType) ? `/index.html?messageAgent=${encodeURIComponent(listing.agentId || '')}` : `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
   document.querySelector('#shareListing').onclick = async () => {

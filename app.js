@@ -23,24 +23,10 @@ function mountPropertyCategories(){
   section.setAttribute('aria-label','Browse property categories');
   section.innerHTML=`<div class="property-category-inner"><div class="property-category-heading"><div><p class="eyebrow">Find your place</p><h2>Explore by property type</h2></div><button class="property-category-reset" type="button" data-property-category-reset>All properties</button></div><nav class="property-category-nav" aria-label="Property type">${propertyCategoryOptions.map(({value,label,caption,image,icon})=>`<button type="button" class="property-category" data-property-category="${value}" aria-pressed="false"><span class="property-category-photo"><img src="${image}" alt="" loading="lazy"></span><span class="property-category-shade"></span><span class="property-category-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><span class="property-category-copy"><strong>${label}</strong><small>${caption}</small></span></button>`).join('')}</nav></div>`;
   hero.after(section);
-  const filterByCategory=async propertyType=>{
-    section.querySelectorAll('[data-property-category]').forEach(item=>{
-      const active=item.dataset.propertyCategory===propertyType;
-      item.classList.toggle('is-active',active);
-      item.setAttribute('aria-pressed',String(active));
-    });
-    try{
-      const params=new URLSearchParams(propertyType?{propertyType}:{});
-      const result=await apiJson(`/api/listings/discover?${params}`);
-      currentListings=Array.isArray(result.listings)?result.listings:listings.filter(item=>!propertyType||item.propertyType===propertyType);
-    }catch{
-      currentListings=listings.filter(item=>!propertyType||item.propertyType===propertyType);
-    }
-    render(document.querySelector('.chip.active')?.dataset.filter||'all');
-    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
-  };
-  section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',()=>filterByCategory(button.dataset.propertyCategory)));
-  section.querySelector('[data-property-category-reset]').addEventListener('click',()=>filterByCategory(''));
+  section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',()=>{
+    location.assign(`/listings.html?propertyType=${encodeURIComponent(button.dataset.propertyCategory)}`);
+  }));
+  section.querySelector('[data-property-category-reset]').addEventListener('click',()=>location.assign('/listings.html'));
 }
 mountPropertyCategories();
 const DEFAULT_AGENT_AVATAR='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"%3E%3Crect width="240" height="240" fill="%23dfe9e2"/%3E%3Ccircle cx="120" cy="86" r="42" fill="%2372807b"/%3E%3Cpath d="M42 222c8-55 35-82 78-82s70 27 78 82" fill="%2372807b"/%3E%3C/svg%3E';
