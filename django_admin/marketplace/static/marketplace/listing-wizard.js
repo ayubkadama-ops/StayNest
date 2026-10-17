@@ -10,20 +10,25 @@
   const field = name => form.elements.namedItem(name);
   const label = name => fieldLabels.get(name);
   const geoFields = grid.querySelector('.geo-fields');
+  const locationMap = form.querySelector('[data-listing-map]');
+  const locationStatus = form.querySelector('[data-geocode-status]');
   const submit = form.querySelector('[type="submit"]');
   const formMessage = form.querySelector('[data-form-message]');
   const category = field('structureType');
+  let map;
+  let locationMarker;
   const steps = [
     { name: 'Property type', title: 'What are you listing?' },
     { name: 'Location', title: 'Where is the property?' },
     { name: 'Details and price', title: 'Tell customers what is available' },
+    { name: 'Amenities', title: 'What makes this property stand out?' },
     { name: 'Documents and photos', title: 'Add verification and media' },
     { name: 'Review', title: 'Review your listing' }
   ];
 
   const wizard = document.createElement('div');
   wizard.className = 'listing-wizard';
-  wizard.innerHTML = '<div class="listing-wizard-head"><p class="eyebrow">Agent listing</p><strong data-wizard-step-label></strong></div><div class="listing-wizard-progress" role="progressbar" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1"><span></span></div>';
+  wizard.innerHTML = `<div class="listing-wizard-head"><p class="eyebrow">Agent listing</p><strong data-wizard-step-label></strong></div><div class="listing-wizard-progress" role="progressbar" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="1"><span></span></div>`;
   const progress = wizard.querySelector('.listing-wizard-progress');
   const progressFill = progress.querySelector('span');
   const stepLabel = wizard.querySelector('[data-wizard-step-label]');
@@ -45,8 +50,9 @@
   const categoriesPanel = panels[0];
   const locationPanel = panels[1];
   const detailsPanel = panels[2];
-  const uploadPanel = panels[3];
-  const reviewPanel = panels[4];
+  const amenitiesPanel = panels[3];
+  const uploadPanel = panels[4];
+  const reviewPanel = panels[5];
 
   move(categoriesPanel, ['structureType']);
   const categoryHelp = document.createElement('p');
@@ -64,6 +70,11 @@
   const privacyLabel = document.createElement('label');
   privacyLabel.innerHTML = 'Privacy type<select name="privacyType"><option value="">Not applicable</option><option value="entire_place">Entire place</option><option value="private_room">Private room</option><option value="shared_room">Shared room</option></select>';
   stayFields.append(privacyLabel);
+  const apartmentBedsLabel = document.createElement('label');
+  apartmentBedsLabel.innerHTML = 'Number of beds<input name="beds" type="number" min="0" max="99" step="1" placeholder="e.g. 2">';
+  apartmentBedsLabel.dataset.apartmentBeds = '';
+  apartmentBedsLabel.hidden = true;
+  stayFields.append(apartmentBedsLabel);
   const landFields = document.createElement('div');
   landFields.className = 'listing-wizard-field-grid';
   landFields.dataset.landFields = '';
@@ -81,6 +92,37 @@
   priceFields.dataset.priceFields = '';
   move(priceFields, ['nightlyPrice', 'monthlyPrice', 'yearlyPrice']);
   detailsPanel.append(priceFields);
+  const amenityOptions = {
+    house: ['Garden', 'Private yard', 'Fenced property', 'Family kitchen', 'Parking', 'Storage', 'Balcony', 'Backup water'],
+    apartment: ['Balcony', 'Elevator', 'Secure entry', 'Backup generator', 'Swimming pool', 'Gym', 'Parking', 'Air conditioning', 'Laundry'],
+    serviced_apartment: ['Balcony', 'Elevator', 'Secure entry', 'Backup generator', 'Swimming pool', 'Gym', 'Parking', 'Housekeeping', 'Wi-Fi'],
+    room: ['Shared kitchen', 'Shared bathroom', 'Secure entry', 'Wi-Fi', 'Laundry', 'Parking'],
+    hotel: ['Restaurant', 'Swimming pool', 'Conference room', 'Security', 'Parking', 'Generator', 'Laundry', 'Wi-Fi'],
+    land_plot: ['Road access', 'Water connection', 'Electricity nearby', 'Fenced plot', 'Surveyed title', 'Drainage'],
+    commercial: ['Street frontage', 'Parking', 'Loading access', 'Power backup', 'Fiber internet', 'Security', 'Air conditioning', 'Public transport']
+  };
+  const amenityChoices = document.createElement('div');
+  amenityChoices.className = 'listing-amenity-grid';
+  amenitiesPanel.append(amenityChoices);
+  const amenitiesField = field('amenities');
+  const renderAmenities = () => {
+    const selected = new Set(String(amenitiesField.value || '').split(',').map(item => item.trim()).filter(Boolean));
+    amenityChoices.replaceChildren();
+    for (const amenity of amenityOptions[category.value] || amenityOptions.house) {
+      const choice = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = amenity;
+      checkbox.checked = selected.has(amenity);
+      checkbox.addEventListener('change', () => {
+        amenitiesField.value = [...amenityChoices.querySelectorAll('input:checked')].map(input => input.value).join(',');
+      });
+      const text = document.createElement('span');
+      text.textContent = amenity;
+      choice.append(checkbox, text);
+      amenityChoices.append(choice);
+    }
+  };
   move(uploadPanel, ['document', 'media']);
   const documentTypeLabel = document.createElement('label');
   documentTypeLabel.innerHTML = 'Registration document type<select name="documentType" required><option value="business_license">Business or property registration</option><option value="national_id">National ID</option><option value="passport">Passport</option><option value="drivers_license">Driver license</option></select>';
@@ -105,6 +147,32 @@
   form.querySelectorAll('[required]').forEach(control => { control.required = false; });
   const isLease = () => ['land_plot', 'commercial'].includes(category.value);
   let previousCategory = category.value;
+  const setMapPin = (latitude, longitude, message = 'Pin placed') => {
+    field('latitude').value = latitude;
+    field('longitude').value = longitude;
+    if (locationMarker) locationMarker.setLatLng([latitude, longitude]);
+    else {
+      locationMarker = window.L.marker([latitude, longitude], { draggable: true }).addTo(map);
+      locationMarker.on('dragend', () => {
+        const point = locationMarker.getLatLng();
+        setMapPin(point.lat, point.lng, 'Pin adjusted');
+      });
+    }
+    locationStatus.textContent = `${message}: ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}`;
+  };
+  if (window.L && locationMap) {
+    map = window.L.map(locationMap, { scrollWheelZoom: false }).setView([-6.369, 34.888], 6);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
+    }).addTo(map);
+    map.on('click', event => setMapPin(event.latlng.lat, event.latlng.lng, 'Pin placed'));
+    form.addEventListener('listing:geocode-result', event => {
+      const { latitude, longitude } = event.detail;
+      map.setView([latitude, longitude], 16);
+      setMapPin(latitude, longitude, 'Search result placed. Drag the pin or click the map to adjust');
+    });
+  }
   const updatePriceFields = () => {
     const lease = isLease();
     const rentalTerm = field('rentalMode').value;
@@ -118,7 +186,9 @@
     const lease = isLease();
     const isLand = category.value === 'land_plot';
     const isCommercial = category.value === 'commercial';
+    const isApartment = category.value === 'apartment' || category.value === 'serviced_apartment';
     stayFields.hidden = lease;
+    apartmentBedsLabel.hidden = !isApartment;
     landFields.hidden = !isLand;
     commercialFields.hidden = !isCommercial;
     const changedFromLease = ['land_plot', 'commercial'].includes(previousCategory) && !lease;
@@ -158,9 +228,11 @@
     } else {
       addItem('Rental term', field('rentalMode').selectedOptions[0]?.textContent || 'Not selected');
       addItem('Capacity', `${field('bedrooms').value} bedrooms · ${field('bathrooms').value} bathrooms · ${field('maxGuests').value} guests`);
+      if (category.value === 'apartment' || category.value === 'serviced_apartment') addItem('Beds', field('beds').value);
       addItem('Privacy', field('privacyType').selectedOptions[0]?.textContent);
     }
     addItem('Pricing', [field('nightlyPrice').value && `TZS ${field('nightlyPrice').value} nightly`, field('monthlyPrice').value && `TZS ${field('monthlyPrice').value} monthly`, field('yearlyPrice').value && `TZS ${field('yearlyPrice').value} yearly`].filter(Boolean).join(' · '));
+    addItem('Amenities and features', amenitiesField.value);
     addItem('Registration document', field('document').files[0]?.name);
     addItem('Photos or videos', `${field('media').files.length} selected · at least 5 required`);
   };
@@ -173,6 +245,8 @@
     back.disabled = index === 0;
     next.hidden = index === steps.length - 1;
     if (index === steps.length - 1) updateSummary();
+    if (index === 1 && map) setTimeout(() => map.invalidateSize(), 100);
+    if (index === 3) renderAmenities();
     wizard.scrollIntoView({ block: 'nearest', behavior: 'auto' });
   };
   const requiredNames = index => {
@@ -184,7 +258,7 @@
       if (category.value === 'commercial') names.push('floorArea', 'commercialUse');
       return names;
     }
-    if (index === 3) return ['document'];
+    if (index === 4) return ['document'];
     return [];
   };
   const validateStep = index => {
@@ -230,7 +304,7 @@
         return false;
       }
     }
-    if (index === 3) {
+    if (index === 4) {
       if (!field('document').files.length) return false;
       if (field('media').files.length < 5) {
         formMessage.textContent = 'Add at least five property photos or videos to continue.';
@@ -263,7 +337,7 @@
   });
   back.addEventListener('click', () => showStep(Math.max(currentStep - 1, 0)));
   form.addEventListener('submit', event => {
-    if (currentStep !== steps.length - 1 || !validateStep(3)) {
+    if (currentStep !== steps.length - 1 || !validateStep(4)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       return;

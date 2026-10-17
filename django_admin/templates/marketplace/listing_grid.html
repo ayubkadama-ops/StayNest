@@ -1,1 +1,29 @@
-<div class="listing-grid">{% for listing in listings %}<article class="listing-card"><a class="listing-image" href="/properties/{{ listing.id }}/">{% if listing.coverUrl %}<img src="{{ listing.coverUrl }}" alt="{{ listing.title }}" loading="lazy">{% else %}<span class="image-placeholder">Makazi Go</span>{% endif %}<span class="type-label">{{ listing.propertyType|default:'property'|title }}</span></a><div class="listing-info"><p class="listing-location">{{ listing.neighborhood|default:listing.city }}{% if listing.neighborhood and listing.city %}, {{ listing.city }}{% endif %}</p><h2><a href="/properties/{{ listing.id }}/">{{ listing.title }}</a></h2>{% if listing.propertyType == 'land' or listing.propertyType == 'commercial' %}<p class="listing-facts">Contact agent for area and terms</p>{% else %}<p class="listing-facts">{{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms</p>{% endif %}<p class="listing-price">{% if listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p></div></article>{% empty %}<p class="empty-state">No published properties match this search yet. Try another category or location.</p>{% endfor %}</div>
+<div class="listing-grid">
+{% for listing in listings %}
+<article class="listing-card">
+	<a class="listing-image" href="{% url 'marketplace:property-detail' listing.id %}">
+		{% if listing.coverUrl %}<img src="{{ listing.coverUrl }}" alt="{{ listing.title }}" loading="lazy">{% else %}<span class="image-placeholder">Makazi Go</span>{% endif %}
+		<span class="type-label">{{ listing.propertyType|default:'property'|title }}</span>
+	</a>
+	<div class="listing-info">
+		<p class="listing-location">{{ listing.neighborhood|default:listing.city }}{% if listing.neighborhood and listing.city %}, {{ listing.city }}{% endif %}</p>
+		<h2><a href="{% url 'marketplace:property-detail' listing.id %}">{{ listing.title }}</a></h2>
+		{% if listing.propertyType == 'house' %}
+			<p class="listing-facts">Home · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms · {{ listing.maxGuests|default:0 }} guests</p>
+		{% elif listing.propertyType == 'apartment' %}
+			<p class="listing-facts">Apartment · {{ listing.beds|default:listing.bedrooms|default:0 }} beds · {{ listing.bathrooms|default:0 }} bathroom{{ listing.bathrooms|pluralize }} · {% if listing.privacyType == 'private_room' %}Private room{% elif listing.privacyType == 'shared_room' %}Shared room{% else %}Entire place{% endif %}</p>
+		{% elif listing.propertyType == 'land' %}
+			<p class="listing-facts">Land parcel · area and zoning in listing details</p>
+		{% elif listing.propertyType == 'commercial' %}
+			<p class="listing-facts">Commercial space · use and floor area in listing details</p>
+		{% elif listing.propertyType == 'hotel' %}
+			<p class="listing-facts">Hotel or guesthouse · {{ listing.maxGuests|default:0 }} guest capacity</p>
+		{% else %}
+			<p class="listing-facts">{{ listing.structureType|default:listing.propertyType|title }} · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms</p>
+		{% endif %}
+		{% if listing.amenityList %}<p class="listing-highlights">{% for amenity in listing.amenityList|slice:':3' %}{% if not forloop.first %} · {% endif %}{{ amenity }}{% endfor %}</p>{% endif %}
+		<p class="listing-price">{% if listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
+	</div>
+</article>
+{% empty %}<p class="empty-state">No published properties match this search yet. Try another category or location.</p>{% endfor %}
+</div>

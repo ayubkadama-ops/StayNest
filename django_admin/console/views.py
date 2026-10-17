@@ -10,10 +10,11 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from urllib.parse import urlparse
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'access', 'agents', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
-SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'timezone', 'maintenance_mode', 'maintenance_message'}
+SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
 ROLES = {'tenant', 'agent', 'administrator'}
 
 def rows(sql, params=()):
@@ -87,7 +88,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     try:
         if section == 'overview':
             data['stats'] = {
@@ -124,7 +125,26 @@ def dashboard(request):
         elif section == 'audit':
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
-            data['settings'] = rows('SELECT setting_key,setting_value,updated_at FROM app_settings ORDER BY setting_key')
+            all_settings = rows('SELECT setting_key,setting_value,updated_at FROM app_settings ORDER BY setting_key')
+            footer_labels = {
+                'contact_email': 'Public contact email',
+                'contact_phone': 'Public contact phone',
+                'social_facebook_url': 'Facebook page URL',
+                'social_instagram_url': 'Instagram profile URL',
+                'social_linkedin_url': 'LinkedIn page URL',
+                'social_tiktok_url': 'TikTok profile URL',
+                'social_whatsapp_url': 'WhatsApp link',
+                'social_youtube_url': 'YouTube channel URL',
+            }
+            data['footer_settings'] = []
+            data['settings'] = []
+            for setting in all_settings:
+                key = setting['setting_key']
+                if key in footer_labels:
+                    setting['setting_label'] = footer_labels[key]
+                    data['footer_settings'].append(setting)
+                else:
+                    data['settings'].append(setting)
             data['features'] = rows('SELECT feature_key,enabled,description FROM feature_flags ORDER BY feature_key')
             data['templates'] = rows('SELECT template_key,subject FROM email_templates ORDER BY template_key')
             data['rules'] = rows('SELECT id,rule_type,cidr,label,enabled FROM admin_ip_rules ORDER BY created_at DESC')
@@ -225,6 +245,7 @@ def action(request, action):
                 if key not in SETTING_KEYS: raise ValueError('Unknown marketplace setting')
                 if key == 'maintenance_mode' and value not in {'0', '1'}: raise ValueError('Invalid maintenance mode value')
                 if len(value) > 5000: raise ValueError('Setting value is too long')
+                if key.startswith('social_') and value and (urlparse(value).scheme != 'https' or not urlparse(value).netloc): raise ValueError('Social links must use a secure https URL')
                 execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})
             else:
                 raise ValueError('Unknown admin action')

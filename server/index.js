@@ -107,6 +107,12 @@ const adminSettingKeys = {
   site_logo_url: 'siteLogoUrl',
   contact_email: 'contactEmail',
   contact_phone: 'contactPhone',
+  social_facebook_url: 'socialFacebookUrl',
+  social_instagram_url: 'socialInstagramUrl',
+  social_linkedin_url: 'socialLinkedinUrl',
+  social_tiktok_url: 'socialTiktokUrl',
+  social_whatsapp_url: 'socialWhatsappUrl',
+  social_youtube_url: 'socialYoutubeUrl',
   timezone: 'timezone',
   maintenance_mode: 'maintenanceMode',
   maintenance_message: 'maintenanceMessage'
@@ -126,6 +132,7 @@ async function loadRuntimeConfig() {
 async function ensureSchemaMigrations() {
   const migrationFiles = [
     'admin-control-migration.sql',
+    'footer-social-migration.sql',
     'agent-migration.sql',
     'agent-search-migration.sql',
     'founder-approval-migration.sql',
@@ -314,15 +321,23 @@ app.use(async (req, res, next) => {
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'staynest-api' }));
-app.get('/api/public-config', (_req, res) => res.json({
-  siteName: runtimeConfig.siteName,
-  siteLogoUrl: runtimeConfig.siteLogoUrl,
-  contactEmail: runtimeConfig.contactEmail,
-  contactPhone: runtimeConfig.contactPhone,
-  timezone: runtimeConfig.timezone,
-  maintenanceMode: runtimeConfig.maintenanceMode,
-  maintenanceMessage: runtimeConfig.maintenanceMessage
-}));
+app.get('/api/public-config', async (_req, res, next) => {
+  try {
+    const publicKeys = ['contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url'];
+    const [rows] = await pool.query('SELECT setting_key,setting_value FROM app_settings WHERE setting_key IN (?)', [publicKeys]);
+    const settings = Object.fromEntries(rows.map(row => [row.setting_key, row.setting_value]));
+    res.json({
+      siteName: runtimeConfig.siteName,
+      siteLogoUrl: runtimeConfig.siteLogoUrl,
+      contactEmail: settings.contact_email ?? runtimeConfig.contactEmail,
+      contactPhone: settings.contact_phone ?? runtimeConfig.contactPhone,
+      socialLinks: Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith('social_')).map(([key, value]) => [key.slice(7, -4), value])),
+      timezone: runtimeConfig.timezone,
+      maintenanceMode: runtimeConfig.maintenanceMode,
+      maintenanceMessage: runtimeConfig.maintenanceMessage
+    });
+  } catch (error) { next(error); }
+});
 app.get('/api/ready', async (_req, res) => {
   try {
     await assertDatabaseConnection();
@@ -1149,7 +1164,9 @@ app.get('/api/listings/discover', async (req, res, next) => {
     const [listings] = await pool.execute(
       `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
-        l.rental_mode rentalMode, pt.name propertyType, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
+        l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
         l.average_rating rating, l.review_count reviewCount,
         up.first_name agentFirstName, up.last_name agentLastName,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
@@ -1977,7 +1994,8 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
     const [[listing]] = await pool.query(
       `SELECT l.id, l.title, l.description, l.address_line1 address, l.neighborhood, l.city, l.region, l.latitude, l.longitude,
         l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
-        l.average_rating rating, l.review_count reviewCount, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
+        l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,

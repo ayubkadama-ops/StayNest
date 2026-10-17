@@ -53,9 +53,22 @@ def _render(request, page, **context):
     })
 
 
+def _listing_view_model(listing):
+    amenities = listing.get('amenities') or ''
+    listing['amenityList'] = amenities if isinstance(amenities, list) else [item.strip() for item in amenities.split(',') if item.strip()]
+    listing.setdefault('propertyType', 'property')
+    listing.setdefault('structureType', listing['propertyType'])
+    listing.setdefault('bedrooms', 0)
+    listing.setdefault('beds', listing['bedrooms'])
+    listing.setdefault('bathrooms', 0)
+    listing.setdefault('maxGuests', 0)
+    listing.setdefault('privacyType', '')
+    return listing
+
+
 def home(request):
     result = _api_json(request, 'api/listings/discover?limit=8')
-    return _render(request, 'home', listings=result.get('listings', [])[:8], categories=HOME_CATEGORIES)
+    return _render(request, 'home', listings=[_listing_view_model(listing) for listing in result.get('listings', [])[:8]], categories=HOME_CATEGORIES)
 
 
 def properties(request):
@@ -65,7 +78,7 @@ def properties(request):
     }
     query = urlencode({key: value for key, value in filters.items() if value})
     result = _api_json(request, f'api/listings/discover?{query}')
-    return _render(request, 'properties', listings=result.get('listings', []), filters=filters)
+    return _render(request, 'properties', listings=[_listing_view_model(listing) for listing in result.get('listings', [])], filters=filters)
 
 
 def property_detail(request, listing_id):
@@ -73,6 +86,7 @@ def property_detail(request, listing_id):
     listing = result.get('listing')
     if not listing:
         raise Http404('Property not found')
+    listing = _listing_view_model(listing)
     return render(request, 'marketplace/property_detail.html', {
         'listing': listing,
         'media': result.get('media', []),
@@ -233,6 +247,20 @@ def media_proxy(request, media_path):
             response[header] = value
     return response
 
+def vendor_proxy(request, asset_path):
+    allowed_assets = {
+        'leaflet.js', 'leaflet.css', 'images/layers.png', 'images/layers-2x.png',
+        'images/marker-icon.png', 'images/marker-icon-2x.png', 'images/marker-shadow.png',
+    }
+    if asset_path not in allowed_assets:
+        raise Http404('Vendor asset not found')
+    try:
+        with urlopen(Request(_upstream_url(f'vendor/{asset_path}')), timeout=8) as upstream:
+            response = HttpResponse(upstream.read(), content_type=upstream.headers.get_content_type())
+            response['Cache-Control'] = 'public, max-age=86400'
+            return response
+    except (HTTPError, URLError, TimeoutError, OSError):
+        return HttpResponse(status=502)
 
 def _stream_response(upstream):
     try:

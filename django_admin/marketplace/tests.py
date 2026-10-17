@@ -29,6 +29,8 @@ class MarketplaceRoutingTests(SimpleTestCase):
                     self.assertContains(response, 'Makazi Go')
                     self.assertContains(response, 'Browse property categories')
                     self.assertContains(response, '<svg', count=5)
+                    self.assertContains(response, 'data-social-link="instagram"')
+                    self.assertContains(response, 'footer-links')
 
     def test_login_and_signup_are_separate_connected_flows(self):
         login = self.client.get('/login/?next=/account/dashboard/')
@@ -66,6 +68,27 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(response, 'data-auth-required')
         self.assertContains(response, 'id="authPrompt"')
         self.assertNotContains(response, 'data-message-form')
+
+    @patch('marketplace.views._api_json')
+    def test_apartment_detail_shows_distinct_capacity_and_pinned_location(self, api_json):
+        api_json.return_value = {
+            'listing': {
+                'id': 19,
+                'title': 'City apartment',
+                'propertyType': 'apartment',
+                'currency': 'TZS',
+                'beds': 2,
+                'bathrooms': 1,
+                'privacyType': 'entire_place',
+                'latitude': -6.8,
+                'longitude': 39.2,
+            },
+            'media': [],
+        }
+        response = self.client.get('/properties/19/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Apartment · 2 beds · Entire place · 1 bathroom')
+        self.assertContains(response, 'https://www.openstreetmap.org/?mlat=-6.8&amp;mlon=39.2#map=17/-6.8/39.2')
 
     @patch('marketplace.views._api_json')
     def test_land_detail_uses_agent_enquiry_flow(self, api_json):
@@ -185,3 +208,20 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(response, 'value="apartment"')
         self.assertContains(response, 'value="land_plot"')
         self.assertContains(response, 'value="commercial"')
+        self.assertContains(response, 'data-listing-map')
+        self.assertContains(response, 'name="amenities"')
+
+    @patch('marketplace.views.urlopen')
+    def test_leaflet_vendor_proxy_only_serves_allowlisted_assets(self, urlopen):
+        upstream = type('UpstreamResponse', (), {
+            'headers': type('Headers', (), {'get_content_type': lambda self: 'text/javascript'})(),
+            'read': lambda self: b'window.L = true;',
+        })()
+        urlopen.return_value.__enter__.return_value = upstream
+        response = self.client.get('/vendor/leaflet.js')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'window.L = true;')
+        forwarded_request = urlopen.call_args.args[0]
+        self.assertTrue(forwarded_request.full_url.endswith('/vendor/leaflet.js'))
+        rejected = self.client.get('/vendor/../server/index.js')
+        self.assertEqual(rejected.status_code, 404)

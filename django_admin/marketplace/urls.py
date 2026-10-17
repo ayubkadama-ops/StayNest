@@ -17,5 +17,6 @@ urlpatterns = [
     path('agent/', views.agent_workspace, name='agent-workspace'),
     path('api/<path:api_path>', views.api_proxy, name='api-proxy'),
     path('media/<path:media_path>', views.media_proxy, name='media-proxy'),
+    path('vendor/<path:asset_path>', views.vendor_proxy, name='vendor-proxy'),
     path('health/', views.health, name='health'),
 ]

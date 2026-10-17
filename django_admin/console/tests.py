@@ -52,6 +52,46 @@ class AdminConsoleAccessTests(SimpleTestCase):
         )
         audit.assert_called_once()
 
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_edit_a_social_footer_link(self, atomic, execute, audit):
+        self.authenticate_admin()
+        response = self.client.post('/admin/action/setting/', {
+            'key': 'social_instagram_url',
+            'value': 'https://instagram.com/makazigo',
+            'section': 'settings',
+        })
+        self.assertRedirects(response, '/?section=settings', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
+            ['social_instagram_url', 'https://instagram.com/makazigo'],
+        )
+        audit.assert_called_once()
+
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_rejects_insecure_social_footer_links(self, atomic, execute):
+        self.authenticate_admin()
+        response = self.client.post('/admin/action/setting/', {
+            'key': 'social_instagram_url', 'value': 'javascript:alert(1)', 'section': 'settings'
+        })
+        self.assertRedirects(response, '/?section=settings', fetch_redirect_response=False)
+        execute.assert_not_called()
+
+    @patch('console.views.rows', side_effect=[
+        [{'setting_key': 'social_instagram_url', 'setting_value': 'https://instagram.com/makazigo'}],
+        [],
+        [],
+    ])
+    def test_admin_settings_labels_footer_social_controls(self, rows):
+        self.authenticate_admin()
+        response = self.client.get('/admin/?section=settings')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Marketplace footer')
+        self.assertContains(response, 'Instagram profile URL')
+        self.assertContains(response, 'type="url"')
+
     @patch('console.views.rows', side_effect=[
         [{'id': 12, 'email': 'agent@example.test', 'status': 'active', 'mfa_enabled': True, 'name': 'Asha Mrema'}],
         [{'user_id': 12, 'name': 'agent'}],

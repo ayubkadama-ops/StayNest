@@ -14,22 +14,24 @@
     <link rel="stylesheet" href="{% static 'marketplace/auth.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/workspace.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/listing-wizard.css' %}">
+    <link rel="stylesheet" href="{% static 'marketplace/listing-map.css' %}">
+  <link rel="stylesheet" href="{% static 'marketplace/footer.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a>
+    <a class="brand" href="{% url 'marketplace:home' %}" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a>
     <nav class="main-nav" aria-label="Main navigation">
-      <a href="/">Home</a>
-      <a href="/properties/">Properties</a>
-      <a href="/agents/">Agents</a>
-      <a href="/#how">How it works</a>
+      <a href="{% url 'marketplace:home' %}">Home</a>
+      <a href="{% url 'marketplace:properties' %}">Properties</a>
+      <a href="{% url 'marketplace:agents' %}">Agents</a>
+      <a href="{% url 'marketplace:home' %}#how">How it works</a>
     </nav>
-    <div class="header-actions"><a class="host-link" href="/agent/" data-auth-gate-link data-auth-role="agent">List a property</a><a class="account-link" href="/login/">Sign in</a><a class="account-create-link" href="/signup/">Create account</a></div>
+    <div class="header-actions"><a class="host-link" href="{% url 'marketplace:agent-workspace' %}" data-auth-gate-link data-auth-role="agent">List a property</a><a class="account-link" href="{% url 'marketplace:login' %}">Sign in</a><a class="account-create-link" href="{% url 'marketplace:signup' %}">Create account</a></div>
     <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">Menu</button>
   </header>
   <nav class="category-quick-nav" aria-label="Browse property categories">
-    {% for value,label in property_types %}<a href="/properties/?propertyType={{ value }}">
+    {% for value,label in property_types %}<a href="{% url 'marketplace:properties' %}?propertyType={{ value }}">
       <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
         {% if value == 'house' %}<path d="m3 14 13-11 13 11M6 12v17h20V12M12 29v-9h8v9M12 14h3m4 0"/>
         {% elif value == 'apartment' %}<path d="M6 29V4h20v25M3 29h26M11 9h3m5 0h3m-11 5h3m5 0h3m-11 5h3m5 0h3m-11 5h3m5 0h3m-4 5v-5h4v5"/>
@@ -40,11 +42,20 @@
     </a>{% endfor %}
   </nav>
   <main id="main-content">{% block content %}{% endblock %}</main>
-  <dialog class="auth-prompt" id="authPrompt" aria-labelledby="authPromptTitle"><button class="auth-prompt-close" type="button" data-auth-prompt-close aria-label="Close sign-in prompt">×</button><p class="eyebrow">Members area</p><h2 id="authPromptTitle">Sign in to continue</h2><p data-auth-prompt-message>Sign in or create an account to continue with this request.</p><div class="auth-prompt-actions"><a class="button" data-auth-prompt-login href="/login/">Sign in</a><a class="button primary" data-auth-prompt-signup href="/signup/">Create account</a></div></dialog>
-  <footer class="site-footer"><a class="brand" href="/" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a><p>Find your place. Make your move.</p><nav aria-label="Footer navigation"><a href="/">Home</a><a href="/properties/">Properties</a><a href="/agents/">Agents</a><a href="/login/">Sign in</a><a href="/signup/">Create account</a><a href="/admin/">Admin</a></nav></footer>
+  <dialog class="auth-prompt" id="authPrompt" aria-labelledby="authPromptTitle"><button class="auth-prompt-close" type="button" data-auth-prompt-close aria-label="Close sign-in prompt">×</button><p class="eyebrow">Members area</p><h2 id="authPromptTitle">Sign in to continue</h2><p data-auth-prompt-message>Sign in or create an account to continue with this request.</p><div class="auth-prompt-actions"><a class="button" data-auth-prompt-login href="{% url 'marketplace:login' %}">Sign in</a><a class="button primary" data-auth-prompt-signup href="{% url 'marketplace:signup' %}">Create account</a></div></dialog>
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-about"><a class="brand" href="{% url 'marketplace:home' %}" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a><p>Find a place that fits your life, with local people ready to help you move.</p><div class="footer-contact"><h2>Get in touch</h2><a data-footer-contact="email" hidden></a><a data-footer-contact="phone" hidden></a></div></div>
+      <nav class="footer-links" aria-label="Discover Makazi Go"><h2>Explore</h2><a href="{% url 'marketplace:properties' %}">Browse properties</a><a href="{% url 'marketplace:agents' %}">Meet local agents</a><a href="{% url 'marketplace:home' %}#how">How it works</a></nav>
+      <nav class="footer-links" aria-label="Your account"><h2>Your account</h2><a href="{% url 'marketplace:login' %}">Sign in</a><a href="{% url 'marketplace:signup' %}">Create account</a><a href="{% url 'marketplace:agent-workspace' %}" data-auth-gate-link data-auth-role="agent">List a property</a></nav>
+      <section class="footer-social"><h2>Follow Makazi Go</h2><p>Local places, new listings, and updates.</p><div class="footer-social-links" aria-label="Social media"><a data-social-link="facebook" aria-label="Facebook" title="Facebook" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">f</span></a><a data-social-link="instagram" aria-label="Instagram" title="Instagram" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">IG</span></a><a data-social-link="linkedin" aria-label="LinkedIn" title="LinkedIn" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">in</span></a><a data-social-link="tiktok" aria-label="TikTok" title="TikTok" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">TT</span></a><a data-social-link="whatsapp" aria-label="WhatsApp" title="WhatsApp" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">WA</span></a><a data-social-link="youtube" aria-label="YouTube" title="YouTube" target="_blank" rel="noopener noreferrer" hidden><span aria-hidden="true">YT</span></a></div></section>
+      <div class="footer-bottom"><span>© {% now "Y" %} Makazi Go</span><span>Property discovery across Tanzania</span><a href="{% url 'marketplace:home' %}">Back to top ↑</a></div>
+    </div>
+  </footer>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
   <script src="{% static 'marketplace/auth-wizard.js' %}" defer></script>
-  <script src="{% static 'marketplace/listing-wizard.js' %}" defer></script>
+  {% block vendor_scripts %}{% endblock %}
   {% block scripts %}{% endblock %}
+  <script src="{% static 'marketplace/listing-wizard.js' %}" defer></script>
 </body>
 </html>
