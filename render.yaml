@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -34,10 +34,6 @@ services:
       - key: MYSQL_USER
         sync: false
       - key: MYSQL_PASSWORD
-        sync: false
-      - key: ADMIN_GATE_USERNAME
-        sync: false
-      - key: ADMIN_GATE_PASSWORD_HASH
         sync: false
       - key: GOOGLE_CALLBACK_URL
         value: https://staynest-django-admin.onrender.com/api/auth/google/callback

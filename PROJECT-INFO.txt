@@ -64,11 +64,11 @@ django_admin/marketplace/static/marketplace/
 django_admin/console/
 - Existing Django operations console and moderation tools at /admin/.
 
-posts.html
-- Django admin service at /admin/.
-- Founder administration center.
-- Includes dashboard metrics, people management, listing moderation, booking
-  management, badges, trust and safety, identity verification, and audit logs.
+django_admin/templates/dashboard.html
+- Founder administration console rendered by django_admin/console/ at /admin/.
+- Includes dashboard metrics, people and role management, agent approvals,
+  listing and post moderation, booking management, badges, trust and safety,
+  identity verification, MFA resets, reports, and audit logs.
 
 public/
 - Browser support files such as accessibility styles, service worker,
@@ -231,6 +231,8 @@ LOCAL DEVELOPMENT
 - Run npm run dev to start the Express API and Django marketplace.
 - The marketplace is available at http://localhost:8000/ and the API at
   http://localhost:3000/.
+- Run npm run dev:vite only when working on the retained Vite frontend at
+  http://localhost:5173/.
 - Run npm run test:django and npm test for Django page-flow and API rules tests.
 
 DEPLOYMENT
@@ -401,10 +403,11 @@ Run automated tests:
 
     npm test
 
-The local application normally uses:
+The primary local application normally uses:
 
-    Frontend: http://127.0.0.1:5173
-    API:      http://127.0.0.1:3000
+  Django marketplace: http://127.0.0.1:8000
+  Express API:        http://127.0.0.1:3000
+  Optional Vite app:  http://127.0.0.1:5173
 
 The API health endpoints are:
 
@@ -457,10 +460,10 @@ SEO
 
 SEO support includes:
 - Descriptive page titles.
-- Description metadata on the Posts page.
+- Descriptive metadata on marketplace pages.
 - robots.txt.
 - sitemap.xml.
-- Public marketplace and posts pages.
+- Public marketplace pages and agent posts displayed on agent profiles.
 - Private admin and API paths excluded from robots.txt.
 
 Before using a custom domain, update sitemap.xml to use absolute production
@@ -480,14 +483,12 @@ The current built-in test suite covers:
 - Pagination and positive ID validation.
 - Strict calendar-date validation.
 
-Last verified project status:
-- Automated tests passing: 8/8.
-- Production build passing.
-- JavaScript syntax checks passing.
-- Public link smoke checks passing.
-- API health and readiness checks passing.
-- Sensitive server and database files blocked from static access.
-- Anonymous listing view tracking working.
+Verification commands:
+- npm test runs the Node API rules and utility tests.
+- npm run test:django runs the Django marketplace and admin console tests.
+- npm run build compiles the retained Vite frontend.
+- npm run check:django validates Django configuration.
+- Check /api/health and /api/ready for service and database health.
 
 
 GIT AND GITHUB
@@ -497,7 +498,7 @@ The local repository is initialized on the main branch.
 
 The GitHub remote is:
 
-    https://github.com/ayubkadama-ops/Makazi Go.git
+    https://github.com/ayubkadama-ops/StayNest.git
 
 The local project has been prepared with .gitignore rules for:
 - .env files

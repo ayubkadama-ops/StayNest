@@ -1,15 +1,20 @@
+import json
 import os
 from functools import wraps
+from datetime import timedelta
 
 import bcrypt
 from django.contrib import messages
 from django.db import connection, transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
 
-SECTIONS = {'overview', 'users', 'listings', 'posts', 'bookings', 'verifications', 'audit', 'settings', 'analytics'}
+SECTIONS = {'overview', 'users', 'access', 'agents', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
 SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'timezone', 'maintenance_mode', 'maintenance_message'}
+ROLES = {'tenant', 'agent', 'administrator'}
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -30,6 +35,15 @@ def audit(action_name, entity_type, entity_id=None, metadata=None):
         'INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, ip_address, user_agent, metadata) VALUES (NULL, %s, %s, %s, NULL, %s, %s)',
         [action_name, entity_type, entity_id, 'django-admin', str(metadata or {})],
     )
+
+def invalidate_api_sessions(user_id):
+    for row in rows('SELECT sid,data FROM web_sessions'):
+        try:
+            session_user_id = int(json.loads(row['data']).get('user', {}).get('id') or 0)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if session_user_id == int(user_id):
+            execute('DELETE FROM web_sessions WHERE sid=%s', [row['sid']])
 
 def admin_required(view):
     @wraps(view)
@@ -53,9 +67,13 @@ def login_view(request):
         except ValueError:
             valid = False
         if valid:
+            request.session.cycle_key()
             request.session['admin_authenticated'] = True
             request.session['admin_label'] = username
-            return redirect(request.GET.get('next') or '/admin/')
+            next_url = request.GET.get('next', '')
+            if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+                next_url = '/admin/'
+            return redirect(next_url)
         messages.error(request, 'Invalid administrator credentials.')
     return render(request, 'login.html')
 
@@ -69,7 +87,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('listings', 'Listings moderation'), ('posts', 'Posts and badges'), ('bookings', 'Reservations'), ('verifications', 'Trust and safety'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'stats': {}, 'rows': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     try:
         if section == 'overview':
             data['stats'] = {
@@ -82,14 +100,27 @@ def dashboard(request):
             data['rows'] = rows("SELECT u.id,u.email,u.status,u.created_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.status IN ('pending','suspended') ORDER BY u.created_at DESC LIMIT 20")
         elif section == 'users':
             data['rows'] = rows("SELECT u.id,u.email,u.phone,u.status,u.last_login_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,COALESCE(GROUP_CONCAT(DISTINCT r.name SEPARATOR ', '),'') roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id,u.email,u.phone,u.status,u.last_login_at,p.display_name,p.first_name,p.last_name ORDER BY u.created_at DESC LIMIT 200")
+        elif section == 'access':
+            data['access_rows'] = rows("SELECT u.id,u.email,u.status,u.mfa_enabled,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY u.created_at DESC LIMIT 200")
+            roles_by_user = {}
+            for assigned_role in rows('SELECT ur.user_id,r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id'):
+                roles_by_user.setdefault(assigned_role['user_id'], []).append(assigned_role['name'])
+            for user in data['access_rows']:
+                user['assigned_roles'] = roles_by_user.get(user['id'], [])
+        elif section == 'agents':
+            data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'listings':
             data['rows'] = rows("SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.updated_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM listings l JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY l.updated_at DESC LIMIT 200")
         elif section == 'posts':
             data['rows'] = rows("SELECT po.id,po.post_type,po.caption,po.status,po.created_at,l.title listing_title FROM posts po JOIN listings l ON l.id=po.listing_id ORDER BY po.created_at DESC LIMIT 200")
+        elif section == 'badges':
+            data['badges'] = rows("SELECT u.id,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,ab.badge_label,ab.expires_at FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP()) WHERE r.name='agent' AND u.status='active' ORDER BY name LIMIT 200")
         elif section == 'bookings':
             data['rows'] = rows("SELECT b.id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
             data['rows'] = rows("SELECT v.id,v.status,v.document_type,v.created_at,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+        elif section == 'reports':
+            data['reports'] = rows("SELECT r.id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
         elif section == 'audit':
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
@@ -98,7 +129,12 @@ def dashboard(request):
             data['templates'] = rows('SELECT template_key,subject FROM email_templates ORDER BY template_key')
             data['rules'] = rows('SELECT id,rule_type,cidr,label,enabled FROM admin_ip_rules ORDER BY created_at DESC')
         elif section == 'analytics':
-            data['error'] = 'Analytics remains available through the marketplace GA4 integration.'
+            data['stats'] = {
+                'Accounts created, last 30 days': scalar('SELECT COUNT(*) FROM users WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
+                'Listings submitted, last 30 days': scalar('SELECT COUNT(*) FROM listings WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
+                'Bookings created, last 30 days': scalar('SELECT COUNT(*) FROM bookings WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
+                'Messages sent, last 30 days': scalar('SELECT COUNT(*) FROM messages WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
+            }
     except Exception as error:
         data['error'] = f'Admin data unavailable: {error}'
     return render(request, 'dashboard.html', data)
@@ -111,7 +147,60 @@ def action(request, action):
             if action == 'user-status':
                 user_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'active', 'suspended', 'deleted'}: raise ValueError('Invalid user status')
-                execute('UPDATE users SET status=%s WHERE id=%s', [status, user_id]); audit(f'user_{status}', 'user', user_id)
+                admin_rows = rows("SELECT 1 administrator FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name='administrator'", [user_id])
+                if status != 'active' and admin_rows and scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'") <= 1:
+                    raise ValueError('The last active administrator cannot be deactivated')
+                execute('UPDATE users SET status=%s,deleted_at=IF(%s=\'deleted\',UTC_TIMESTAMP(),NULL) WHERE id=%s', [status, status, user_id]); audit(f'user_{status}', 'user', user_id)
+                execute('UPDATE agent_subaccounts SET status=%s WHERE subagent_user_id=%s', [{'active': 'active', 'suspended': 'suspended', 'deleted': 'revoked'}[status], user_id])
+                if status != 'active':
+                    invalidate_api_sessions(user_id)
+            elif action == 'user-role':
+                user_id = int(request.POST['id']); role = request.POST.get('role', ''); operation = request.POST.get('operation', 'assign')
+                if user_id < 1 or role not in ROLES or operation not in {'assign', 'remove'}: raise ValueError('Invalid role action')
+                role_rows = rows('SELECT id FROM roles WHERE name=%s', [role])
+                if not role_rows: raise ValueError('Role not found')
+                if operation == 'remove':
+                    if role == 'administrator' and scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'") <= 1:
+                        raise ValueError('The last active administrator cannot be removed')
+                    execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name=%s', [user_id, role])
+                else:
+                    if role in {'tenant', 'agent'}:
+                        execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name IN (\'tenant\',\'agent\')', [user_id])
+                    execute('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [user_id, role_rows[0]['id']])
+                    if role == 'agent': execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [user_id])
+                invalidate_api_sessions(user_id)
+                audit(f'user_role_{operation}', 'user', user_id, {'role': role})
+            elif action == 'mfa-reset':
+                user_id = int(request.POST['id'])
+                if user_id < 1: raise ValueError('Invalid user ID')
+                execute('UPDATE users SET mfa_enabled=FALSE,mfa_secret_encrypted=NULL WHERE id=%s', [user_id])
+                invalidate_api_sessions(user_id)
+                audit('user_mfa_reset', 'user', user_id)
+            elif action == 'agent-status':
+                user_id = int(request.POST['id']); status = request.POST.get('status', '')
+                if user_id < 1 or status not in {'approved', 'rejected'}: raise ValueError('Invalid agent decision')
+                agent_rows = rows("SELECT u.id,sa.id subaccount_id FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id WHERE u.id=%s AND r.name='agent' AND u.status='pending'", [user_id])
+                if not agent_rows: raise ValueError('Pending agent or sub-agent not found')
+                next_user_status = 'active' if status == 'approved' else 'suspended'
+                execute('UPDATE users SET status=%s WHERE id=%s', [next_user_status, user_id])
+                if agent_rows[0]['subaccount_id']:
+                    execute('UPDATE agent_subaccounts SET status=%s WHERE id=%s', ['active' if status == 'approved' else 'revoked', agent_rows[0]['subaccount_id']])
+                audit(f'agent_{status}', 'user', user_id)
+            elif action == 'badge':
+                user_id = int(request.POST['id']); duration = request.POST.get('duration', '30'); label = request.POST.get('label', 'Featured agent').strip()[:80] or 'Featured agent'
+                if user_id < 1 or duration not in {'7', '30', '90', '365', 'forever', 'remove'}: raise ValueError('Choose a valid badge duration')
+                agents = rows("SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=%s AND r.name='agent' AND u.status='active'", [user_id])
+                if not agents: raise ValueError('Active agent not found')
+                execute('UPDATE agent_badges SET expires_at=UTC_TIMESTAMP() WHERE agent_user_id=%s AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP())', [user_id])
+                if duration != 'remove':
+                    expires_at = None if duration == 'forever' else timezone.now() + timedelta(days=int(duration))
+                    execute('INSERT INTO agent_badges (agent_user_id,badge_label,starts_at,expires_at,assigned_by) VALUES (%s,%s,UTC_TIMESTAMP(),%s,NULL)', [user_id, label, expires_at])
+                audit('agent_badge_updated', 'user', user_id, {'label': label, 'duration': duration})
+            elif action == 'report-status':
+                report_id = int(request.POST['id']); status = request.POST.get('status', '')
+                if report_id < 1 or status not in {'open', 'reviewing', 'resolved', 'dismissed'}: raise ValueError('Invalid report status or ID')
+                execute('UPDATE user_reports SET status=%s WHERE id=%s', [status, report_id])
+                audit(f'report_{status}', 'user_report', report_id)
             elif action == 'listing-status':
                 listing_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'published', 'rejected', 'unpublished'}: raise ValueError('Invalid listing status')
