@@ -28,12 +28,13 @@
     rewrite(document);
 
     const hero = cloudinaryAssetUrl('/assets/makazi-go-hero.webp');
+    const family = cloudinaryAssetUrl('/assets/makazi-go-family.webp');
     const frameRules = [32, 84, 156, 220].map((frame, index) =>
       `.listing-card:nth-child(${index + 1}) .listing-photo{background-image:url("${cloudinaryAssetUrl(`/assets/ezgif-frame-${String(frame).padStart(3, '0')}.jpg`)}")!important}`
     ).join('');
     const style = document.createElement('style');
     const logo = cloudinaryAssetUrl('/assets/makazi-go-icon.png');
-    style.textContent = `.hero-image{background-image:linear-gradient(90deg,rgba(6,43,34,.12),transparent),url("${hero}")!important}.auth-intro{background-image:linear-gradient(180deg,rgba(6,43,34,.12),rgba(6,43,34,.92)),url("${hero}")!important}.brand-mark{background-image:url("${logo}")!important}${frameRules}`;
+    style.textContent = `.hero-image{background-image:linear-gradient(90deg,rgba(6,43,34,.12),transparent),url("${hero}")!important}.auth-intro{background-image:linear-gradient(180deg,rgba(6,43,34,.12),rgba(6,43,34,.92)),url("${hero}")!important}.split-image{background-image:url("${family}")!important}.brand-mark{background-image:url("${logo}")!important}${frameRules}`;
     document.head.append(style);
 
     new MutationObserver(records => records.forEach(record => {

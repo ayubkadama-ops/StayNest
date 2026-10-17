@@ -3766,3 +3766,591 @@ html[data-network="offline"] body::before {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Makazi Go marketplace visual system */
+:root {
+  --brand-forest: #064e3b;
+  --brand-deep: #022d23;
+  --brand-green: #10b981;
+  --brand-mist: #f1f5f3;
+  --brand-line: #dfe8e3;
+  --ink: #12251e;
+  --body: #465750;
+  --muted: #6b7a73;
+  --rausch: #087f5b;
+  --rausch-hover: #066747;
+  --line: var(--brand-line);
+  --line-strong: #cbd8d1;
+  --surface-soft: var(--brand-mist);
+  --radius-card: 8px;
+  --radius-btn: 6px;
+}
+
+body {
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+}
+
+.topbar {
+  height: 76px;
+  padding-inline: max(24px, calc((100vw - 1360px) / 2));
+  box-shadow: none;
+}
+
+.main-nav {
+  gap: 2px;
+  color: #53635c;
+}
+
+.main-nav a:hover,
+.main-nav a[aria-current="page"] {
+  background: var(--brand-mist);
+  color: var(--brand-forest);
+}
+
+.hero {
+  min-height: 540px;
+  grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+  gap: 0;
+  padding: 0;
+  background: var(--brand-deep);
+  border: 0;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 2;
+  padding: 64px clamp(28px, 6vw, 92px) 64px max(28px, calc((100vw - 1360px) / 2));
+  color: #fff;
+}
+
+.hero-copy .eyebrow {
+  color: #75e0b5;
+}
+
+.hero h1 {
+  max-width: 620px;
+  color: #fff;
+  font-size: 54px;
+  letter-spacing: -.8px;
+  line-height: 1.06;
+}
+
+.hero em,
+.hero h2 em {
+  color: #39d49d;
+}
+
+.hero-lead {
+  max-width: 510px;
+  margin: 18px 0 24px;
+  color: #d0dfd8;
+  font-size: 16px;
+}
+
+.search-card {
+  max-width: 680px;
+  padding: 8px 9px 8px 18px;
+  border: 1px solid rgba(255,255,255,.65);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0,0,0,.18);
+}
+
+.search-field {
+  min-width: 0;
+}
+
+.search-btn {
+  border-radius: 6px;
+  background: var(--brand-green);
+  box-shadow: none;
+}
+
+.search-btn:hover {
+  background: #0ba574;
+  box-shadow: none;
+}
+
+.trust-row {
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  color: #d0dfd8;
+}
+
+.hero-art {
+  min-width: 0;
+  min-height: 540px;
+  height: 100%;
+  overflow: visible;
+}
+
+.hero-image {
+  min-height: 540px;
+  height: 100%;
+  border-radius: 0;
+  background-image: linear-gradient(90deg, rgba(2,45,35,.32), transparent 36%), url('/assets/makazi-go-hero.webp');
+  box-shadow: none;
+}
+
+.hero-image:hover {
+  transform: none;
+}
+
+.floating-note {
+  top: 28px;
+  left: -24px;
+  border-radius: 6px;
+}
+
+.image-tag {
+  left: -24px;
+  bottom: 28px;
+  border-radius: 6px;
+}
+
+.property-category-section {
+  padding: 38px max(24px, calc((100vw - 1360px) / 2)) 44px;
+  background: var(--brand-mist);
+  color: var(--ink);
+}
+
+.property-category-inner {
+  max-width: 1360px;
+}
+
+.property-category-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.property-category-inner .eyebrow {
+  margin: 0;
+  color: var(--brand-forest);
+}
+
+.property-category-heading h2 {
+  margin: 0 auto 0 0;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.property-category-reset {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--brand-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--brand-forest);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.property-category-reset:hover {
+  border-color: var(--brand-green);
+  background: #e5f6ef;
+}
+
+.property-category-nav {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.property-category {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 164px;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid rgba(2,45,35,.08);
+  border-radius: 8px;
+  background: var(--brand-deep);
+  color: #fff;
+  text-align: left;
+  isolation: isolate;
+  transition: border-color .18s ease, transform .18s ease;
+}
+
+.property-category-photo,
+.property-category-shade {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+}
+
+.property-category-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .35s ease;
+}
+
+.property-category-shade {
+  background: linear-gradient(180deg, rgba(2,45,35,.03) 10%, rgba(2,45,35,.82) 100%);
+}
+
+.property-category-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  margin-bottom: auto;
+  border: 1px solid rgba(255,255,255,.42);
+  border-radius: 6px;
+  background: rgba(2,45,35,.54);
+  color: #fff;
+}
+
+.property-category-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.property-category-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.property-category-copy strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.property-category-copy small {
+  color: rgba(255,255,255,.84);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.property-category:hover,
+.property-category.is-active {
+  border-color: var(--brand-green);
+  background: var(--brand-deep);
+  transform: translateY(-2px);
+}
+
+.property-category:hover .property-category-photo img,
+.property-category.is-active .property-category-photo img {
+  transform: scale(1.045);
+}
+
+.section {
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 58px clamp(24px, 5vw, 72px);
+}
+
+.section-heading {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-heading h2,
+.cinema-heading h2,
+.split-copy h2 {
+  color: var(--brand-deep);
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.listing-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.listing-card {
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.listing-card .listing-photo {
+  height: 226px;
+  border-radius: 8px;
+}
+
+.listing-card .listing-card-image {
+  min-height: 226px;
+}
+
+.listing-card:hover {
+  transform: translateY(-3px);
+}
+
+.listing-info h3 {
+  font-size: 15px;
+}
+
+.listing-highlights {
+  color: var(--brand-forest);
+}
+
+.cinema-section {
+  padding-block: 58px;
+  background: var(--brand-mist);
+}
+
+.cinema-card,
+.cinema-card-tall {
+  height: 340px;
+  border-radius: 8px;
+}
+
+.cinema-card-copy span {
+  color: #6fe0b3;
+}
+
+.split-section {
+  max-width: 1440px;
+  min-height: 480px;
+  margin-inline: auto;
+  background: #fff;
+  border: 0;
+}
+
+.split-image {
+  min-height: 480px;
+  background: url('/assets/makazi-go-family.webp') center/cover;
+}
+
+.split-copy {
+  padding: 64px clamp(28px, 7vw, 96px);
+}
+
+.feature-list b {
+  color: var(--brand-forest);
+}
+
+.host-banner {
+  max-width: 1280px;
+  margin: 40px auto 56px;
+  padding: 42px clamp(24px, 5vw, 64px);
+  border-radius: 8px;
+  background: var(--brand-deep);
+}
+
+.host-banner .eyebrow {
+  color: #75e0b5;
+}
+
+.host-banner h2 {
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.host-banner h2 em {
+  color: #39d49d;
+}
+
+.light-btn {
+  border-radius: 6px;
+}
+
+footer {
+  padding: 46px max(24px, calc((100vw - 1280px) / 2)) 20px;
+  background: var(--brand-deep);
+  color: #e7f1ec;
+}
+
+footer h4 {
+  color: #fff;
+}
+
+footer a,
+.footer-bottom {
+  color: #c5d8cf;
+}
+
+.listings-page-shell {
+  background: #fff;
+}
+
+.listings-page-heading {
+  border-radius: 8px;
+}
+
+.all-listing-card,
+.listing-page-aside {
+  border-radius: 8px;
+}
+
+@media (max-width: 1000px) {
+  .property-category-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .listing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-copy {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    padding-inline: 18px;
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .hero-copy {
+    padding: 46px 22px 34px;
+  }
+
+  .hero h1 {
+    font-size: 40px;
+  }
+
+  .hero-lead {
+    margin: 14px 0 20px;
+    font-size: 15px;
+  }
+
+  .hero-art {
+    min-height: 300px;
+    height: 300px;
+  }
+
+  .hero-image {
+    min-height: 300px;
+  }
+
+  .floating-note {
+    top: 14px;
+    left: 14px;
+  }
+
+  .image-tag {
+    left: 14px;
+    bottom: 14px;
+  }
+
+  .property-category-section {
+    padding: 28px 16px 32px;
+  }
+
+  .property-category-heading {
+    display: grid;
+    gap: 6px;
+  }
+
+  .property-category-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .property-category {
+    min-height: 144px;
+    padding: 12px;
+  }
+
+  .section {
+    padding: 42px 18px;
+  }
+
+  .section-heading h2,
+  .cinema-heading h2,
+  .split-copy h2 {
+    font-size: 25px;
+  }
+
+  .listing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 12px;
+  }
+
+  .listing-card .listing-photo,
+  .listing-card .listing-card-image {
+    height: 180px;
+    min-height: 180px;
+  }
+
+  .listing-info {
+    padding-top: 9px;
+  }
+
+  .listing-info h3 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .cinema-heading {
+    display: grid;
+    padding-inline: 18px;
+  }
+
+  .cinema-track {
+    gap: 12px;
+    padding-inline: 18px;
+  }
+
+  .cinema-card,
+  .cinema-card-wide,
+  .cinema-card-tall {
+    flex-basis: 78vw;
+    height: 300px;
+  }
+
+  .split-section {
+    grid-template-columns: 1fr;
+  }
+
+  .split-image {
+    min-height: 280px;
+  }
+
+  .split-copy {
+    padding: 38px 22px;
+  }
+
+  .host-banner {
+    margin: 20px 16px 36px;
+    padding: 30px 22px;
+  }
+
+  .host-banner h2 {
+    font-size: 25px;
+  }
+
+  footer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 36px 20px 18px;
+  }
+}
+
+@media (max-width: 380px) {
+  .property-category-nav,
+  .listing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .property-category {
+    min-height: 132px;
+  }
+
+  .listing-card .listing-photo,
+  .listing-card .listing-card-image {
+    height: 220px;
+    min-height: 220px;
+  }
+}

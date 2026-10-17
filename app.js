@@ -4,8 +4,41 @@ import 'leaflet/dist/leaflet.css';
 const listings=[];
 const grid=document.querySelector('#listingGrid'),toast=document.querySelector('#toast'),pageMain=document.querySelector('main'),homeMarkup=pageMain.innerHTML;
 let currentListings=[];
-const propertyCategoryOptions=[['','All properties'],['house','Homes'],['apartment','Apartments'],['land','Land'],['hotel','Hotels'],['commercial','Commercial']];
-function mountPropertyCategories(){const hero=document.querySelector('.hero');if(!hero||document.querySelector('.property-category-nav'))return;const section=document.createElement('section');section.className='property-category-section';section.setAttribute('aria-label','Browse property categories');section.innerHTML=`<div class="property-category-inner"><p class="eyebrow">Find your place</p><nav class="property-category-nav" aria-label="Property type">${propertyCategoryOptions.map(([value,label])=>`<button type="button" class="property-category${value?'':' is-active'}" data-property-category="${value}" aria-pressed="${!value}">${label}</button>`).join('')}</nav></div>`;hero.after(section);section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',async()=>{section.querySelectorAll('[data-property-category]').forEach(item=>{const active=item===button;item.classList.toggle('is-active',active);item.setAttribute('aria-pressed',String(active))});const propertyType=button.dataset.propertyCategory;try{const params=new URLSearchParams(propertyType?{propertyType}:{}),result=await apiJson(`/api/listings/discover?${params}`);currentListings=Array.isArray(result.listings)?result.listings:listings.filter(item=>!propertyType||item.propertyType===propertyType)}catch{currentListings=listings.filter(item=>!propertyType||item.propertyType===propertyType)}render(document.querySelector('.chip.active')?.dataset.filter||'all');document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'})}))}
+const propertyCategoryOptions=[
+  {value:'house',label:'Homes',caption:'Room to grow',image:'/assets/makazi-category-home.webp',icon:'<path d="m3 10 9-7 9 7M5.5 9v12h13V9M9 21v-7h6v7"/>'},
+  {value:'apartment',label:'Apartments',caption:'City living, made easy',image:'/assets/makazi-category-apartment.webp',icon:'<path d="M6 21V4h12v17M3 21h18M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/>'},
+  {value:'land',label:'Land',caption:'Build your future',image:'/assets/makazi-category-land.webp',icon:'<path d="M12 21s7-5.5 7-12a7 7 0 1 0-14 0c0 6.5 7 12 7 12Z"/><circle cx="12" cy="9" r="2"/>'},
+  {value:'hotel',label:'Hotels',caption:'Welcoming stays',image:'/assets/makazi-category-hotel.webp',icon:'<path d="M4 20V5m0 10h16v5M7 14V9h5v5m2 0v-3a3 3 0 0 1 6 0v3M3 21h18"/>'},
+  {value:'commercial',label:'Commercial',caption:'Room to do business',image:'/assets/makazi-category-commercial.webp',icon:'<path d="M4 21V9h16v12M3 9l2-5h14l2 5M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 21v-6h6v6"/>'}
+];
+function mountPropertyCategories(){
+  const hero=document.querySelector('.hero');
+  if(!hero||document.querySelector('.property-category-nav'))return;
+  const section=document.createElement('section');
+  section.className='property-category-section';
+  section.id='showcase';
+  section.setAttribute('aria-label','Browse property categories');
+  section.innerHTML=`<div class="property-category-inner"><div class="property-category-heading"><div><p class="eyebrow">Find your place</p><h2>Explore by property type</h2></div><button class="property-category-reset" type="button" data-property-category-reset>All properties</button></div><nav class="property-category-nav" aria-label="Property type">${propertyCategoryOptions.map(({value,label,caption,image,icon})=>`<button type="button" class="property-category" data-property-category="${value}" aria-pressed="false"><span class="property-category-photo"><img src="${image}" alt="" loading="lazy"></span><span class="property-category-shade"></span><span class="property-category-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><span class="property-category-copy"><strong>${label}</strong><small>${caption}</small></span></button>`).join('')}</nav></div>`;
+  hero.after(section);
+  const filterByCategory=async propertyType=>{
+    section.querySelectorAll('[data-property-category]').forEach(item=>{
+      const active=item.dataset.propertyCategory===propertyType;
+      item.classList.toggle('is-active',active);
+      item.setAttribute('aria-pressed',String(active));
+    });
+    try{
+      const params=new URLSearchParams(propertyType?{propertyType}:{});
+      const result=await apiJson(`/api/listings/discover?${params}`);
+      currentListings=Array.isArray(result.listings)?result.listings:listings.filter(item=>!propertyType||item.propertyType===propertyType);
+    }catch{
+      currentListings=listings.filter(item=>!propertyType||item.propertyType===propertyType);
+    }
+    render(document.querySelector('.chip.active')?.dataset.filter||'all');
+    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
+  };
+  section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',()=>filterByCategory(button.dataset.propertyCategory)));
+  section.querySelector('[data-property-category-reset]').addEventListener('click',()=>filterByCategory(''));
+}
 mountPropertyCategories();
 const DEFAULT_AGENT_AVATAR='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"%3E%3Crect width="240" height="240" fill="%23dfe9e2"/%3E%3Ccircle cx="120" cy="86" r="42" fill="%2372807b"/%3E%3Cpath d="M42 222c8-55 35-82 78-82s70 27 78 82" fill="%2372807b"/%3E%3C/svg%3E';
 function applyMakaziBrand(){document.title='Makazi Go | Find your place. Make your move.';document.querySelector('meta[name="description"]')?.setAttribute('content','Discover homes, apartments, land, hotels, and commercial property across Tanzania with Makazi Go.');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#062b22');document.querySelectorAll('.brand').forEach(brand=>{brand.setAttribute('aria-label','Makazi Go home');brand.innerHTML='<span class="brand-mark" aria-hidden="true">⌂</span><span>Makazi <span>Go</span></span>'});document.querySelector('.admin-shortcut')?.remove();const eyebrow=document.querySelector('.hero-copy .eyebrow'),heading=document.querySelector('.hero-copy h1'),lead=document.querySelector('.hero-lead');if(eyebrow)eyebrow.textContent='Find your place in Tanzania';if(heading)heading.innerHTML='Find your place.<br><em>Make your move.</em>';if(lead)lead.textContent='Discover homes, apartments, land, hotels, and commercial spaces in one trusted marketplace';const footer=document.querySelector('footer .footer-brand p');if(footer)footer.textContent='Find your place. Make your move.';document.querySelectorAll('footer h4').forEach(heading=>{if(heading.textContent.trim()==='Makazi Go')heading.textContent='Makazi Go'})}
