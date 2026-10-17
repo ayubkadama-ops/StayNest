@@ -1,6 +1,9 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+const duplicateTopbars=[...document.querySelectorAll('body > .topbar')];
+duplicateTopbars.slice(0,-1).forEach(topbar=>topbar.remove());
+
 const listings=[];
 const grid=document.querySelector('#listingGrid'),toast=document.querySelector('#toast'),pageMain=document.querySelector('main'),homeMarkup=pageMain.innerHTML;
 let currentListings=[];
@@ -133,10 +136,64 @@ function openRescheduleBooking(id){openModal(`<p class="eyebrow">Booking change<
 function openBookingReview(bookingId,listingId){openModal(`<p class="eyebrow">Makazi Go review</p><h2>Rate your stay</h2><form id="bookingReviewForm"><label>Rating<select name="rating"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3">3 — Average</option><option value="2">2 — Poor</option><option value="1">1 — Very poor</option></select></label><label>Review<textarea name="comment" maxlength="5000" required></textarea></label><p class="form-error" role="alert"></p><button class="primary" type="submit">Publish review</button></form>`);content.querySelector('#bookingReviewForm').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;try{const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson(`/api/listings/${listingId}/reviews`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({bookingId,rating:Number(form.elements.rating.value),comment:form.elements.comment.value})});closeModal();showToast('Thank you for your review')}catch(error){form.querySelector('.form-error').textContent=error.message}}}
 async function loadAgentBookings(){const result=await apiJson('/api/agent/bookings');openModal(`<p class="eyebrow">Agent workspace</p><h2>Booking requests</h2>${result.bookings.length?result.bookings.map(booking=>`<div class="booking-request"><div><strong>${booking.title}</strong><small>${booking.firstName} ${booking.lastName} · ${booking.email||booking.phone||'Contact available in profile'}<br>${booking.checkIn} to ${booking.checkOut} · ${booking.guests} guest(s) · ${booking.currency} ${booking.totalAmount}</small></div>${booking.status==='pending'?`<div class="booking-actions"><button class="primary" data-booking-decision="${booking.id}" data-status="confirmed">Approve</button><button class="outline-btn" data-booking-decision="${booking.id}" data-status="declined">Decline</button><button class="icon-btn" data-booking-message="${booking.tenantId}" data-name="${booking.firstName} ${booking.lastName}" aria-label="Message tenant">✉</button></div>`:`<span class="booking-status">${booking.status}</span>`}</div>`).join(''):'<p class="empty-copy">No booking requests yet.</p>'}`);content.querySelectorAll('[data-booking-decision]').forEach(button=>button.onclick=async()=>{try{const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson(`/api/agent/bookings/${button.dataset.bookingDecision}/decision`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({status:button.dataset.status})});showToast(button.dataset.status==='confirmed'?'Booking approved and tenant notified':'Booking declined and tenant notified');loadAgentBookings()}catch(error){showToast(error.message)}});content.querySelectorAll('[data-booking-message]').forEach(button=>button.onclick=()=>openAgentMessage(button.dataset.bookingMessage,button.dataset.name))}
 async function openMessages(){try{const result=await apiJson('/api/messages');openModal(`<p class="eyebrow">Makazi Go inbox</p><h2>Your messages</h2><p class="modal-intro">Continue conversations with tenants and agents from one secure inbox.</p><div class="message-list">${result.conversations.length?result.conversations.map(item=>`<button class="message-thread ${Number(item.unread)>0?'unread':''}" data-conversation-id="${item.conversationId}" data-recipient-id="${item.otherUserId}"><span><strong>${item.otherFirstName} ${item.otherLastName}</strong><small>${item.lastMessage||'No messages yet'}</small></span><time>${item.lastMessageAt?new Date(item.lastMessageAt).toLocaleString():''}</time></button>`).join(''):'<p class="empty-copy">Your inbox is empty. Open an agent profile to start a conversation.</p>'}</div>`);content.querySelectorAll('[data-conversation-id]').forEach(thread=>thread.addEventListener('click',()=>openConversation(thread.dataset.conversationId,thread.querySelector('strong').textContent,thread.dataset.recipientId)))}catch(error){showToast(error.message)}}
-async function openConversation(id,name,recipientId){try{const result=await apiJson(`/api/messages/${id}`);openModal(`<p class="eyebrow">Conversation</p><h2>${escapeHtml(name)}</h2><p class="conversation-participants"><strong>From:</strong> ${escapeHtml(name)} <span>↔</span> <strong>To:</strong> ${escapeHtml(currentUser?.firstName||'You')} ${escapeHtml(currentUser?.lastName||'')}</p><div class="conversation-list">${result.messages.map(message=>`<div class="conversation-message ${Number(message.senderId)===Number(currentUser.id)?'mine':''}"><p>${escapeHtml(message.body)}</p><small>${new Date(message.createdAt).toLocaleString()}</small></div>`).join('')}</div><form id="replyMessageForm"><textarea name="body" maxlength="2000" required placeholder="Write a reply to ${name}"></textarea><p class="form-error" role="alert" aria-live="polite"></p><button class="primary" type="submit">Send reply <span>→</span></button></form>`);content.querySelector('#replyMessageForm').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget;try{const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson('/api/messages',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({recipientId:recipientId||result.messages.find(message=>Number(message.senderId)!==Number(currentUser.id))?.senderId,body:form.elements.body.value})});await openConversation(id,name,recipientId)}catch(error){form.querySelector('.form-error').textContent=error.message}})}catch(error){showToast(error.message)}}
+async function refreshMessageBadge(){
+  const badge=document.querySelector('#messageBadge');
+  if(!badge||!currentUser)return;
+  try{
+    const result=await apiJson('/api/messages/unread-count');
+    badge.textContent=result.unread>99?'99+':String(result.unread||0);
+    badge.hidden=!result.unread;
+  }catch(error){console.warn('Message unread count unavailable:',error.message)}
+}
+async function openConversation(id,name='',recipientId=''){
+  try{
+    const result=await apiJson(`/api/messages/${id}`);
+    const otherMessage=result.messages.find(message=>Number(message.senderId)!==Number(currentUser?.id));
+    name=name||[otherMessage?.firstName,otherMessage?.lastName].filter(Boolean).join(' ')||'Makazi Go member';
+    recipientId=recipientId||otherMessage?.senderId;
+    openModal(`<p class="eyebrow">Conversation</p><h2>${escapeHtml(name)}</h2><p class="conversation-participants"><strong>From:</strong> ${escapeHtml(name)} <span>↔</span> <strong>To:</strong> ${escapeHtml(currentUser?.firstName||'You')} ${escapeHtml(currentUser?.lastName||'')}</p><div class="conversation-list">${result.messages.map(message=>`<div class="conversation-message ${Number(message.senderId)===Number(currentUser?.id)?'mine':''}"><p>${escapeHtml(message.body)}</p><small>${new Date(message.createdAt).toLocaleString()}</small></div>`).join('')}</div><form id="replyMessageForm"><textarea name="body" maxlength="2000" required placeholder="Write a reply to ${escapeHtml(name)}"></textarea><p class="form-error" role="alert" aria-live="polite"></p><button class="primary" type="submit">Send reply <span>→</span></button></form>`);
+    void refreshMessageBadge();
+    content.querySelector('#replyMessageForm').addEventListener('submit',async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('[type="submit"]');
+      button.disabled=true;
+      try{
+        const csrf=(await apiJson('/api/auth/csrf')).token;
+        await apiJson('/api/messages',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({recipientId:Number(recipientId),body:form.elements.body.value.trim()})});
+        await openConversation(id,name,recipientId);
+      }catch(error){form.querySelector('.form-error').textContent=error.message;button.disabled=false}
+    });
+  }catch(error){showToast(`Conversation could not be loaded: ${error.message}`,'error')}
+}
 async function openBookingDetails(id){try{const result=await apiJson(`/api/bookings/${encodeURIComponent(id)}`),booking=result.booking;openModal(`<p class="eyebrow">Booking request</p><h2>${escapeHtml(booking.title)}</h2><div class="feature-list"><div><b>${escapeHtml(booking.status)}</b><span><strong>${escapeHtml(booking.bookingCode)}</strong><small>${escapeHtml(booking.bookingKind||'stay')} · ${escapeHtml(booking.checkIn)} to ${escapeHtml(booking.checkOut)} · ${booking.guests} guest(s)<br>${escapeHtml(booking.city||'')} · ${escapeHtml(booking.addressLine1||'')}</small></span></div><div><b>Guest</b><span><strong>${escapeHtml(`${booking.firstName||''} ${booking.lastName||''}`.trim())}</strong><small>${escapeHtml(booking.email||booking.phone||'Contact through messages')}</small></span></div></div>${currentUser?.roles?.includes('agent')&&booking.status==='pending'?'<div class="booking-actions"><button class="primary" id="approveBooking">Approve</button><button class="outline-btn" id="declineBooking">Decline</button></div>':''}`);content.querySelector('#approveBooking')?.addEventListener('click',()=>decideBooking(booking.id,'confirmed'));content.querySelector('#declineBooking')?.addEventListener('click',()=>decideBooking(booking.id,'declined'))}catch(error){showToast(error.message)}}
 async function decideBooking(id,status){try{const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson(`/api/agent/bookings/${id}/decision`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({status})});closeModal();showToast(status==='confirmed'?'Booking approved and tenant notified':'Booking declined and tenant notified');await loadAgentBookings()}catch(error){showToast(error.message)}}
-async function openNotifications(){const result=await apiJson('/api/notifications');const actionFor=notification=>{let data=notification.data;try{if(typeof data==='string')data=JSON.parse(data)}catch{data={}}if(String(notification.type||'').startsWith('booking_')||notification.type==='booking_request')return `<button class="outline-btn notification-action" data-booking-id="${Number(data?.bookingId)||0}">View booking</button>`;if(notification.type==='new_message')return '<button class="outline-btn notification-action" data-open-messages="true">Open message</button>';return ''};openModal(`<p class="eyebrow">Makazi Go updates</p><h2>Notifications</h2><p class="modal-intro">Important updates about your account, bookings, messages, and agent activity.</p><button class="primary small notification-messages" type="button">Open messages</button>${result.notifications.length?result.notifications.map(notification=>`<article class="notification-item ${notification.readAt?'':'unread'}"><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><small>${new Date(notification.createdAt).toLocaleString()}</small>${actionFor(notification)}</article>`).join(''):'<p class="empty-copy">You are all caught up. New updates will appear here.</p>'}`);content.querySelector('.notification-messages').onclick=openMessages;content.querySelectorAll('[data-open-messages]').forEach(button=>button.onclick=openMessages);content.querySelectorAll('[data-booking-id]').forEach(button=>button.onclick=()=>openBookingDetails(Number(button.dataset.bookingId)));if(result.unread){const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson('/api/notifications/read',{method:'POST',headers:{'X-CSRF-Token':csrf}});document.querySelector('#notificationBadge').hidden=true}}
+async function openNotifications(){
+  try{
+    const result=await apiJson('/api/notifications');
+    const notificationData=notification=>{
+      try{return typeof notification.data==='string'?JSON.parse(notification.data):(notification.data||{})}
+      catch{return {}}
+    };
+    const actionFor=notification=>{
+      const data=notificationData(notification);
+      if(String(notification.type||'').startsWith('booking_')||notification.type==='booking_request')return `<button class="outline-btn notification-action" data-booking-id="${Number(data.bookingId)||0}">View booking</button>`;
+      if(notification.type==='new_message'&&Number(data.conversationId))return `<button class="outline-btn notification-action" data-open-conversation="${Number(data.conversationId)}">Open conversation</button>`;
+      if(notification.type==='new_message')return '<button class="outline-btn notification-action" data-open-messages="true">Open inbox</button>';
+      return '';
+    };
+    openModal(`<p class="eyebrow">Makazi Go updates</p><h2>Notifications</h2><p class="modal-intro">Important updates about your account, bookings, messages, and agent activity.</p><button class="primary small notification-messages" type="button">Open messages</button>${result.notifications.length?result.notifications.map(notification=>`<article class="notification-item ${notification.readAt?'':'unread'}"><strong>${escapeHtml(notification.title)}</strong><p>${escapeHtml(notification.body)}</p><small>${new Date(notification.createdAt).toLocaleString()}</small>${actionFor(notification)}</article>`).join(''):'<p class="empty-copy">You are all caught up. New updates will appear here.</p>'}`);
+    content.querySelector('.notification-messages').onclick=openMessages;
+    content.querySelectorAll('[data-open-messages]').forEach(button=>button.onclick=openMessages);
+    content.querySelectorAll('[data-open-conversation]').forEach(button=>button.onclick=()=>openConversation(button.dataset.openConversation));
+    content.querySelectorAll('[data-booking-id]').forEach(button=>button.onclick=()=>openBookingDetails(Number(button.dataset.bookingId)));
+    if(result.unread){
+      const csrf=(await apiJson('/api/auth/csrf')).token;
+      await apiJson('/api/notifications/read',{method:'POST',headers:{'X-CSRF-Token':csrf}});
+      const badge=document.querySelector('#notificationBadge');
+      if(badge){badge.hidden=true;badge.textContent='0'}
+    }
+  }catch(error){showToast(`Notifications could not be loaded: ${error.message}`,'error')}
+}
 async function openTenantSavedSearches(){try{const result=await apiJson('/api/account/search-alerts');openModal(`<p class="eyebrow">Saved searches</p><h2>Search alerts</h2>${result.alerts.length?result.alerts.map(alert=>`<div class="feature-list"><div><span><strong>${escapeHtml(alert.name)}</strong><small>${escapeHtml(alert.frequency)} alerts · ${alert.active?'Active':'Paused'}</small></span><button class="outline-btn" data-delete-alert="${alert.id}">Remove</button></div></div>`).join(''):'<p class="empty-copy">No saved searches yet. Run a home search and save it to receive matching-listing notifications.</p>'}`);content.querySelectorAll('[data-delete-alert]').forEach(button=>button.onclick=async()=>{try{await apiJson(`/api/search-alerts/${button.dataset.deleteAlert}`,{method:'DELETE'});await openTenantSavedSearches()}catch(error){showToast(error.message)}})}catch(error){showToast(error.message)}}
 async function openTenantSecurity(){openModal(`<p class="eyebrow">Account security</p><h2>Change password</h2><form id="changePasswordForm"><label>Current password<input name="currentPassword" type="password" required></label><label>New password<input name="password" type="password" minlength="12" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="12" required></label><p class="form-error" role="alert"></p><button class="primary" type="submit">Update password</button></form>`);content.querySelector('#changePasswordForm').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;try{if(form.elements.password.value!==form.elements.confirmPassword.value)throw new Error('Passwords do not match');const csrf=(await apiJson('/api/auth/csrf')).token;await apiJson('/api/account/change-password',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({currentPassword:form.elements.currentPassword.value,password:form.elements.password.value})});closeModal();showToast('Password changed successfully')}catch(error){form.querySelector('.form-error').textContent=error.message}}}
 async function openTenantNotificationPreferences(){try{const result=await apiJson('/api/account/notification-preferences'),preferences=result.preferences;openModal(`<p class="eyebrow">Notifications</p><h2>Notification preferences</h2><form id="notificationPreferencesForm">${[['saved_searches','New listings matching saved searches'],['price_drops','Price drops on favorites'],['booking_updates','Booking status updates'],['messages','Messages from agents'],['followed_agents','New listings from followed agents'],['marketing','Makazi Go recommendations']].map(([key,label])=>`<label class="preference-row"><input type="checkbox" name="${key}" ${preferences[key]?'checked':''}> ${label}</label>`).join('')}<p class="form-error" role="alert"></p><button class="primary" type="submit">Save preferences</button></form>`);content.querySelector('#notificationPreferencesForm').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;try{const csrf=(await apiJson('/api/auth/csrf')).token;const body=Object.fromEntries([...form.querySelectorAll('input[type=checkbox]')].map(input=>[input.name,input.checked]));await apiJson('/api/account/notification-preferences',{method:'PATCH',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)});closeModal();showToast('Notification preferences saved')}catch(error){form.querySelector('.form-error').textContent=error.message}}}catch(error){showToast(error.message)}}
@@ -729,7 +786,48 @@ if(authParams.get('authError')){showToast(authParams.get('authError'));history.r
 if(authParams.get('reset')){history.replaceState({},'',window.location.pathname);openPasswordReset(authParams.get('reset'));}
 loadAgentShowcase();
 initCinematicMotion();
-async function initStayNestConfig(){try{const config=await (window.cloudinaryConfigReady||apiJson('/api/public-config'));document.title='Makazi Go | Find your place. Make your move.';if(config.maintenanceMode&&!document.querySelector('.maintenance-banner')){const banner=document.createElement('div');banner.className='maintenance-banner';banner.textContent=config.maintenanceMessage;document.body.prepend(banner)}}catch(error){console.warn('Makazi Go public configuration unavailable:',error.message)}}
+function renderFooterSocialLinks(config){
+  const footer=document.querySelector('footer');
+  if(!footer||footer.querySelector('.footer-social'))return;
+  const networks=[
+    ['facebook','Facebook','f'],
+    ['instagram','Instagram','ig'],
+    ['linkedin','LinkedIn','in'],
+    ['tiktok','TikTok','tk'],
+    ['whatsapp','WhatsApp','wa'],
+    ['youtube','YouTube','yt']
+  ];
+  const links=networks.flatMap(([network,label,mark])=>{
+    const value=config.socialLinks?.[network];
+    if(!value)return [];
+    try{
+      const url=new URL(value);
+      if(url.protocol!=='https:')return [];
+      return [{network,label,mark,url}];
+    }catch{return []}
+  });
+  if(!links.length)return;
+  const section=document.createElement('div');
+  section.className='footer-social';
+  section.innerHTML='<h4>Follow Makazi Go</h4><p>Local homes, new listings, and updates.</p><div class="footer-social-links" aria-label="Social media"></div>';
+  const linkContainer=section.querySelector('.footer-social-links');
+  links.forEach(({network,label,mark,url})=>{
+    const link=document.createElement('a');
+    link.href=url.href;
+    link.target='_blank';
+    link.rel='noopener noreferrer';
+    link.title=label;
+    link.setAttribute('aria-label',label);
+    link.dataset.socialNetwork=network;
+    const icon=document.createElement('span');
+    icon.setAttribute('aria-hidden','true');
+    icon.textContent=mark;
+    link.append(icon);
+    linkContainer.append(link);
+  });
+  footer.insertBefore(section,footer.querySelector('.footer-bottom'));
+}
+async function initStayNestConfig(){try{const config=await (window.cloudinaryConfigReady||apiJson('/api/public-config'));document.title='Makazi Go | Find your place. Make your move.';renderFooterSocialLinks(config);if(config.maintenanceMode&&!document.querySelector('.maintenance-banner')){const banner=document.createElement('div');banner.className='maintenance-banner';banner.textContent=config.maintenanceMessage;document.body.prepend(banner)}}catch(error){console.warn('Makazi Go public configuration unavailable:',error.message)}}
 function initCookieConsent(){if(localStorage.getItem('staynest_cookie_consent'))return;const banner=document.createElement('aside');banner.className='cookie-consent';banner.setAttribute('role','dialog');banner.setAttribute('aria-label','Cookie preferences');banner.innerHTML='<div><strong>Your privacy matters</strong><p>Makazi Go uses essential cookies for secure sign-in and optional analytics to improve the service.</p></div><div class="cookie-consent-actions"><button type="button" data-cookie-choice="essential">Essential only</button><button type="button" class="primary" data-cookie-choice="all">Allow analytics</button></div>';banner.querySelectorAll('[data-cookie-choice]').forEach(button=>button.addEventListener('click',()=>{localStorage.setItem('staynest_cookie_consent',button.dataset.cookieChoice);banner.remove()}));document.body.append(banner)}
 initStayNestConfig();
 document.addEventListener('click',event=>{if(event.target.closest('#detailSave,#detailReport')&&!requireAccount('save or report listings')){event.preventDefault();event.stopImmediatePropagation();return}},true);
