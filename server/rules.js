@@ -40,6 +40,16 @@ export function hasRole(roles, requiredRole) {
   return Array.isArray(roles) && roles.includes(requiredRole);
 }
 
+export function hasAgentPermission(user, permission) {
+  return hasRole(user?.roles, 'agent') && (
+    !user.isSubAgent || (Array.isArray(user.permissions) && user.permissions.includes(permission))
+  );
+}
+
+export function isActiveSubAgent(subaccount) {
+  return subaccount?.status === 'active' && subaccount.userStatus === 'active';
+}
+
 export function isListingAvailable(requestedDates, lockedDates) {
   const locked = new Set(lockedDates);
   return requestedDates.every(date => !locked.has(date));

@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS agent_subaccounts (
   main_agent_user_id BIGINT UNSIGNED NOT NULL,
   subagent_user_id BIGINT UNSIGNED NOT NULL UNIQUE,
   label VARCHAR(120) NOT NULL,
-  status ENUM('active','suspended','revoked') NOT NULL DEFAULT 'active',
+  status ENUM('pending','active','suspended','revoked') NOT NULL DEFAULT 'pending',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_subaccount_main FOREIGN KEY (main_agent_user_id) REFERENCES users(id),

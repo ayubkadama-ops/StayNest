@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "start:api": "node server/index.js",
-    "test:django": "node scripts/django.js test marketplace",
+    "test:django": "node scripts/django.js test console marketplace",
     "check:django": "node scripts/django.js check",
     "test": "node --test tests/*.test.js"
   },

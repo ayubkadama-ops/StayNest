@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { calculateBooking, datesOverlap, hasRole, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
+import { calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature } from '../server/storage.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 
@@ -25,6 +25,20 @@ test('payment signatures are verified with timing-safe comparison', () => {
 test('permissions require an exact assigned role', () => {
   assert.equal(hasRole(['tenant', 'agent'], 'agent'), true);
   assert.equal(hasRole(['tenant'], 'administrator'), false);
+});
+
+test('agent actions honor sub-agent permissions while main agents retain access', () => {
+  assert.equal(hasAgentPermission({ roles: ['agent'], isSubAgent: true, permissions: ['bookings.view'] }, 'bookings.view'), true);
+  assert.equal(hasAgentPermission({ roles: ['agent'], isSubAgent: true, permissions: ['bookings.view'] }, 'bookings.manage'), false);
+  assert.equal(hasAgentPermission({ roles: ['agent'], isSubAgent: false, permissions: [] }, 'bookings.manage'), true);
+  assert.equal(hasAgentPermission({ roles: ['tenant'], isSubAgent: true, permissions: ['bookings.manage'] }, 'bookings.manage'), false);
+});
+
+test('sub-agent access requires an active link and active user account', () => {
+  assert.equal(isActiveSubAgent({ status: 'active', userStatus: 'active' }), true);
+  assert.equal(isActiveSubAgent({ status: 'revoked', userStatus: 'active' }), false);
+  assert.equal(isActiveSubAgent({ status: 'active', userStatus: 'suspended' }), false);
+  assert.equal(isActiveSubAgent(null), false);
 });
 
 test('listing structures resolve to searchable property categories', () => {

@@ -13,7 +13,7 @@ import { pool, assertDatabaseConnection } from './db.js';
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasRole, resolvePropertyType } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, resolvePropertyType } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -520,6 +520,27 @@ const requireAuth = async (req, res, next) => {
   if (req.session.adminGate === true && req.session.user.roles?.includes('administrator')) return next();
   // Re-check account state so a suspended or pending account cannot keep using
   // a session that was created before an administrator changed its status.
+  let accountUserId = agentOwnerId(req);
+  if (req.session.user.isSubAgent) {
+    const [[subaccount]] = await pool.query(
+      `SELECT sa.id, sa.main_agent_user_id mainAgentId, sa.label, sa.status, u.status userStatus
+       FROM agent_subaccounts sa JOIN users u ON u.id=sa.subagent_user_id
+       WHERE sa.subagent_user_id=?`,
+      [req.session.user.id]
+    );
+    if (!isActiveSubAgent(subaccount)) {
+      req.session.destroy(() => {});
+      return res.status(403).json({ error: 'Your sub-agent access is no longer active' });
+    }
+    req.session.user.mainAgentId = subaccount.mainAgentId;
+    req.session.user.accountLabel = subaccount.label;
+    accountUserId = subaccount.mainAgentId;
+    const [permissionRows] = await pool.query(
+      'SELECT permission_key permission FROM agent_subaccount_permissions WHERE subaccount_id=?',
+      [subaccount.id]
+    );
+    req.session.user.permissions = permissionRows.map(row => row.permission);
+  }
   if (req.session.user.id) {
     const [[account]] = await pool.query(
       `SELECT u.status, GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ',') roles
@@ -528,7 +549,7 @@ const requireAuth = async (req, res, next) => {
        LEFT JOIN roles r ON r.id=ur.role_id
        WHERE u.id=?
        GROUP BY u.id, u.status`,
-      [agentOwnerId(req)]
+      [accountUserId]
     );
     if (!account || account.status !== 'active') {
       req.session.destroy(() => {});
@@ -579,12 +600,14 @@ const apiLimiter = rateLimit({
   skip: req => req.path === '/health' || req.path === '/ready'
 });
 app.use('/api', apiLimiter);
-const requireHostRole = (req, res, next) =>
-  req.session.user?.roles?.includes('agent') ? next() : res.status(403).json({ error: 'Agent permissions required' });
 const requireAgentAccess = (permission) => (req, res, next) => {
+  if (hasAgentPermission(req.session.user, permission)) return next();
   if (!req.session.user?.roles?.includes('agent')) return res.status(403).json({ error: 'Agent permissions required' });
-  if (!req.session.user.isSubAgent || req.session.user.permissions?.includes(permission)) return next();
   return res.status(403).json({ error: `Your sub-agent account is not allowed to perform: ${permission}` });
+};
+const requireMessagePermission = (req, res, next) => {
+  if (!req.session.user?.roles?.includes('agent')) return next();
+  return requireAgentAccess('messages.send')(req, res, next);
 };
 const SUB_AGENT_PERMISSIONS = [
   { key: 'listings.create', label: 'Create listings' },
@@ -669,7 +692,13 @@ app.post('/api/auth/login', async (req, res, next) => {
     }
     await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
     req.session.cookie.maxAge = req.body.rememberMe ? 1000 * 60 * 60 * 24 * 30 : 1000 * 60 * 60 * 8;
-    const [[subaccount]] = await pool.query('SELECT id, main_agent_user_id mainAgentId, label FROM agent_subaccounts WHERE subagent_user_id=? AND status="active"', [user.id]);
+    const [[subaccount]] = await pool.query(
+      `SELECT sa.id, sa.main_agent_user_id mainAgentId, sa.label, sa.status, sub.status userStatus
+       FROM agent_subaccounts sa JOIN users sub ON sub.id=sa.subagent_user_id
+       WHERE sa.subagent_user_id=?`,
+      [user.id]
+    );
+    if (subaccount && !isActiveSubAgent(subaccount)) return res.status(403).json({ error: 'Your sub-agent access is no longer active' });
     let permissions = [];
     if (subaccount) {
       const [permissionRows] = await pool.query('SELECT permission_key permission FROM agent_subaccount_permissions WHERE subaccount_id=?', [subaccount.id]);
@@ -737,7 +766,7 @@ app.post('/api/auth/password-reset/complete', async (req, res, next) => {
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res, next) => req.session.destroy(error => error ? next(error) : res.status(204).end()));
-app.get('/api/auth/me', async (req, res, next) => {
+app.get('/api/auth/me', (req, res, next) => req.session.user?.id ? requireAuth(req, res, next) : next(), async (req, res, next) => {
   try {
     if (req.get('x-staynest-guest') === '1') return res.json({ user: null, impersonating: false, guest: true });
     const sessionUser = req.session.user;
@@ -755,7 +784,7 @@ app.get('/api/auth/me', async (req, res, next) => {
       [sessionUser.id]
     );
     if (!fresh) return res.json({ user: null, impersonating: Boolean(req.session.impersonator) });
-    const roles = fresh.roles ? fresh.roles.split(',') : [];
+    const roles = sessionUser.isSubAgent ? sessionUser.roles : fresh.roles ? fresh.roles.split(',') : [];
     const activeRole = roles[0] || null;
     req.session.user = { ...sessionUser, ...fresh, roles, activeRole };
     delete req.session.activeRole;
@@ -1249,7 +1278,7 @@ app.delete('/api/agents/:id/follow', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/messages', requireAuth, async (req, res, next) => {
+app.post('/api/messages', requireAuth, requireMessagePermission, async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     if (!(await isFeatureEnabled('messaging'))) return res.status(503).json({ error: 'Messaging is temporarily unavailable' });
@@ -1540,11 +1569,11 @@ app.get('/api/account/summary', requireAuth, requireRole('tenant'), async (req, 
   } catch (error) { next(error); }
 });
 
-app.get('/api/host/listings', requireAuth, requireHostRole, async (req, res, next) => {
+app.get('/api/host/listings', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
       'SELECT id, title, slug, status, rental_mode, currency, nightly_price, monthly_price, yearly_price, average_rating, review_count, updated_at FROM listings WHERE owner_user_id=? OR agent_user_id=? ORDER BY updated_at DESC',
-      [req.session.user.id, req.session.user.id]
+      [agentOwnerId(req), agentOwnerId(req)]
     );
     res.json({ listings: rows });
   } catch (error) { next(error); }
@@ -1792,11 +1821,11 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
   } finally { connection.release(); }
 });
 
-app.get('/api/host/bookings', requireAuth, requireHostRole, async (req, res, next) => {
+app.get('/api/host/bookings', requireAuth, requireAgentAccess('bookings.view'), async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
       'SELECT b.id, b.booking_code, b.check_in, b.check_out, b.total_amount, b.currency, b.status, l.title FROM bookings b JOIN listings l ON l.id=b.listing_id WHERE b.host_user_id=? ORDER BY b.created_at DESC',
-      [req.session.user.id]
+      [agentOwnerId(req)]
     );
     res.json({ bookings: rows });
   } catch (error) { next(error); }
@@ -1845,11 +1874,11 @@ app.patch('/api/bookings/:id/reschedule', requireAuth, requireRole('tenant'), as
   } catch (error) { next(error); }
 });
 
-app.post('/api/host/bookings/:id/decision', requireAuth, requireHostRole, async (req, res, next) => {
+app.post('/api/host/bookings/:id/decision', requireAuth, requireAgentAccess('bookings.manage'), async (req, res, next) => {
   try {
     const status = req.body.status === 'confirmed' ? 'confirmed' : req.body.status === 'declined' ? 'declined' : null;
     if (!status) return res.status(400).json({ error: 'Invalid booking decision' });
-    const [result] = await pool.execute('UPDATE bookings SET status=?, confirmed_at=IF(?="confirmed", UTC_TIMESTAMP(), confirmed_at) WHERE id=? AND host_user_id=? AND status="pending"', [status, status, req.params.id, req.session.user.id]);
+    const [result] = await pool.execute('UPDATE bookings SET status=?, confirmed_at=IF(?="confirmed", UTC_TIMESTAMP(), confirmed_at) WHERE id=? AND host_user_id=? AND status="pending"', [status, status, req.params.id, agentOwnerId(req)]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Pending booking not found' });
     const [[booking]] = await pool.query(
       'SELECT b.guest_user_id guestId, l.title, b.check_in checkIn, b.check_out checkOut FROM bookings b JOIN listings l ON l.id=b.listing_id WHERE b.id=?',
@@ -2051,9 +2080,9 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/listings/:id/geocode', requireAuth, requireHostRole, async (req, res, next) => {
+app.post('/api/listings/:id/geocode', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
-    const [rows] = await pool.execute('SELECT id, address_line1, neighborhood, city, region, country_code FROM listings WHERE id=? AND (owner_user_id=? OR agent_user_id=?)', [req.params.id, req.session.user.id, req.session.user.id]);
+    const [rows] = await pool.execute('SELECT id, address_line1, neighborhood, city, region, country_code FROM listings WHERE id=? AND (owner_user_id=? OR agent_user_id=?)', [req.params.id, agentOwnerId(req), agentOwnerId(req)]);
     if (!rows[0]) return res.status(404).json({ error: 'Listing not found' });
     const listing = rows[0];
     const result = await geocodeAddress([listing.address_line1, listing.neighborhood, listing.city, listing.region, listing.country_code].filter(Boolean).join(', '));
@@ -2715,7 +2744,7 @@ app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAcces
 
 app.post('/api/listings/:id/media', requireAuth, requireAgentAccess('media.manage'), upload.array('images', 10), async (req, res, next) => {
   try {
-    const [owned] = await pool.execute('SELECT id FROM listings WHERE id=? AND (owner_user_id=? OR agent_user_id=?)', [req.params.id, req.session.user.id, req.session.user.id]);
+    const [owned] = await pool.execute('SELECT id FROM listings WHERE id=? AND (owner_user_id=? OR agent_user_id=?)', [req.params.id, agentOwnerId(req), agentOwnerId(req)]);
     if (!owned.length) return res.status(404).json({ error: 'Listing not found' });
     const uploaded = [];
     for (const file of req.files) {
