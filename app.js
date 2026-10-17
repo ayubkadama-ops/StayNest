@@ -715,10 +715,20 @@ function openGoogleSetupWithPassword() {
   openGoogleSetup();
   const form = content.querySelector("#googleSetupForm");
   if (!form) return;
-  const role = form.querySelector('[name="role"]');
-  form.querySelector("p:not(.form-error)").textContent =
+  const roleSelect = form.elements.role;
+  const roleGuidance = document.createElement("p");
+  roleGuidance.className = "search-note";
+  roleSelect.after(roleGuidance);
+  const updateRoleGuidance = () => {
+    roleGuidance.textContent = roleSelect.value === "agent"
+      ? "Agent accounts require administrator approval before you can sign in and manage properties."
+      : "Tenant accounts are ready after creation. Sign in with your email and password to explore and book homes.";
+  };
+  roleSelect.addEventListener("change", updateRoleGuidance);
+  updateRoleGuidance();
+  form.previousElementSibling.textContent =
     "Your Google email is verified. Set a Makazi Go password so you can also sign in with this email when Google is unavailable.";
-  role.insertAdjacentHTML(
+  form.querySelector(".form-error").insertAdjacentHTML(
     "beforebegin",
     '<label>Makazi Go password</label><input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters" required><label>Confirm password</label><input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required>',
   );
@@ -747,6 +757,13 @@ function openGoogleSetupWithPassword() {
             role: form.elements.role.value,
           }),
         });
+        if (result.requiresLogin) {
+          closeModal();
+          auth("login", `Your account was created successfully. Please sign in with ${result.email} and the password you chose.`);
+          const loginForm = content.querySelector('[data-auth="login"]');
+          if (loginForm) loginForm.elements.email.value = result.email;
+          return;
+        }
         if (result.pendingApproval) {
           showAgentApproval(result);
           return;

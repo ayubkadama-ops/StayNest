@@ -506,16 +506,13 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
       [result.insertId, pending.firstName, pending.lastName, `${pending.firstName} ${pending.lastName}`.slice(0, 160), pending.avatarUrl || DEFAULT_PROFILE_AVATAR, location]
     );
     await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name=?', [result.insertId, role]);
-    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id) VALUES (?)', [result.insertId]);
+    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id, phone) VALUES (?, ?)', [result.insertId, phone]);
     await connection.commit();
     delete req.session.googlePending;
     if (role === 'agent') {
       return res.status(201).json({ ok: true, pendingApproval: true, message: 'Your agent registration is pending founder approval.', approvalContact });
     }
-    await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
-    req.session.cookie.maxAge = 1000 * 60 * 60 * 8;
-    req.session.user = { id: result.insertId, firstName: pending.firstName, lastName: pending.lastName, roles: [role] };
-    res.status(201).json({ ok: true, roles: [role] });
+    res.status(201).json({ ok: true, roles: [role], requiresLogin: true, email: pending.email });
   } catch (error) {
     await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That email or phone number is already registered.' });
