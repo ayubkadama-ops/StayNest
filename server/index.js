@@ -18,6 +18,7 @@ import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, 
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
+import { sendBrandedEmail } from './email.js';
 import { getGa4Analytics } from './google-analytics.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
@@ -99,6 +100,7 @@ const approvalContact = {
   displayPhone: '0794 442 907'
 };
 const PASSWORD_RESET_TTL_MINUTES = 30;
+const EMAIL_VERIFICATION_TTL_HOURS = 24;
 let runtimeConfig = {
   siteName: 'Makazi Go',
   siteLogoUrl: '',
@@ -138,6 +140,7 @@ async function loadRuntimeConfig() {
 async function ensureSchemaMigrations() {
   const migrationFiles = [
     'admin-control-migration.sql',
+    'email-verification-migration.sql',
     'footer-social-migration.sql',
     'agent-migration.sql',
     'agent-search-migration.sql',
@@ -245,6 +248,24 @@ const strongPassword = password => typeof password === 'string'
   && password.length <= 200
   && [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter(pattern => pattern.test(password)).length >= 3;
 const hashResetToken = token => crypto.createHash('sha256').update(token).digest();
+const publicAppUrl = () => String(process.env.PUBLIC_APP_URL || process.env.APP_ORIGIN || 'https://staynest-np7j.onrender.com').replace(/\/$/, '');
+async function sendEmailVerification(userId, email, requestedIp) {
+  if (!email || (!process.env.RESEND_API_KEY && !(process.env.EMAIL_API_URL && process.env.EMAIL_API_KEY))) return false;
+  const token = crypto.randomBytes(32).toString('base64url');
+  await pool.execute('UPDATE email_verification_tokens SET used_at=COALESCE(used_at, UTC_TIMESTAMP()) WHERE user_id=? AND used_at IS NULL', [userId]);
+  await pool.execute(
+    'INSERT INTO email_verification_tokens (user_id, token_hash, expires_at, requested_ip) VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR), ?)',
+    [userId, hashResetToken(token), EMAIL_VERIFICATION_TTL_HOURS, requestedIp]
+  );
+  const actionUrl = `${publicAppUrl()}/index.html?verifyEmail=${encodeURIComponent(token)}`;
+  return sendBrandedEmail({
+    to: email,
+    subject: 'Verify your Makazi Go email',
+    text: `Confirm your email address to finish setting up your Makazi Go account. This link expires in ${EMAIL_VERIFICATION_TTL_HOURS} hours.`,
+    actionUrl,
+    actionLabel: 'Verify email address'
+  });
+}
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -670,6 +691,12 @@ app.post('/api/auth/register', async (req, res, next) => {
     await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?', [result.insertId, role]);
     if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id, phone, bio, agency_name) VALUES (?, ?, ?, ?)', [result.insertId, details.phone || null, details.bio || null, details.agencyName || null]);
     await connection.commit();
+    let emailVerificationSent = false;
+    try {
+      emailVerificationSent = await sendEmailVerification(result.insertId, email, req.ip);
+    } catch (emailError) {
+      console.error('Account verification email failed:', emailError.message);
+    }
     if (role === 'agent') {
       void notifyAdministrators({
         type: 'agent_registration_pending',
@@ -677,12 +704,9 @@ app.post('/api/auth/register', async (req, res, next) => {
         body: `${firstName} ${lastName} (${email}) submitted an agent registration for founder approval.`,
         data: { userId: result.insertId, role }
       }).catch(error => console.error('Agent registration notification failed:', error.message));
-      return res.status(201).json({ ok: true, role, roles: [role], pendingApproval: true, message: 'Your agent registration is pending founder approval.', approvalContact });
+      return res.status(201).json({ ok: true, role, roles: [role], pendingApproval: true, emailVerificationSent, message: 'Your agent registration is pending founder approval.', approvalContact });
     }
-    await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
-    req.session.cookie.maxAge = req.body.rememberMe ? 1000 * 60 * 60 * 24 * 30 : 1000 * 60 * 60 * 8;
-    req.session.user = { id: result.insertId, firstName, lastName, roles: [role] };
-    res.status(201).json({ ok: true, role, roles: [role], pendingApproval: false });
+    res.status(201).json({ ok: true, role, roles: [role], requiresLogin: true, email, emailVerificationSent });
   } catch (error) {
     await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that email or phone already exists. Try signing in instead.' });
@@ -693,7 +717,7 @@ app.post('/api/auth/register', async (req, res, next) => {
 app.post('/api/auth/login', async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT u.id, u.status, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE u.email=? AND u.status IN ("active","pending") GROUP BY u.id, u.status, p.first_name, p.last_name',
+      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE u.email=? AND u.status IN ("active","pending") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
       [String(req.body.email || '').toLowerCase().trim()]
     );
     const user = rows[0];
@@ -705,6 +729,7 @@ app.post('/api/auth/login', async (req, res, next) => {
     if (user.status === 'pending') {
       return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
     }
+    if (!user.email_verified_at) return res.status(403).json({ emailVerificationRequired: true, error: 'Verify your email address before signing in.' });
     if (!roles.some(role => ['tenant', 'agent', 'administrator'].includes(role))) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
     if (user.mfa_enabled) {
       if (!req.body.mfaCode) return res.json({ mfaRequired: true });
@@ -729,6 +754,53 @@ app.post('/api/auth/login', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/auth/email-verification/confirm', async (req, res, next) => {
+  const token = typeof req.body.token === 'string' ? req.body.token : '';
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(token)) return res.status(400).json({ error: 'This verification link is invalid or expired.' });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[verification]] = await connection.query(
+      `SELECT evt.id,evt.user_id,u.email_verified_at
+       FROM email_verification_tokens evt JOIN users u ON u.id=evt.user_id
+       WHERE evt.token_hash=? AND evt.used_at IS NULL AND evt.expires_at>UTC_TIMESTAMP() AND u.status<>'deleted'
+       FOR UPDATE`,
+      [hashResetToken(token)]
+    );
+    if (!verification) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'This verification link is invalid or expired. Request a new one.' });
+    }
+    await connection.execute('UPDATE users SET email_verified_at=COALESCE(email_verified_at,UTC_TIMESTAMP()) WHERE id=?', [verification.user_id]);
+    await connection.execute('UPDATE email_verification_tokens SET used_at=UTC_TIMESTAMP() WHERE id=?', [verification.id]);
+    await connection.commit();
+    res.json({ ok: true, message: 'Email verified. You can now sign in.' });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally { connection.release(); }
+});
+
+app.post('/api/auth/email-verification/resend', async (req, res, next) => {
+  const genericResponse = { ok: true, message: 'If the account needs verification, a new link has been sent.' };
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(genericResponse);
+    const [[user]] = await pool.query(
+      'SELECT id,email,email_verified_at FROM users WHERE email=? AND status IN ("active","pending") LIMIT 1',
+      [email]
+    );
+    if (!user || user.email_verified_at) return res.json(genericResponse);
+    try {
+      const sent = await sendEmailVerification(user.id, user.email, req.ip);
+      if (!sent) console.warn('Email verification resend skipped: Resend email is not configured.');
+    } catch (emailError) {
+      console.error('Email verification resend failed:', emailError.message);
+    }
+    return res.json(genericResponse);
+  } catch (error) { next(error); }
+});
+
 app.post('/api/auth/password-reset/request', async (req, res, next) => {
   const genericResponse = { ok: true, message: 'If an account matches that email, password recovery instructions have been prepared.' };
   try {
@@ -746,9 +818,21 @@ app.post('/api/auth/password-reset/request', async (req, res, next) => {
       'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, requested_ip) VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), ?)',
       [user.id, tokenHash, PASSWORD_RESET_TTL_MINUTES, req.ip]
     );
-    const resetUrl = `${process.env.PASSWORD_RESET_BASE_URL || `${req.protocol}://${req.get('host')}`}/index.html?reset=${encodeURIComponent(token)}`;
-    if (process.env.NODE_ENV !== 'production') return res.json({ ...genericResponse, resetUrl, expiresInMinutes: PASSWORD_RESET_TTL_MINUTES });
-    console.info(`Password reset email queued for ${email}; delivery service is not configured.`);
+    const resetUrl = `${publicAppUrl()}/index.html?reset=${encodeURIComponent(token)}`;
+    let emailSent = false;
+    try {
+      emailSent = await sendBrandedEmail({
+        to: user.email,
+        subject: 'Reset your Makazi Go password',
+        text: `We received a request to reset your password. This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes. If you did not request it, you can ignore this email.`,
+        actionUrl: resetUrl,
+        actionLabel: 'Reset password'
+      });
+    } catch (emailError) {
+      console.error('Password reset email failed:', emailError.message);
+    }
+    if (!emailSent) console.warn('Password reset email was not delivered: Resend is not configured or unavailable.');
+    if (process.env.NODE_ENV !== 'production') return res.json({ ...genericResponse, resetUrl, expiresInMinutes: PASSWORD_RESET_TTL_MINUTES, emailSent });
     return res.json(genericResponse);
   } catch (error) { next(error); }
 });
@@ -763,7 +847,7 @@ app.post('/api/auth/password-reset/complete', async (req, res, next) => {
   try {
     await connection.beginTransaction();
     const [[reset]] = await connection.query(
-      `SELECT pr.id, pr.user_id, u.status
+      `SELECT pr.id, pr.user_id, u.status, u.email
        FROM password_reset_tokens pr JOIN users u ON u.id=pr.user_id
        WHERE pr.token_hash=? AND pr.used_at IS NULL AND pr.expires_at>UTC_TIMESTAMP()
        FOR UPDATE`,
@@ -778,6 +862,15 @@ app.post('/api/auth/password-reset/complete', async (req, res, next) => {
     await connection.commit();
     await sessionStore.destroyUserSessions(reset.user_id);
     req.session.destroy(() => {});
+    try {
+      await sendBrandedEmail({
+        to: reset.email,
+        subject: 'Your Makazi Go password was changed',
+        text: 'Your account password was changed successfully. If you did not make this change, contact Makazi Go support immediately.'
+      });
+    } catch (emailError) {
+      console.error('Password changed notification email failed:', emailError.message);
+    }
     res.json({ ok: true, message: 'Your password has been updated. Sign in with your new password.' });
   } catch (error) {
     await connection.rollback();

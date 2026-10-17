@@ -51,6 +51,12 @@ services:
         sync: false
       - key: DJANGO_ADMIN_URL
         value: https://staynest-django-admin.onrender.com
+      - key: PUBLIC_APP_URL
+        value: https://staynest-np7j.onrender.com
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
   - type: web
     name: staynest-django-admin
     runtime: python

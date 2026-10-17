@@ -1,18 +1,5 @@
 import { pool } from './db.js';
-
-async function deliverEmail(to, subject, text) {
-  if (!process.env.EMAIL_API_URL || !process.env.EMAIL_API_KEY) return false;
-  const response = await fetch(process.env.EMAIL_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.EMAIL_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ from: process.env.EMAIL_FROM, to, subject, text })
-  });
-  if (!response.ok) throw new Error(`Email provider returned ${response.status}`);
-  return true;
-}
+import { sendBrandedEmail } from './email.js';
 
 async function deliverSms(to, text) {
   if (!process.env.SMS_API_URL || !process.env.SMS_API_KEY) return false;
@@ -34,7 +21,7 @@ export async function notifyUser(userId, { type, title, body, data = {} }) {
   await pool.execute('INSERT INTO notifications (user_id, type, title, body, data) VALUES (?, ?, ?, ?, ?)', [userId, type, title, body, JSON.stringify(data)]);
   const [delivery] = await pool.execute('INSERT INTO notification_deliveries (user_id, type, status) VALUES (?, ?, "pending")', [userId, type]);
   try {
-    const emailSent = users[0].email ? await deliverEmail(users[0].email, title, body) : false;
+    const emailSent = users[0].email ? await sendBrandedEmail({ to: users[0].email, subject: title, text: body }) : false;
     const smsSent = users[0].phone ? await deliverSms(users[0].phone, body) : false;
     await pool.execute('UPDATE notification_deliveries SET status=?, delivered_at=UTC_TIMESTAMP(), metadata=? WHERE id=?', [emailSent || smsSent ? 'sent' : 'in_app', JSON.stringify({ emailSent, smsSent }), delivery.insertId]);
   } catch (error) {
