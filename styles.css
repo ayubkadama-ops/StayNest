@@ -2449,6 +2449,47 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip {
   gap: 8px;
 }
 
+.wizard-basics-group,
+.wizard-category-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.wizard-basics-group[hidden] {
+  display: none !important;
+}
+
+.wizard-category-details > .search-note {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+}
+
+.wizard-category-details > label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.wizard-category-details input,
+.wizard-category-details select,
+.wizard-category-details textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.wizard-category-amenities {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .wizard-amenity {
   display: flex !important;
   align-items: center;

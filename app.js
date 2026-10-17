@@ -860,37 +860,194 @@ function openAgentListingWizard(){
     ['Standout',[['Pool','Pool'],['Generator','Generator'],['Borehole water','Borehole water'],['BBQ','BBQ']]],
     ['Safety',[['Smoke alarm','Smoke alarm'],['Fire extinguisher','Fire extinguisher'],['First aid kit','First aid kit']]]
   ];
-  const steps=['Location','Structure type','Privacy type','Basics','Amenities','Photos','Title & description','Pricing','Booking mode','Review & submit'];
+  const steps=['Location','Property category','Privacy','Category details','Amenities','Photos','Listing description','Pricing','Booking','Review & submit'];
   const structureOptions=[['house','House'],['apartment','Apartment'],['room','Room'],['land_plot','Land/Plot'],['guesthouse','Guesthouse'],['serviced_apartment','Serviced apartment'],['hotel','Hotel'],['commercial','Commercial space']];
   const privacyOptions=[['entire_place','Entire place'],['private_room','Private room'],['shared_room','Shared room']];
+  const categoryQuestions={
+    house:{title:'House details',intro:'Tell renters about the home layout and outdoor space.',fields:[{name:'homeStyle',label:'Home style',options:['Detached house','Bungalow','Villa','Townhouse','Other']},{name:'outdoorSpace',label:'Outdoor space',options:['Private garden','Private yard','Balcony or patio','No private outdoor space']},{name:'parking',label:'Parking',options:['No parking','Street parking','One space','Two or more spaces']}]},
+    apartment:{title:'Apartment details',intro:'Help renters understand the unit and building.',fields:[{name:'apartmentStyle',label:'Apartment style',options:['Studio','One bedroom','Two bedrooms','Three or more bedrooms','Penthouse']},{name:'floorLevel',label:'Floor level',type:'number',min:0,max:150,placeholder:'Ground floor is 0'},{name:'buildingAccess',label:'Building access',options:['Elevator','Stairs','Elevator and stairs']},{name:'balcony',label:'Private balcony',options:['Yes','No']}]},
+    room:{title:'Room details',intro:'Clarify what is private and which spaces are shared.',fields:[{name:'roomFurnishing',label:'Furnishing',options:['Furnished','Partly furnished','Unfurnished']},{name:'sharedSpaces',label:'Shared spaces',type:'text',placeholder:'Kitchen, bathroom, living room'},{name:'roomAccess',label:'Room access',options:['Private entrance','Shared entrance']}]},
+    land_plot:{title:'Plot details',intro:'Describe plot size, intended use, and access.',fields:[{name:'plotSize',label:'Plot size',type:'number',min:1,step:0.01,placeholder:'e.g. 600'},{name:'plotSizeUnit',label:'Size unit',options:['Square metres','Acres','Hectares']},{name:'landUse',label:'Intended land use',options:['Residential','Agricultural','Commercial','Mixed use','Other']},{name:'titleStatus',label:'Title or survey status',options:['Surveyed title','Title available','In process','Confirm with agent']}]},
+    guesthouse:{title:'Guesthouse details',intro:'Share the guest services and room setup.',fields:[{name:'guestRooms',label:'Guest rooms',type:'number',min:1,max:999},{name:'mealService',label:'Meals',options:['No meals','Breakfast','Breakfast and dinner','Restaurant on site']},{name:'receptionHours',label:'Reception',options:['24-hour reception','Daytime reception','Self check-in']}]},
+    serviced_apartment:{title:'Serviced apartment details',intro:'Describe what is included during a serviced stay.',fields:[{name:'housekeeping',label:'Housekeeping',options:['Daily','Weekly','On request','Not included']},{name:'utilitiesIncluded',label:'Utilities included',options:['All utilities','Some utilities','Not included']},{name:'kitchenSetup',label:'Kitchen',options:['Full kitchen','Kitchenette','Shared kitchen']}]},
+    hotel:{title:'Hotel details',intro:'Add the accommodation and guest services visitors expect.',fields:[{name:'hotelRooms',label:'Guest rooms',type:'number',min:1,max:999},{name:'mealService',label:'Meals',options:['No meals','Breakfast','Breakfast and dinner','Restaurant on site']},{name:'receptionHours',label:'Reception',options:['24-hour reception','Daytime reception','Self check-in']}]},
+    commercial:{title:'Commercial property details',intro:'Describe the usable area, business use, and customer access.',fields:[{name:'floorArea',label:'Floor area (m²)',type:'number',min:1,step:0.01,placeholder:'e.g. 120'},{name:'businessUse',label:'Suitable business use',options:['Office','Retail or shop','Hospitality','Warehouse or industrial','Mixed use','Other']},{name:'customerAccess',label:'Customer access',options:['Street frontage','Inside a complex','Appointment only']},{name:'loadingAccess',label:'Loading access',options:['Loading bay','Vehicle access','No loading access']}]}
+  };
+  const categoryAmenities={
+    house:['Private garden','Fenced yard','Family kitchen','Parking','Storage','Backup water','Security gate','Outdoor dining'],
+    apartment:['Balcony','Elevator','Secure entry','Backup generator','Swimming pool','Gym','Parking','Air conditioning','Laundry'],
+    room:['Shared kitchen','Shared bathroom','Secure entry','Wi-Fi','Laundry','Furnished','Parking'],
+    land_plot:['Road access','Water connection','Electricity nearby','Fenced plot','Surveyed title','Drainage'],
+    guesthouse:['Breakfast','Restaurant','Swimming pool','24-hour reception','Housekeeping','Parking','Generator','Wi-Fi'],
+    serviced_apartment:['Full kitchen','Housekeeping','Wi-Fi','Laundry','Linen included','Backup generator','Secure entry','Parking'],
+    hotel:['Restaurant','Swimming pool','Conference room','24-hour reception','Housekeeping','Parking','Generator','Wi-Fi'],
+    commercial:['Street frontage','Customer parking','Loading access','Power backup','Fiber internet','Security','Air conditioning','Public transport']
+  };
+  const requiredCategoryAnswers={house:['homeStyle'],apartment:['apartmentStyle'],room:['roomFurnishing'],land_plot:['plotSize','landUse'],guesthouse:['guestRooms'],serviced_apartment:['housekeeping'],hotel:['hotelRooms'],commercial:['floorArea','businessUse']};
   const stepper=(name,label,min,max,step,value)=>`<div class="wizard-stepper"><span>${label}</span><button type="button" data-stepper="${name}" data-direction="down" aria-label="Decrease ${label}">−</button><input name="${name}" type="number" min="${min}" max="${max}" step="${step}" value="${value}" aria-label="${label}"><button type="button" data-stepper="${name}" data-direction="up" aria-label="Increase ${label}">+</button></div>`;
   const optionCards=(name,options)=>`<div class="wizard-option-grid">${options.map(([value,label])=>`<label class="wizard-option"><input type="radio" name="${name}" value="${value}"><span>${label}</span></label>`).join('')}</div>`;
   const amenityMarkup=amenityGroups.map(([group,items])=>`<fieldset class="wizard-amenity-group"><legend>${group}</legend><div class="wizard-amenity-grid">${items.map(([value,label])=>`<label class="wizard-amenity"><input type="checkbox" value="${value}" data-amenity><span class="wizard-amenity-icon" aria-hidden="true">✦</span><span>${label}</span></label>`).join('')}</div></fieldset>`).join('');
   openModal(`<div class="listing-wizard"><div class="wizard-heading"><div><p class="eyebrow">Agent workspace</p><h2>Create a listing</h2></div><span class="wizard-step-label" id="wizardStepLabel"></span></div><div class="wizard-progress" role="progressbar" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="1"><span id="wizardProgress"></span></div><form id="agentListingWizard" enctype="multipart/form-data"><section class="wizard-panel" data-step="0"><h3>Where is the place?</h3><p class="search-note">Your exact address stays private until booking. Search and confirm the pin so guests can find the area accurately.</p><label>Street address<input name="addressLine1" id="listingAddress" required placeholder="Street address"></label><label>City<input name="city" required></label><div class="location-search-row"><button class="outline-btn" type="button" id="findListingLocation">Find on map</button></div><input type="hidden" name="latitude"><input type="hidden" name="longitude"><div class="listing-map-wrap"><div id="listingMap" aria-label="OpenStreetMap listing location"></div><p id="listingMapStatus" class="map-status">Search for the exact property address to place it on the map.</p></div></section><section class="wizard-panel" data-step="1" hidden><h3>What kind of place is it?</h3><p class="search-note">Choose the structure that best describes the listing.</p>${optionCards('structureType',structureOptions)}</section><section class="wizard-panel" data-step="2" hidden><h3>How will guests use it?</h3><p class="search-note">This describes the privacy arrangement for a stay.</p>${optionCards('privacyType',privacyOptions)}</section><section class="wizard-panel" data-step="3" hidden><h3>Make room for the right stay</h3><p class="search-note">Use the steppers to set the capacity and layout.</p>${stepper('maxGuests','Maximum guests',1,999,1,2)}${stepper('bedrooms','Bedrooms',0,99,1,1)}${stepper('bathrooms','Bathrooms',0.5,99,0.5,1)}</section><section class="wizard-panel" data-step="4" hidden><h3>What makes it special?</h3><p class="search-note">Select the amenities guests will find at the place.</p>${amenityMarkup}<input type="hidden" name="amenities"></section><section class="wizard-panel" data-step="5" hidden><h3>Show the place</h3><p class="search-note">Add at least five photos. Drag cards to reorder them; the first one becomes the cover.</p><label class="wizard-file-drop" id="mediaDrop"><input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple required><strong>Drop photos here or browse</strong><small>Minimum 5 photos</small></label><div class="wizard-media-grid" id="mediaGrid"></div><div id="mediaCaptions"></div></section><section class="wizard-panel" data-step="6" hidden><h3>Give it a name</h3><label>Title<input name="title" maxlength="180" required placeholder="A memorable name for this place"></label><label>Description / caption<textarea name="description" maxlength="5000" required placeholder="Tell guests what makes the place feel like home."></textarea></label></section><section class="wizard-panel" data-step="7" hidden><h3>Set your pricing</h3><label>Rental duration<select name="rentalMode"><option value="short_term">Short-term — nightly</option><option value="long_term">Long-term — monthly/yearly</option><option value="both">Both short-term and long-term</option></select></label><div class="wizard-price-grid"><label>Nightly price<input name="nightlyPrice" type="number" min="1" step="0.01"></label><label>Monthly price<input name="monthlyPrice" type="number" min="1" step="0.01"></label><label>Yearly price<input name="yearlyPrice" type="number" min="1" step="0.01"></label></div></section><section class="wizard-panel" data-step="8" hidden><h3>Choose a booking mode</h3><p class="search-note">Decide whether guests can confirm instantly or need your approval.</p>${optionCards('bookingMode',[['request','Request to book'],['instant','Instant book']])}</section><section class="wizard-panel" data-step="9" hidden><h3>Review and submit</h3><div class="wizard-summary" id="wizardSummary"></div><label>Registration document<input name="document" type="file" accept=".pdf,image/jpeg,image/png" required></label><p class="search-note">Your registration document is required for review and stays private.</p></section><p class="form-error" role="alert"></p><div class="wizard-actions"><button class="outline-btn" type="button" id="wizardBack">Back</button><button class="primary" type="button" id="wizardNext">Continue <span>→</span></button></div></form></div>`);
-  const form=content.querySelector('#agentListingWizard'),panels=[...form.querySelectorAll('.wizard-panel')],errorBox=form.querySelector('.form-error'),progress=form.querySelector('#wizardProgress'),stepLabel=form.querySelector('#wizardStepLabel'),back=form.querySelector('#wizardBack'),next=form.querySelector('#wizardNext');
+  const form=content.querySelector('#agentListingWizard'),panels=[...form.querySelectorAll('.wizard-panel')],errorBox=form.querySelector('.form-error'),progress=content.querySelector('#wizardProgress'),stepLabel=content.querySelector('#wizardStepLabel'),back=form.querySelector('#wizardBack'),next=form.querySelector('#wizardNext');
   let currentStep=0,marker=null,mediaFiles=[];
-  const categoryInput=document.createElement('input');categoryInput.type='hidden';categoryInput.name='propertyType';form.append(categoryInput);const categoryByStructure={house:'house',apartment:'apartment',room:'room',land_plot:'land',guesthouse:'hotel',serviced_apartment:'apartment',hotel:'hotel',commercial:'commercial'};const syncPropertyCategory=()=>{const structure=form.querySelector('[name="structureType"]:checked')?.value;categoryInput.value=categoryByStructure[structure]||'apartment'};form.addEventListener('change',event=>{if(event.target.name==='structureType')syncPropertyCategory()});setTimeout(syncPropertyCategory,0);
+  const categoryInput=document.createElement('input');categoryInput.type='hidden';categoryInput.name='propertyType';form.append(categoryInput);const categoryByStructure={house:'house',apartment:'apartment',room:'room',land_plot:'land',guesthouse:'hotel',serviced_apartment:'apartment',hotel:'hotel',commercial:'commercial'};const syncPropertyCategory=()=>{const structure=form.querySelector('[name="structureType"]:checked')?.value;categoryInput.value=categoryByStructure[structure]||'apartment'};
   const bathroomStepper=form.elements.bathrooms.closest('.wizard-stepper');
   const bedsStepper=document.createElement('div');
   bedsStepper.className='wizard-stepper';
   bedsStepper.innerHTML='<span>Beds</span><button type="button" data-stepper="beds" data-direction="down" aria-label="Decrease beds">−</button><input name="beds" type="number" min="0" max="99" step="1" value="1" aria-label="Beds"><button type="button" data-stepper="beds" data-direction="up" aria-label="Increase beds">+</button>';
   bathroomStepper.before(bedsStepper);
-  const saveDraft=()=>{const values={};['addressLine1','city','latitude','longitude','structureType','privacyType','maxGuests','bedrooms','beds','bathrooms','amenities','title','description','rentalMode','nightlyPrice','monthlyPrice','yearlyPrice','bookingMode'].forEach(name=>{const field=form.elements[name];if(field)values[name]=field.value});values.amenities=[...form.querySelectorAll('[data-amenity]:checked')].map(input=>input.value);localStorage.setItem(draftKey,JSON.stringify(values))};
-  const restoreDraft=()=>{Object.entries(draft).forEach(([name,value])=>{if(name==='amenities')return;const field=form.elements[name];if(!field)return;if(field.type==='radio'){const radio=form.querySelector(`[name="${name}"][value="${CSS.escape(value)}"]`);if(radio)radio.checked=true}else field.value=value});const amenities=Array.isArray(draft.amenities)?draft.amenities:String(draft.amenities||'').split(',').filter(Boolean);form.querySelectorAll('[data-amenity]').forEach(input=>{input.checked=amenities.includes(input.value)});form.elements.amenities.value=amenities.join(',')};
+  const detailsPanel=form.querySelector('[data-step="3"]');
+  const capacityGroup=document.createElement('div');
+  capacityGroup.className='wizard-basics-group';
+  const firstStepper=detailsPanel.querySelector('.wizard-stepper');
+  detailsPanel.insertBefore(capacityGroup,firstStepper);
+  [...detailsPanel.querySelectorAll('.wizard-stepper')].forEach(stepper=>capacityGroup.append(stepper));
+  const categoryDetailsHost=document.createElement('div');
+  categoryDetailsHost.className='wizard-category-details';
+  detailsPanel.append(categoryDetailsHost);
+  const amenitiesPanel=form.querySelector('[data-step="4"]');
+  const categoryAmenitiesHost=document.createElement('div');
+  categoryAmenitiesHost.className='wizard-category-amenities';
+  amenitiesPanel.querySelectorAll('.wizard-amenity-group').forEach(group=>group.remove());
+  amenitiesPanel.insertBefore(categoryAmenitiesHost,form.elements.amenities);
+  const categoryDetailsDraft={...(draft.categoryDetails||{})};
+  const categoryAmenitiesDraft={...(draft.categoryAmenities||{})};
+  let currentStructure='',previousLeaseCategory=false;
+  const readCategoryAnswers=()=>Object.fromEntries([...categoryDetailsHost.querySelectorAll('[data-category-question]')].map(input=>[input.name,input.value]).filter(([,value])=>String(value).trim()));
+  const renderCategoryQuestions=structure=>{
+    const definition=categoryQuestions[structure]||categoryQuestions.house;
+    categoryDetailsHost.replaceChildren();
+    const intro=document.createElement('p');intro.className='search-note';intro.textContent=definition.intro;categoryDetailsHost.append(intro);
+    for(const question of definition.fields){
+      const label=document.createElement('label');label.textContent=question.label;
+      const control=document.createElement(question.options?'select':question.type==='textarea'?'textarea':'input');
+      control.name=question.name;control.dataset.categoryQuestion='';
+      if(question.options){const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='Choose an answer';control.append(placeholder);question.options.forEach(value=>{const option=document.createElement('option');option.value=value;option.textContent=value;control.append(option)})}
+      else{control.type=question.type||'text';if(question.min!==undefined)control.min=question.min;if(question.max!==undefined)control.max=question.max;if(question.step!==undefined)control.step=question.step;if(question.placeholder)control.placeholder=question.placeholder}
+      control.addEventListener('input',saveDraft);control.addEventListener('change',saveDraft);label.append(control);categoryDetailsHost.append(label);
+    }
+    const saved=categoryDetailsDraft[structure]||{};
+    Object.entries(saved).forEach(([name,value])=>{const control=categoryDetailsHost.querySelector(`[name="${CSS.escape(name)}"]`);if(control)control.value=value});
+  };
+  const renderCategoryAmenities=structure=>{
+    const selected=new Set(categoryAmenitiesDraft[structure]||[]);
+    categoryAmenitiesHost.replaceChildren();
+    for(const amenity of categoryAmenities[structure]||categoryAmenities.house){
+      const label=document.createElement('label');label.className='wizard-amenity';
+      const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.value=amenity;checkbox.dataset.amenity='';checkbox.checked=selected.has(amenity);
+      const icon=document.createElement('span');icon.className='wizard-amenity-icon';icon.setAttribute('aria-hidden','true');icon.textContent='+';
+      const text=document.createElement('span');text.textContent=amenity;
+      checkbox.addEventListener('change',()=>{categoryAmenitiesDraft[structure]=[...categoryAmenitiesHost.querySelectorAll('[data-amenity]:checked')].map(input=>input.value);form.elements.amenities.value=categoryAmenitiesDraft[structure].join(',');saveDraft()});
+      label.append(checkbox,icon,text);categoryAmenitiesHost.append(label);
+    }
+    form.elements.amenities.value=(categoryAmenitiesDraft[structure]||[]).join(',');
+  };
+  const updateCategoryFlow=()=>{
+    const structure=form.querySelector('[name="structureType"]:checked')?.value||'house';
+    if(currentStructure&&currentStructure!==structure){categoryDetailsDraft[currentStructure]=readCategoryAnswers();categoryAmenitiesDraft[currentStructure]=[...categoryAmenitiesHost.querySelectorAll('[data-amenity]:checked')].map(input=>input.value)}
+    currentStructure=structure;syncPropertyCategory();
+    const lease=['land_plot','commercial'].includes(structure);
+    capacityGroup.hidden=lease;
+    form.querySelector('[data-step="3"] h3').textContent=lease?'Property details':'Capacity and category details';
+    form.querySelector('[data-step="3"] .search-note').textContent=lease?'Add the specific details renters and buyers need to compare this property.':'Add the capacity, layout, and category details guests need to choose this place.';
+    form.querySelector('[data-step="4"] h3').textContent=`Features for ${structure.replaceAll('_',' ')}`;
+    form.querySelector('[data-step="4"] .search-note').textContent='Select the features that are actually available at this property.';
+    const privacyPanel=form.querySelector('[data-step="2"]');
+    privacyPanel.querySelector('.search-note').textContent=structure==='room'?'Describe whether this is a private or shared room.':'Choose how guests will use the accommodation.';
+    const privacyHeading=privacyPanel.querySelector('h3');
+    privacyHeading.textContent=structure==='room'?'Is this room private or shared?':'What privacy arrangement do you offer?';
+    const privacyRadios=[...privacyPanel.querySelectorAll('[name="privacyType"]')];
+    if(lease)privacyRadios.forEach(input=>{input.checked=false});
+    else if(!privacyRadios.some(input=>input.checked)){const defaultPrivacy=structure==='room'?'private_room':'entire_place';const option=privacyRadios.find(input=>input.value===defaultPrivacy);if(option)option.checked=true}
+    const nightlyLabel=form.elements.nightlyPrice.closest('label');
+    const nightlyOption=[...form.elements.rentalMode.options].find(option=>option.value==='short_term');
+    const bothOption=[...form.elements.rentalMode.options].find(option=>option.value==='both');
+    if(lease){if(!previousLeaseCategory||form.elements.rentalMode.value!=='long_term')form.elements.rentalMode.value='long_term';form.elements.nightlyPrice.value='';nightlyLabel.hidden=true;nightlyOption.hidden=true;bothOption.hidden=true;form.elements.bookingMode.value='request'}
+    else{if(previousLeaseCategory)form.elements.rentalMode.value='short_term';nightlyLabel.hidden=false;nightlyOption.hidden=false;bothOption.hidden=false}
+    previousLeaseCategory=lease;
+    renderCategoryQuestions(structure);renderCategoryAmenities(structure);saveDraft();
+  };
+  const visibleSteps=()=>['land_plot','commercial'].includes(currentStructure)?[0,1,3,4,5,6,7,9]:[0,1,2,3,4,5,6,7,8,9];
+  const saveDraft=()=>{const values={};['addressLine1','city','latitude','longitude','structureType','privacyType','maxGuests','bedrooms','beds','bathrooms','amenities','title','description','rentalMode','nightlyPrice','monthlyPrice','yearlyPrice','bookingMode'].forEach(name=>{const field=form.elements[name];if(field)values[name]=field.value});if(currentStructure){categoryDetailsDraft[currentStructure]=readCategoryAnswers();categoryAmenitiesDraft[currentStructure]=[...categoryAmenitiesHost.querySelectorAll('[data-amenity]:checked')].map(input=>input.value)}values.categoryDetails=categoryDetailsDraft;values.categoryAmenities=categoryAmenitiesDraft;localStorage.setItem(draftKey,JSON.stringify(values))};
+  const restoreDraft=()=>{Object.entries(draft).forEach(([name,value])=>{if(['amenities','categoryDetails','categoryAmenities'].includes(name))return;const field=form.elements[name];if(!field)return;if(field instanceof RadioNodeList){const radio=[...field].find(input=>input.value===value);if(radio)radio.checked=true}else field.value=value});updateCategoryFlow();const amenities=Array.isArray(draft.amenities)?draft.amenities:String(draft.amenities||'').split(',').filter(Boolean);if(!draft.categoryAmenities)categoryAmenitiesDraft[currentStructure]=amenities;renderCategoryAmenities(currentStructure);form.elements.amenities.value=(categoryAmenitiesDraft[currentStructure]||[]).join(',');};
+  form.addEventListener('change',event=>{if(event.target.name==='structureType')updateCategoryFlow()});
   const setLocation=(latitude,longitude,label='Exact estate location selected')=>{form.elements.latitude.value=latitude;form.elements.longitude.value=longitude;if(marker)marker.setLatLng([latitude,longitude]);else{marker=L.marker([latitude,longitude],{draggable:true}).addTo(map);marker.on('dragend',()=>{const point=marker.getLatLng();setLocation(point.lat,point.lng)})}const status=form.querySelector('#listingMapStatus');status.textContent=`${label} (${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)})`;status.classList.add('map-status-success');saveDraft()};
   const map=L.map(form.querySelector('#listingMap')).setView([-6.8,39.25],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map);map.on('click',event=>setLocation(event.latlng.lat,event.latlng.lng));setTimeout(()=>map.invalidateSize(),0);
   const updateAmenities=()=>{form.elements.amenities.value=[...form.querySelectorAll('[data-amenity]:checked')].map(input=>input.value).join(',');saveDraft()};
   const renderMedia=()=>{const grid=form.querySelector('#mediaGrid'),captions=form.querySelector('#mediaCaptions');grid.innerHTML=mediaFiles.map((file,index)=>`<div class="wizard-media-card" draggable="true" data-media-index="${index}"><span class="wizard-media-order">${index===0?'Cover':index+1}</span><img src="${URL.createObjectURL(file)}" alt="Photo ${index+1}"><button type="button" data-remove-media="${index}" aria-label="Remove photo">×</button></div>`).join('');captions.innerHTML=mediaFiles.map((file,index)=>`<label class="wizard-caption">${index===0?'Cover ':''}caption<input name="caption${index}" maxlength="255" placeholder="Describe photo ${index+1}"></label>`).join('');grid.querySelectorAll('[data-remove-media]').forEach(button=>button.onclick=()=>{mediaFiles.splice(Number(button.dataset.removeMedia),1);syncFiles();renderMedia()});grid.querySelectorAll('.wizard-media-card').forEach(card=>{card.ondragstart=event=>event.dataTransfer.setData('text/plain',card.dataset.mediaIndex);card.ondragover=event=>event.preventDefault();card.ondrop=event=>{event.preventDefault();const from=Number(event.dataTransfer.getData('text/plain')),to=Number(card.dataset.mediaIndex);if(from===to)return;const [file]=mediaFiles.splice(from,1);mediaFiles.splice(to,0,file);syncFiles();renderMedia()}})};
   const syncFiles=()=>{const input=form.elements.media,dataTransfer=new DataTransfer();mediaFiles.forEach(file=>dataTransfer.items.add(file));input.files=dataTransfer.files};
-  const validate=()=>{const values={address:form.elements.addressLine1.value.trim(),city:form.elements.city.value.trim(),lat:form.elements.latitude.value,lng:form.elements.longitude.value,title:form.elements.title.value.trim(),description:form.elements.description.value.trim()};if(currentStep===0&&!values.address)return 'Enter the street address';if(currentStep===0&&!values.city)return 'Enter the city';if(currentStep===0&&(!values.lat||!values.lng))return 'Find and confirm the listing location on the map';if(currentStep===1&&!form.querySelector('[name="structureType"]:checked'))return 'Choose a structure type';if(currentStep===2&&!form.querySelector('[name="privacyType"]:checked'))return 'Choose a privacy type';if(currentStep===5&&mediaFiles.length<5)return 'Add at least five photos';if(currentStep===6&&(!values.title||!values.description))return 'Add a title and description';if(currentStep===7&&!['short_term','long_term','both'].includes(form.elements.rentalMode.value))return 'Choose a rental duration';if(currentStep===8&&!form.querySelector('[name="bookingMode"]:checked'))return 'Choose a booking mode';return ''};
+  const validate=()=>{
+    const values={address:form.elements.addressLine1.value.trim(),city:form.elements.city.value.trim(),lat:form.elements.latitude.value,lng:form.elements.longitude.value,title:form.elements.title.value.trim(),description:form.elements.description.value.trim()};
+    if(currentStep===0&&!values.address)return 'Enter the street address';
+    if(currentStep===0&&!values.city)return 'Enter the city';
+    if(currentStep===0&&(!values.lat||!values.lng))return 'Find and confirm the listing location on the map';
+    if(currentStep===1&&!form.querySelector('[name="structureType"]:checked'))return 'Choose a structure type';
+    if(currentStep===2&&!form.querySelector('[name="privacyType"]:checked'))return 'Choose a privacy type';
+    if(currentStep===3){
+      const structure=form.querySelector('[name="structureType"]:checked')?.value;
+      for(const name of requiredCategoryAnswers[structure]||[]){
+        const question=categoryQuestions[structure]?.fields.find(item=>item.name===name);
+        if(!form.elements[name]?.value)return `Provide ${question?.label?.toLowerCase()||'the category details'}`;
+      }
+    }
+    if(currentStep===5&&mediaFiles.length<5)return 'Add at least five photos';
+    if(currentStep===6&&(!values.title||!values.description))return 'Add a title and description';
+    if(currentStep===7&&!['short_term','long_term','both'].includes(form.elements.rentalMode.value))return 'Choose a rental duration';
+    if(currentStep===7&&!['nightlyPrice','monthlyPrice','yearlyPrice'].some(name=>Number(form.elements[name].value)>0))return 'Enter at least one valid price';
+    if(currentStep===7&&['land_plot','commercial'].includes(currentStructure)&&!['monthlyPrice','yearlyPrice'].some(name=>Number(form.elements[name].value)>0))return 'Enter a monthly or yearly lease price';
+    if(currentStep===8&&!form.querySelector('[name="bookingMode"]:checked'))return 'Choose a booking mode';
+    return '';
+  };
   const updateSummary=()=>{const selected=name=>form.querySelector(`[name="${name}"]:checked`)?.parentElement?.textContent?.trim()||'Not selected';form.querySelector('#wizardSummary').innerHTML=`<dl><div><dt>Location</dt><dd>${escapeHtml([form.elements.addressLine1.value,form.elements.city.value].filter(Boolean).join(', ')||'Not added')}</dd></div><div><dt>Structure</dt><dd>${escapeHtml(selected('structureType'))}</dd></div><div><dt>Privacy</dt><dd>${escapeHtml(selected('privacyType'))}</dd></div><div><dt>Basics</dt><dd>${form.elements.maxGuests.value} guests · ${form.elements.bedrooms.value} bedrooms · ${form.elements.bathrooms.value} bathrooms</dd></div><div><dt>Amenities</dt><dd>${escapeHtml(form.elements.amenities.value||'None selected')}</dd></div><div><dt>Photos</dt><dd>${mediaFiles.length} added</dd></div><div><dt>Title</dt><dd>${escapeHtml(form.elements.title.value||'Not added')}</dd></div><div><dt>Pricing</dt><dd>${escapeHtml(form.elements.rentalMode.selectedOptions[0].textContent)} · ${escapeHtml([form.elements.nightlyPrice.value&&'Nightly',form.elements.monthlyPrice.value&&'Monthly',form.elements.yearlyPrice.value&&'Yearly'].filter(Boolean).join(', ')||'No price added')}</dd></div><div><dt>Booking</dt><dd>${escapeHtml(selected('bookingMode'))}</dd></div></dl>`};
-  const showStep=step=>{currentStep=step;panels.forEach((panel,index)=>{panel.hidden=index!==step});back.disabled=step===0;next.innerHTML=step===steps.length-1?'Submit for review <span>→</span>':'Continue <span>→</span>';stepLabel.textContent=`Step ${step+1} of ${steps.length} · ${steps[step]}`;progress.style.width=`${((step+1)/steps.length)*100}%`;form.closest('.modal')?.scrollTo({top:0,behavior:'smooth'});if(step===9)updateSummary()};
+  const appendCategoryReview=()=>{
+    const structure=currentStructure,summary=form.querySelector('#wizardSummary dl');
+    if(['land_plot','commercial'].includes(structure))summary.querySelectorAll('dt').forEach(term=>{if(['Privacy','Basics','Booking'].includes(term.textContent))term.parentElement.remove()});
+    const answers=readCategoryAnswers(),definition=categoryQuestions[structure];
+    const rows=Object.entries(answers).map(([name,value])=>({label:definition.fields.find(question=>question.name===name)?.label||name,value}));
+    if(!rows.length)return;
+    const row=document.createElement('div'),term=document.createElement('dt'),description=document.createElement('dd');
+    term.textContent=definition.title;description.textContent=rows.map(item=>`${item.label}: ${item.value}`).join(' · ');
+    row.append(term,description);summary.append(row);
+  };
+  const showStep=step=>{
+    currentStep=step;
+    const sequence=visibleSteps(),position=sequence.indexOf(step);
+    panels.forEach((panel,index)=>{panel.hidden=index!==step||!sequence.includes(index)});
+    back.disabled=position===0;
+    next.innerHTML=position===sequence.length-1?'Submit for review <span>→</span>':'Continue <span>→</span>';
+    stepLabel.textContent=`Step ${position+1} of ${sequence.length} · ${steps[step]}`;
+    progress.setAttribute('aria-valuemax',String(sequence.length));
+    progress.style.width=`${((position+1)/sequence.length)*100}%`;
+    form.closest('.modal')?.scrollTo({top:0,behavior:'smooth'});
+    if(step===9){updateSummary();appendCategoryReview()}
+  };
   form.querySelector('#findListingLocation').onclick=async()=>{const address=[form.elements.addressLine1.value,form.elements.city.value].filter(Boolean).join(', '),button=form.querySelector('#findListingLocation'),status=form.querySelector('#listingMapStatus');if(address.length<4){status.textContent='Enter an address and city first.';return}button.disabled=true;status.textContent='Searching OpenStreetMap…';try{const result=await apiJson(`/api/agent/geocode?address=${encodeURIComponent(address)}`),location=result.location;map.setView([location.latitude,location.longitude],17);setLocation(location.latitude,location.longitude,'Search result - click the map or drag the marker to pinpoint the estate')}catch(error){status.textContent=error.message;status.classList.remove('map-status-success')}finally{button.disabled=false}};
   form.querySelectorAll('[data-stepper]').forEach(button=>button.onclick=()=>{const input=form.elements[button.dataset.stepper],direction=button.dataset.direction==='up'?1:-1,value=Number(input.value||0)+direction*Number(input.step||1);input.value=Math.max(Number(input.min),Math.min(Number(input.max),value));saveDraft()});
   form.querySelectorAll('[data-amenity]').forEach(input=>input.onchange=updateAmenities);form.querySelectorAll('input:not([type=file]),select,textarea').forEach(input=>input.addEventListener('input',saveDraft));
   const appendMediaFiles=files=>{const existingKeys=new Set(mediaFiles.map(file=>`${file.name}:${file.size}:${file.lastModified}`));for(const file of files){if(file.type.startsWith('image/')&&!existingKeys.has(`${file.name}:${file.size}:${file.lastModified}`)){mediaFiles.push(file);existingKeys.add(`${file.name}:${file.size}:${file.lastModified}`)}}syncFiles();renderMedia()};
   const mediaInput=form.elements.media;mediaInput.onchange=()=>{appendMediaFiles([...mediaInput.files]);mediaInput.value=''};const drop=form.querySelector('#mediaDrop');drop.ondragover=event=>{event.preventDefault();drop.classList.add('is-dragging')};drop.ondragleave=()=>drop.classList.remove('is-dragging');drop.ondrop=event=>{event.preventDefault();drop.classList.remove('is-dragging');appendMediaFiles([...event.dataTransfer.files])};
-  back.onclick=()=>{if(currentStep>0)showStep(currentStep-1)};next.onclick=async()=>{errorBox.textContent='';const validation=validate();if(validation){errorBox.textContent=validation;return}if(currentStep<steps.length-1){saveDraft();showStep(currentStep+1);return}if(!form.elements.document.files.length){errorBox.textContent='Upload the required registration document';return}if(mediaFiles.length<5){errorBox.textContent='Add at least five photos';return}try{const csrf=await apiJson('/api/auth/csrf');await apiJson('/api/agent/listings',{method:'POST',headers:{'X-CSRF-Token':csrf.token},body:new FormData(form)});localStorage.removeItem(draftKey);closeModal();showToast('Listing submitted for moderation.');await openOwnAgentProfile()}catch(error){errorBox.textContent=error.message}};
+  back.onclick=()=>{const sequence=visibleSteps(),position=sequence.indexOf(currentStep);if(position>0)showStep(sequence[position-1])};
+  next.onclick=async()=>{
+    errorBox.textContent='';
+    const validation=validate();
+    if(validation){errorBox.textContent=validation;return}
+    const sequence=visibleSteps(),position=sequence.indexOf(currentStep);
+    if(position<sequence.length-1){saveDraft();showStep(sequence[position+1]);return}
+    if(!form.elements.document.files.length){errorBox.textContent='Upload the required registration document';return}
+    if(mediaFiles.length<5){errorBox.textContent='Add at least five photos';return}
+    try{
+      const categoryDetails=Object.entries(readCategoryAnswers()).map(([name,value])=>{
+        const question=categoryQuestions[currentStructure].fields.find(item=>item.name===name);
+        return `${question?.label||name}: ${value}`;
+      });
+      const submission=new FormData(form);
+      const originalDescription=String(form.elements.description.value||'').trim();
+      if(categoryDetails.length)submission.set('description',`${originalDescription}\n\n${categoryQuestions[currentStructure].title}:\n${categoryDetails.map(value=>`- ${value}`).join('\n')}`);
+      const csrf=await apiJson('/api/auth/csrf');
+      await apiJson('/api/agent/listings',{method:'POST',headers:{'X-CSRF-Token':csrf.token},body:submission});
+      localStorage.removeItem(draftKey);closeModal();showToast('Listing submitted for moderation.');await openOwnAgentProfile();
+    }catch(error){errorBox.textContent=error.message}
+  };
   restoreDraft();if(draft.latitude&&draft.longitude)setLocation(draft.latitude,draft.longitude,'Saved listing location');showStep(0);
 }
 openAgentListingForm=openAgentListingWizard;
