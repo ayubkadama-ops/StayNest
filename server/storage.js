@@ -1,5 +1,6 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import crypto from 'node:crypto';
+import { isCloudinaryConfigured, cloudinaryImageUrl, uploadCloudinaryImage } from './cloudinary.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -59,6 +60,25 @@ async function storePublicObject(key, body, contentType) {
   return { key, url: `${process.env.S3_PUBLIC_BASE_URL}/${key}` };
 }
 
+async function storePublicImage(key, body) {
+  if (!isCloudinaryConfigured) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Cloudinary image storage is not configured');
+    }
+    return storePublicObject(key, body, 'image/webp');
+  }
+
+  const publicId = key.replace(/\.[^.]+$/, '');
+  const uploaded = await uploadCloudinaryImage(body, {
+    public_id: publicId,
+    format: 'webp'
+  });
+  return {
+    key: uploaded.public_id,
+    url: cloudinaryImageUrl(uploaded.public_id)
+  };
+}
+
 export async function storeListingImage(file, listingId) {
   await validateUpload(file, ['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
   const key = `listings/${listingId}/${crypto.randomUUID()}.webp`;
@@ -67,7 +87,7 @@ export async function storeListingImage(file, listingId) {
     .resize({ width: 2400, withoutEnlargement: true })
     .webp({ quality: 82 })
     .toBuffer();
-  return storePublicObject(key, body, 'image/webp');
+  return storePublicImage(key, body);
 }
 
 export async function storeListingVideo(file, listingId) {
@@ -85,7 +105,7 @@ export async function storeAgentProfileImage(file, userId) {
     .resize({ width: 800, height: 800, fit: 'cover' })
     .webp({ quality: 84 })
     .toBuffer();
-  return storePublicObject(key, body, 'image/webp');
+  return storePublicImage(key, body);
 }
 
 export async function storeUserProfileImage(file, userId) {
@@ -96,7 +116,7 @@ export async function storeUserProfileImage(file, userId) {
     .resize({ width: 800, height: 800, fit: 'cover' })
     .webp({ quality: 84 })
     .toBuffer();
-  return storePublicObject(key, body, 'image/webp');
+  return storePublicImage(key, body);
 }
 
 export async function storePrivateDocument(file, userId) {

@@ -14,7 +14,7 @@ document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEa
 const cacheBustUrl=value=>{const url=String(value||'');return url&&url.startsWith('/')?`${url}${url.includes('?')?'&':'?'}v=${Date.now()}`:url};
 const agentBadge=active=>active?'<span class="agent-badge" role="img" aria-label="Verified agent" title="Verified agent">✓</span>':'';
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const safeMediaUrl=value=>{const url=String(value||'').trim();return /^(?:https?:\/\/|\/|data:image\/(?:svg\+xml|png|jpeg|webp);)/i.test(url)?url:DEFAULT_AGENT_AVATAR};
+const safeMediaUrl=value=>{const url=String(value||'').trim();return /^(?:https?:\/\/|\/|data:image\/(?:svg\+xml|png|jpeg|webp);)/i.test(url)?(window.cloudinaryAssetUrl?.(url)||url):DEFAULT_AGENT_AVATAR};
 const mediaUrl=value=>cacheBustUrl(safeMediaUrl(value));
 const avatarMarkup=(value,alt='')=>`<img src="${escapeHtml(safeMediaUrl(value))}" alt="${escapeHtml(alt)}" onerror="this.onerror=null;this.src='${DEFAULT_AGENT_AVATAR}'">`;
 document.addEventListener('error',event=>{const image=event.target;if(image instanceof HTMLImageElement&&!image.dataset.avatarFallback){image.dataset.avatarFallback='true';image.src=DEFAULT_AGENT_AVATAR}},true);
@@ -285,7 +285,7 @@ function initLegacyScrollSequence() {
     frames = Array.from({ length: count }, (_, index) => {
       const image = new Image();
       image.decoding = "async";
-      image.src = `${path}${String(index + 1).padStart(padding, "0")}${extension}`;
+      image.src = window.cloudinaryAssetUrl?.(`${path}${String(index + 1).padStart(padding, "0")}${extension}`) || `${path}${String(index + 1).padStart(padding, "0")}${extension}`;
       return image;
     });
   let loaded = 0,
@@ -532,7 +532,7 @@ function initProgressiveScrollSequence() {
     animationFrame = 0;
   const loadFrame = (index) => {
     const image = frames[index];
-    if (image && !image.src) image.src = image.dataset.frameSrc;
+    if (image && !image.src) image.src = window.cloudinaryAssetUrl?.(image.dataset.frameSrc) || image.dataset.frameSrc;
   };
   const drawFrame = (index) => {
     const image = frames[index];
@@ -696,7 +696,7 @@ if(authParams.get('authError')){showToast(authParams.get('authError'));history.r
 if(authParams.get('reset')){history.replaceState({},'',window.location.pathname);openPasswordReset(authParams.get('reset'));}
 loadAgentShowcase();
 initCinematicMotion();
-async function initStayNestConfig(){try{const config=await apiJson('/api/public-config');document.title='Makazi Go | Find your place. Make your move.';if(config.maintenanceMode&&!document.querySelector('.maintenance-banner')){const banner=document.createElement('div');banner.className='maintenance-banner';banner.textContent=config.maintenanceMessage;document.body.prepend(banner)}}catch(error){console.warn('Makazi Go public configuration unavailable:',error.message)}}
+async function initStayNestConfig(){try{const config=await (window.cloudinaryConfigReady||apiJson('/api/public-config'));document.title='Makazi Go | Find your place. Make your move.';if(config.maintenanceMode&&!document.querySelector('.maintenance-banner')){const banner=document.createElement('div');banner.className='maintenance-banner';banner.textContent=config.maintenanceMessage;document.body.prepend(banner)}}catch(error){console.warn('Makazi Go public configuration unavailable:',error.message)}}
 function initCookieConsent(){if(localStorage.getItem('staynest_cookie_consent'))return;const banner=document.createElement('aside');banner.className='cookie-consent';banner.setAttribute('role','dialog');banner.setAttribute('aria-label','Cookie preferences');banner.innerHTML='<div><strong>Your privacy matters</strong><p>Makazi Go uses essential cookies for secure sign-in and optional analytics to improve the service.</p></div><div class="cookie-consent-actions"><button type="button" data-cookie-choice="essential">Essential only</button><button type="button" class="primary" data-cookie-choice="all">Allow analytics</button></div>';banner.querySelectorAll('[data-cookie-choice]').forEach(button=>button.addEventListener('click',()=>{localStorage.setItem('staynest_cookie_consent',button.dataset.cookieChoice);banner.remove()}));document.body.append(banner)}
 initStayNestConfig();
 document.addEventListener('click',event=>{if(event.target.closest('#detailSave,#detailReport')&&!requireAccount('save or report listings')){event.preventDefault();event.stopImmediatePropagation();return}},true);

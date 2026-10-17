@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="{% static 'marketplace/listing-wizard.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/listing-map.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/footer.css' %}">
+  <script src="{% static 'cloudinary-images.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -52,6 +53,7 @@
       <div class="footer-bottom"><span>© {% now "Y" %} Makazi Go</span><span>Property discovery across Tanzania</span><a href="{% url 'marketplace:home' %}">Back to top ↑</a></div>
     </div>
   </footer>
+  <script src="{% static 'cloudinary-images.js' %}" defer></script>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
   <script src="{% static 'marketplace/auth-wizard.js' %}" defer></script>
   {% block vendor_scripts %}{% endblock %}

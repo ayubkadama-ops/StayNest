@@ -361,6 +361,13 @@ Object storage:
 - S3_ACCESS_KEY_ID
 - S3_SECRET_ACCESS_KEY
 
+Cloudinary image delivery:
+- CLOUDINARY_CLOUD_NAME
+- CLOUDINARY_API_KEY
+- CLOUDINARY_API_SECRET (secret; configure in Render, never commit)
+- CLOUDINARY_ASSETS_ENABLED=true to enable bundled image rewrites
+- npm run cloudinary:sync-assets uploads images from assets/ before the Vite build
+
 Payments:
 - PAYMENT_WEBHOOK_SECRET
 

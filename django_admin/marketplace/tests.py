@@ -31,6 +31,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
                     self.assertContains(response, '<svg', count=5)
                     self.assertContains(response, 'data-social-link="instagram"')
                     self.assertContains(response, 'footer-links')
+                    self.assertContains(response, 'cloudinary-images.js')
 
     def test_login_and_signup_are_separate_connected_flows(self):
         login = self.client.get('/login/?next=/account/dashboard/')

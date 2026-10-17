@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import test from 'node:test';
 import { calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature } from '../server/storage.js';
+import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 
 test('date overlap detects intersecting stays but permits checkout/check-in boundary', () => {
@@ -56,6 +57,13 @@ test('availability rejects a date that is already locked', () => {
 test('upload signatures are checked independently from MIME declarations', () => {
   assert.equal(hasFileSignature({ mimetype: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }), true);
   assert.equal(hasFileSignature({ mimetype: 'image/png', buffer: Buffer.from('not an image') }), false);
+});
+
+test('Cloudinary asset URLs use stable safe IDs and automatic delivery transforms', () => {
+  assert.equal(cloudinaryAssetPublicId('/assets/makazi-category-home.webp'), 'site-assets/makazi-category-home');
+  assert.equal(cloudinaryAssetPublicId('/assets/../private.jpg'), null);
+  assert.match(cloudinaryAssetUrl('/assets/makazi-category-home.webp', 's9p5ymwd'), /^https:\/\/res\.cloudinary\.com\/s9p5ymwd\/image\/upload\/f_auto,q_auto\/site-assets\/makazi-category-home/);
+  assert.equal(cloudinaryAssetUrl('/assets/makazi-category-home.webp', ''), null);
 });
 
 test('pagination and IDs are bounded', () => {

@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import { generateSecret, generateURI, verify } from 'otplib';
 import { pool, assertDatabaseConnection } from './db.js';
+import { isCloudinaryConfigured } from './cloudinary.js';
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
@@ -331,6 +332,8 @@ app.get('/api/public-config', async (_req, res, next) => {
       siteLogoUrl: runtimeConfig.siteLogoUrl,
       contactEmail: settings.contact_email ?? runtimeConfig.contactEmail,
       contactPhone: settings.contact_phone ?? runtimeConfig.contactPhone,
+      cloudinaryAssetsEnabled: process.env.CLOUDINARY_ASSETS_ENABLED === 'true' && isCloudinaryConfigured,
+      cloudinaryCloudName: isCloudinaryConfigured ? process.env.CLOUDINARY_CLOUD_NAME : null,
       socialLinks: Object.fromEntries(Object.entries(settings).filter(([key]) => key.startsWith('social_')).map(([key, value]) => [key.slice(7, -4), value])),
       timezone: runtimeConfig.timezone,
       maintenanceMode: runtimeConfig.maintenanceMode,

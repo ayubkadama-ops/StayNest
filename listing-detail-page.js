@@ -1,6 +1,6 @@
 const page = document.querySelector('#listingDetailPage');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-const mediaUrl = value => /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg';
+const mediaUrl = value => { const source = /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg'; return window.cloudinaryAssetUrl?.(source) || source; };
 const money = listing => {
   const value = listing.nightlyPrice || listing.monthlyPrice || listing.yearlyPrice || 0;
   const period = listing.nightlyPrice ? 'night' : listing.monthlyPrice ? 'month' : 'year';
