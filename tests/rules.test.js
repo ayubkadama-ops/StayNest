@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import test from 'node:test';
 import { calculateBooking, datesOverlap, hasRole, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature } from '../server/storage.js';
-import { boundedPage, isValidDate, positiveId } from '../server/validation.js';
+import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 
 test('date overlap detects intersecting stays but permits checkout/check-in boundary', () => {
   assert.equal(datesOverlap('2026-10-10', '2026-10-15', '2026-10-12', '2026-10-18'), true);
@@ -48,6 +48,13 @@ test('pagination and IDs are bounded', () => {
   assert.deepEqual(boundedPage({ page: '2', limit: '500' }), { page: 2, limit: 100, offset: 100 });
   assert.equal(positiveId('12'), 12);
   assert.equal(positiveId('-1'), null);
+});
+
+test('signup profile details are normalized for tenant and agent records', () => {
+  assert.deepEqual(registrationDetails({ phone: ' +255 700 123 456 ', city: ' Dar es Salaam ', agencyName: ' Makazi Realty ', bio: ' Local agent ' }), {
+    phone: '+255 700 123 456', city: 'Dar es Salaam', agencyName: 'Makazi Realty', bio: 'Local agent', error: ''
+  });
+  assert.equal(registrationDetails({ phone: 'not a phone' }).error, 'Enter a valid phone number');
 });
 
 test('date validation rejects impossible calendar dates', () => {

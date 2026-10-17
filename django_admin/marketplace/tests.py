@@ -15,12 +15,14 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertEqual(resolve('/agents/').url_name, 'agents')
         self.assertEqual(resolve('/agents/23/').url_name, 'agent-detail')
         self.assertEqual(resolve('/account/').url_name, 'account')
+        self.assertEqual(resolve('/login/').url_name, 'login')
+        self.assertEqual(resolve('/signup/').url_name, 'signup')
         self.assertEqual(resolve('/account/dashboard/').url_name, 'tenant-dashboard')
         self.assertEqual(resolve('/agent/').url_name, 'agent-workspace')
 
     def test_public_pages_render_as_distinct_routes(self):
         with patch('marketplace.views._api_json', return_value={}):
-            for path in ('/', '/properties/', '/agents/', '/account/'):
+            for path in ('/', '/properties/', '/agents/', '/login/', '/signup/'):
                 with self.subTest(path=path):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
@@ -28,12 +30,41 @@ class MarketplaceRoutingTests(SimpleTestCase):
                     self.assertContains(response, 'Browse property categories')
                     self.assertContains(response, '<svg', count=5)
 
+    def test_login_and_signup_are_separate_connected_flows(self):
+        login = self.client.get('/login/?next=/account/dashboard/')
+        self.assertEqual(login.status_code, 200)
+        self.assertContains(login, 'data-login-form')
+        self.assertContains(login, 'data-mfa-field')
+        self.assertContains(login, '/signup/?next=')
+        signup = self.client.get('/signup/?role=agent&next=/agent/')
+        self.assertEqual(signup.status_code, 200)
+        self.assertContains(signup, 'data-signup-form')
+        self.assertContains(signup, 'Agency or business name')
+        self.assertContains(signup, 'Phone number')
+        self.assertContains(signup, '/login/?next=')
+
+    def test_agent_signup_selects_agent_wizard_and_optional_business_fields(self):
+        response = self.client.get('/signup/?role=agent&next=/agent/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="agent" checked')
+        self.assertContains(response, 'data-agent-only')
+        self.assertContains(response, 'Agency or business name')
+
+    @patch('marketplace.views._api_json', return_value={'listings': []})
+    def test_home_uses_reference_category_photography(self, api_json):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        for category in ('home', 'apartment', 'land', 'hotel', 'commercial'):
+            self.assertContains(response, f'makazi-category-{category}.webp')
+
     @patch('marketplace.views._api_json')
     def test_stay_detail_uses_booking_flow(self, api_json):
         api_json.return_value = {'listing': {'id': 17, 'title': 'City apartment', 'propertyType': 'apartment', 'currency': 'TZS', 'nightlyPrice': 70000}, 'media': []}
         response = self.client.get('/properties/17/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-booking-form')
+        self.assertContains(response, 'data-auth-required')
+        self.assertContains(response, 'id="authPrompt"')
         self.assertNotContains(response, 'data-message-form')
 
     @patch('marketplace.views._api_json')
@@ -59,8 +90,9 @@ class MarketplaceRoutingTests(SimpleTestCase):
     @override_settings(API_UPSTREAM_URL='http://127.0.0.1:3000')
     def test_account_rejects_external_redirect_targets(self):
         response = self.client.get('/account/?next=https://example.com')
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'value="/"')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response['Location'].startswith('/login/?next='))
+        self.assertNotIn('example.com', response['Location'])
 
     @patch('marketplace.views.build_opener')
     def test_api_proxy_preserves_oauth_redirects_and_session_cookies(self, build_opener):

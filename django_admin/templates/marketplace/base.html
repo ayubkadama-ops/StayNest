@@ -10,6 +10,8 @@
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
   <link rel="stylesheet" href="{% static 'marketplace/site.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/navigation.css' %}">
+    <link rel="stylesheet" href="{% static 'marketplace/home.css' %}">
+    <link rel="stylesheet" href="{% static 'marketplace/auth.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/workspace.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
@@ -21,7 +23,7 @@
       <a href="/agents/">Agents</a>
       <a href="/#how">How it works</a>
     </nav>
-    <div class="header-actions"><a class="host-link" href="/agent/">List a property</a><a class="account-link" href="/account/">Sign in</a></div>
+    <div class="header-actions"><a class="host-link" href="/agent/" data-auth-gate-link data-auth-role="agent">List a property</a><a class="account-link" href="/login/">Sign in</a><a class="account-create-link" href="/signup/">Create account</a></div>
     <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">Menu</button>
   </header>
   <nav class="category-quick-nav" aria-label="Browse property categories">
@@ -36,8 +38,10 @@
     </a>{% endfor %}
   </nav>
   <main id="main-content">{% block content %}{% endblock %}</main>
+  <dialog class="auth-prompt" id="authPrompt" aria-labelledby="authPromptTitle"><button class="auth-prompt-close" type="button" data-auth-prompt-close aria-label="Close sign-in prompt">×</button><p class="eyebrow">Members area</p><h2 id="authPromptTitle">Sign in to continue</h2><p data-auth-prompt-message>Sign in or create an account to continue with this request.</p><div class="auth-prompt-actions"><a class="button" data-auth-prompt-login href="/login/">Sign in</a><a class="button primary" data-auth-prompt-signup href="/signup/">Create account</a></div></dialog>
   <footer class="site-footer"><a class="brand" href="/" aria-label="Makazi Go home"><img src="/assets/makazi-go-icon.png" alt=""><span>Makazi <strong>Go</strong></span></a><p>Find your place. Make your move.</p><nav aria-label="Footer navigation"><a href="/properties/">Properties</a><a href="/agents/">Agents</a><a href="/admin/">Admin</a></nav></footer>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
+  <script src="{% static 'marketplace/auth-wizard.js' %}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

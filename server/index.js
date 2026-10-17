@@ -14,7 +14,7 @@ import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
 import { verifyWebhookSignature, calculateBooking, hasRole, resolvePropertyType } from './rules.js';
-import { boundedPage, isValidDate, nonEmptyString, positiveId } from './validation.js';
+import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
 import { getGa4Analytics } from './google-analytics.js';
@@ -615,15 +615,17 @@ app.post('/api/auth/register', async (req, res, next) => {
     const firstName = String(req.body.firstName || '').trim();
     const lastName = String(req.body.lastName || '').trim();
     const role = String(req.body.role || 'tenant');
+    const details = registrationDetails(req.body);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !strongPassword(password)) return res.status(400).json({ error: 'Enter a valid email and a strong password with at least 12 characters, including three character types' });
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (!['tenant', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose either Tenant or Agent' });
+    if (details.error) return res.status(400).json({ error: details.error });
     await connection.beginTransaction();
     const initialStatus = role === 'agent' ? 'pending' : 'active';
-    const [result] = await connection.execute('INSERT INTO users (email, password_hash, status) VALUES (?, ?, ?)', [email, await bcrypt.hash(password, 12), initialStatus]);
-    await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url) VALUES (?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR]);
+    const [result] = await connection.execute('INSERT INTO users (email, phone, password_hash, status) VALUES (?, ?, ?, ?)', [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus]);
+    await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url, city, bio) VALUES (?, ?, ?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR, details.city || null, details.bio || null]);
     await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?', [result.insertId, role]);
-    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id) VALUES (?)', [result.insertId]);
+    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id, phone, bio, agency_name) VALUES (?, ?, ?, ?)', [result.insertId, details.phone || null, details.bio || null, details.agencyName || null]);
     await connection.commit();
     if (role === 'agent') {
       void notifyAdministrators({
@@ -640,7 +642,7 @@ app.post('/api/auth/register', async (req, res, next) => {
     res.status(201).json({ ok: true, role, roles: [role], pendingApproval: false });
   } catch (error) {
     await connection.rollback();
-    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that email already exists. Try signing in instead.' });
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that email or phone already exists. Try signing in instead.' });
     next(error);
   } finally { connection.release(); }
 });

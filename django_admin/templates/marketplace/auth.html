@@ -1,0 +1,36 @@
+{% extends 'marketplace/base.html' %}
+{% block title %}{% if mode == 'login' %}Sign in | Makazi Go{% else %}Create an account | Makazi Go{% endif %}{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <aside class="auth-intro">
+    <p class="eyebrow">Makazi Go · Tanzania</p>
+    {% if mode == 'login' %}<h1>Welcome back.<br><em>Your next move starts here.</em></h1><p>Sign in to manage your bookings, saved properties, and agent conversations.</p>{% else %}<h1>Find your place.<br><em>Start with the right account.</em></h1><p>Join as a tenant to explore and request stays, or as an agent to list properties and manage enquiries.</p>{% endif %}
+    <div class="auth-proof"><span>✓ Verified listings</span><span>✓ Secure requests</span><span>✓ Local property experts</span></div>
+  </aside>
+  <section class="auth-card" aria-labelledby="authTitle">
+    {% if mode == 'login' %}
+    <p class="eyebrow">Secure account access</p><h2 id="authTitle">Sign in</h2>
+    <a class="google-auth-link" href="/api/auth/google"><span class="google-mark" aria-hidden="true">G</span>Continue with Google</a>
+    <div class="auth-divider"><span>or use your email</span></div>
+    <form data-login-form>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <section data-login-step="0"><label>Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><button class="button primary auth-next" type="button" data-login-next>Continue</button></section>
+      <section data-login-step="1" hidden><label>Password<input name="password" type="password" autocomplete="current-password" required></label><label data-mfa-field hidden>Authenticator code<input name="mfaCode" inputmode="numeric" autocomplete="one-time-code"></label><label class="check-row"><input name="rememberMe" type="checkbox"> Keep me signed in</label><p class="form-message" aria-live="polite"></p><div class="auth-actions"><button class="button" type="button" data-login-back>Back</button><button class="button primary" type="submit">Sign in</button></div></section>
+    </form>
+    <button class="text-link forgot-toggle" type="button" data-forgot-toggle>Forgot password?</button>
+    <form class="forgot-form" data-password-reset hidden><label>Email address<input name="email" type="email" autocomplete="email" required></label><p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send recovery instructions</button></form>
+    <p class="auth-switch">New to Makazi Go? <a href="/signup/?next={{ next_query }}">Create an account</a></p>
+    {% else %}
+    <p class="eyebrow">Step-by-step registration</p><h2 id="authTitle">Create your account</h2>
+    <div class="wizard-progress" aria-label="Signup progress"><span data-signup-progress></span></div><p class="wizard-step-label" data-signup-label>Step 1 of 3 · Account type</p>
+    <form data-signup-form>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <section data-signup-step="0"><fieldset class="role-choice"><legend>I’m here as a</legend><label><input type="radio" name="role" value="tenant" {% if signup_role == 'tenant' %}checked{% endif %}><span><strong>Tenant</strong><small>Find a place, request a stay, and contact agents.</small></span></label><label><input type="radio" name="role" value="agent" {% if signup_role == 'agent' %}checked{% endif %}><span><strong>Property agent</strong><small>Share listings and respond to customer enquiries.</small></span></label></fieldset><div class="form-grid"><label>First name<input name="firstName" autocomplete="given-name" maxlength="80" required></label><label>Last name<input name="lastName" autocomplete="family-name" maxlength="80" required></label></div><button class="button primary auth-next" type="button" data-signup-next>Continue</button></section>
+      <section data-signup-step="1" hidden><div class="form-grid"><label>Email address<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" required></label><label>Phone number<input name="phone" type="tel" autocomplete="tel" placeholder="+255 700 000 000" required></label><label>City or region<input name="city" autocomplete="address-level2" maxlength="100" placeholder="Dar es Salaam" required></label><label data-agent-only hidden>Agency or business name<input name="agencyName" maxlength="160" placeholder="Optional"></label><label class="form-wide" data-agent-only hidden>Short professional introduction<textarea name="bio" maxlength="5000" rows="3" placeholder="Tell customers about your local expertise"></textarea></label></div><p class="form-message" data-signup-error aria-live="polite"></p><div class="auth-actions"><button class="button" type="button" data-signup-back>Back</button><button class="button primary" type="button" data-signup-next>Continue</button></div></section>
+      <section data-signup-step="2" hidden><div class="signup-summary" data-signup-summary><strong>Your account</strong><span>Tenant · </span></div><label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><label class="check-row"><input name="rememberMe" type="checkbox" checked> Keep me signed in</label><p class="form-message" data-signup-error aria-live="polite"></p><div class="auth-actions"><button class="button" type="button" data-signup-back>Back</button><button class="button primary" type="submit">Create account</button></div></section>
+    </form>
+    <p class="auth-switch">Already have an account? <a href="/login/?next={{ next_query }}">Sign in</a></p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

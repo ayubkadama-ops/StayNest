@@ -15,6 +15,13 @@ PROPERTY_TYPES = (
     ('hotel', 'Hotels'),
     ('commercial', 'Commercial'),
 )
+HOME_CATEGORIES = (
+    {'value': 'house', 'label': 'Homes', 'caption': 'Comfort for your family', 'image': '/assets/makazi-category-home.webp'},
+    {'value': 'apartment', 'label': 'Apartments', 'caption': 'Modern living, made easy', 'image': '/assets/makazi-category-apartment.webp'},
+    {'value': 'land', 'label': 'Land', 'caption': 'Build your future', 'image': '/assets/makazi-category-land.webp'},
+    {'value': 'hotel', 'label': 'Hotels', 'caption': 'Investment in hospitality', 'image': '/assets/makazi-category-hotel.webp'},
+    {'value': 'commercial', 'label': 'Commercial', 'caption': 'Space for business', 'image': '/assets/makazi-category-commercial.webp'},
+)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -48,7 +55,7 @@ def _render(request, page, **context):
 
 def home(request):
     result = _api_json(request, 'api/listings/discover?limit=8')
-    return _render(request, 'home', listings=result.get('listings', [])[:8])
+    return _render(request, 'home', listings=result.get('listings', [])[:8], categories=HOME_CATEGORIES)
 
 
 def properties(request):
@@ -94,7 +101,35 @@ def account(request):
     next_url = request.GET.get('next', '/')
     if not next_url.startswith('/') or next_url.startswith('//'):
         next_url = '/'
-    return _render(request, 'account', next_url=next_url)
+    return redirect(f'/login/?next={quote(next_url)}')
+
+
+def login_page(request):
+    next_url = request.GET.get('next', '/')
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = '/'
+    return render(request, 'marketplace/auth.html', {
+        'mode': 'login',
+        'next_url': next_url,
+        'next_query': quote(next_url, safe=''),
+        'property_types': PROPERTY_TYPES,
+    })
+
+
+def signup_page(request):
+    next_url = request.GET.get('next', '/')
+    if not next_url.startswith('/') or next_url.startswith('//'):
+        next_url = '/'
+    role = request.GET.get('role', 'tenant')
+    if role not in {'tenant', 'agent'}:
+        role = 'tenant'
+    return render(request, 'marketplace/auth.html', {
+        'mode': 'signup',
+        'next_url': next_url,
+        'next_query': quote(next_url, safe=''),
+        'signup_role': role,
+        'property_types': PROPERTY_TYPES,
+    })
 
 
 def tenant_dashboard(request):

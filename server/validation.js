@@ -15,6 +15,21 @@ export function nonEmptyString(value, maxLength) {
   return result && result.length <= maxLength ? result : null;
 }
 
+export function registrationDetails(body) {
+  const value = (field, maxLength) => typeof body?.[field] === 'string' ? body[field].trim().slice(0, maxLength) : '';
+  const phone = value('phone', 32);
+  if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) {
+    return { phone, city: '', bio: '', agencyName: '', error: 'Enter a valid phone number' };
+  }
+  return {
+    phone,
+    city: value('city', 100),
+    bio: value('bio', 5000),
+    agencyName: value('agencyName', 160),
+    error: ''
+  };
+}
+
 export function isValidDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
