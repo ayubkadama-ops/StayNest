@@ -525,6 +525,8 @@ body.guest-view #settingsControl {
   font-weight: 700;
   text-align: center;
   border: 2px solid #fff;
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* ==========================================================================
@@ -1276,8 +1278,10 @@ body.guest-view #settingsControl {
    ========================================================================== */
 
 .agent-page, .tenant-page {
+  width: min(100%, 1440px);
+  margin-inline: auto;
   min-height: calc(100vh - 80px);
-  padding: 40px 7% 80px;
+  padding: 40px clamp(20px, 5vw, 64px) 80px;
   background: var(--surface-soft);
 }
 
@@ -1297,13 +1301,13 @@ body.guest-view #settingsControl {
 .agent-page-hero {
   max-width: 1100px;
   margin: auto;
-  padding: 44px 50px;
+  padding: 36px clamp(22px, 4vw, 48px);
   border-radius: 24px;
   background: #ffffff;
   color: var(--ink);
   display: grid;
   grid-template-columns: 160px 1fr;
-  gap: 40px;
+  gap: clamp(22px, 4vw, 40px);
   align-items: center;
   border: 1px solid var(--hairline);
   box-shadow: var(--shadow-card);
@@ -1361,6 +1365,12 @@ body.guest-view #settingsControl {
   letter-spacing: -1px;
   margin: 0 0 8px;
   color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.agent-page-copy,
+.agent-page-copy > * {
+  min-width: 0;
 }
 
 .agent-page-bio {
@@ -1372,7 +1382,8 @@ body.guest-view #settingsControl {
 
 .agent-page-stats, .agent-profile-stats {
   display: flex;
-  gap: 28px;
+  flex-wrap: wrap;
+  gap: 10px 24px;
   margin: 20px 0;
   color: var(--muted);
   font-size: 13px;
@@ -2115,6 +2126,11 @@ body.agent-marketplace-view .topbar .header-actions {
   gap: 8px !important;
 }
 
+body.role-view .topbar .utility-cluster,
+body.agent-marketplace-view .topbar .utility-cluster {
+  display: contents;
+}
+
 body.role-view .topbar .header-actions .icon-btn,
 body.agent-marketplace-view .topbar .header-actions .icon-btn {
   display: none;
@@ -2123,14 +2139,13 @@ body.agent-marketplace-view .topbar .header-actions .icon-btn {
 body.role-view .topbar .header-actions .settings-btn,
 body.agent-marketplace-view .topbar .header-actions .settings-btn {
   order: 1;
-  width: 100%;
-  text-align: left;
-  padding: 10px 14px;
+  width: 40px;
+  height: 40px;
+  align-self: flex-start;
+  justify-content: center;
+  padding: 8px;
   border: 1px solid var(--hairline);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  border-radius: 50%;
 }
 
 body.role-view .topbar .header-actions .auth-login,
@@ -2145,28 +2160,15 @@ body.agent-marketplace-view .topbar .header-actions .auth-login {
 body.role-view .topbar .header-actions .notification-btn,
 body.agent-marketplace-view .topbar .header-actions .notification-btn {
   order: 3;
-  width: 100%;
-  padding: 10px 14px;
-  text-align: left;
+  width: 40px;
+  height: 40px;
+  align-self: flex-start;
+  justify-content: center;
+  padding: 8px;
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-body.role-view .topbar .header-actions #messageControl:after,
-body.agent-marketplace-view .topbar .header-actions #messageControl:after {
-  content: 'Messages';
-  font-size: 13px;
-  font-weight: 600;
-}
-
-body.role-view .topbar .header-actions #notificationControl:before,
-body.agent-marketplace-view .topbar .header-actions #notificationControl:before {
-  content: 'Notifications';
-  font-size: 13px;
-  font-weight: 600;
 }
 
 body.role-view .topbar .header-actions .profile-chip,
@@ -3401,6 +3403,17 @@ html[data-network="offline"] body::before {
     flex-direction: row !important;
     align-items: center !important;
     gap: 8px !important;
+    flex-wrap: wrap !important;
+    max-width: calc(100vw - 116px) !important;
+    justify-content: flex-end !important;
+  }
+
+  body.role-view .topbar .header-actions .auth-login,
+  body.agent-marketplace-view .topbar .header-actions .auth-login {
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 7px 9px !important;
+    white-space: nowrap;
   }
 
   body.role-view .topbar .header-actions .settings-btn,
@@ -3412,6 +3425,12 @@ html[data-network="offline"] body::before {
     padding: 6px !important;
     margin: 0 !important;
     border-radius: 50% !important;
+  }
+
+  body.role-view .topbar .header-actions .notification-btn,
+  body.agent-marketplace-view .topbar .header-actions .notification-btn {
+    flex: 0 0 36px !important;
+    overflow: visible !important;
   }
 
   body.role-view .topbar .header-actions .profile-chip,
@@ -3598,8 +3617,9 @@ html[data-network="offline"] body::before {
 /* 4. Phones (<= 500px) */
 @media (max-width: 500px) {
   .topbar {
-    height: 64px;
+    height: auto;
     min-height: 64px;
+    flex-wrap: wrap;
     padding: 0 4%;
     gap: 8px;
   }
@@ -3616,7 +3636,11 @@ html[data-network="offline"] body::before {
 
   .header-actions {
     min-width: 0;
+    max-width: calc(100vw - 116px);
     gap: 4px;
+    overflow: visible;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .header-actions .icon-btn {
@@ -4508,10 +4532,6 @@ footer {
 
 @media (max-width: 380px) {
   .topbar {
-    height: auto;
-    min-height: 64px;
-    flex-wrap: wrap;
-    gap: 8px;
     padding-block: 10px;
   }
 

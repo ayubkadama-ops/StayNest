@@ -45,7 +45,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
             [{'id': 42, 'email': 'tenant@example.test', 'phone': '+255700000000', 'status': 'active',
               'email_verified_at': None, 'phone_verified_at': None, 'mfa_enabled': False,
               'last_login_at': None, 'created_at': '2026-10-01', 'updated_at': '2026-10-02',
-              'deleted_at': None, 'first_name': 'Asha', 'last_name': 'Mrema', 'name': 'Asha Mrema',
+              'deleted_at': None, 'deletion_requested_at': '2026-10-16', 'deletion_reason': 'No longer using Makazi Go',
+              'first_name': 'Asha', 'last_name': 'Mrema', 'name': 'Asha Mrema',
               'city': 'Dar es Salaam', 'country_code': 'TZ', 'bio': None, 'avatar_url': None}],
             [{'name': 'tenant'}],
                         [{'id': 8, 'booking_code': 'BOOK00000042', 'status': 'confirmed', 'check_in': '2026-11-01',
@@ -61,6 +62,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Asha Mrema')
         self.assertContains(response, 'tenant@example.test')
         self.assertContains(response, 'Suspend')
+        self.assertContains(response, 'Permanently delete')
+        self.assertContains(response, 'No longer using Makazi Go')
         self.assertContains(response, 'Assign role')
         self.assertContains(response, '3 saved homes')
         self.assertContains(response, 'Related bookings')
@@ -205,6 +208,44 @@ class AdminConsoleAccessTests(SimpleTestCase):
         })
 
         self.assertRedirects(response, '/admin/users/42/', fetch_redirect_response=False)
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', side_effect=[
+        [{'id': 42}],
+        [],
+        [],
+        [{'child_table': 'user_profiles', 'child_column': 'user_id', 'parent_table': 'users',
+          'parent_column': 'id', 'child_nullable': 'NO', 'delete_rule': 'NO ACTION'}],
+        [{'column_name': 'user_id'}],
+        [{'pk_0': 42}],
+    ])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_permanently_delete_user_and_profile(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/user-hard-delete/', {'id': '42', 'section': 'users'})
+
+        self.assertRedirects(response, '/admin/?section=users', fetch_redirect_response=False)
+        execute.assert_any_call('DELETE FROM `user_profiles` WHERE `user_id`=%s AND `user_id`=%s', [42, 42])
+        execute.assert_any_call('DELETE FROM users WHERE id=%s', [42])
+        audit.assert_called_once_with('user_permanently_deleted', 'user', 42)
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.rows', side_effect=[[{'id': 1}], [{'status': 'active'}]])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_cannot_permanently_delete_the_last_active_admin(self, atomic, rows, scalar, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/user-hard-delete/', {'id': '1', 'section': 'users'})
+
+        self.assertRedirects(response, '/admin/?section=users', fetch_redirect_response=False)
+        messages = list(response.wsgi_request._messages)
+        self.assertTrue(any('last active administrator' in str(message).lower() for message in messages))
+        execute.assert_not_called()
+        audit.assert_not_called()
 
     @patch('console.views.audit')
     @patch('console.views.execute')

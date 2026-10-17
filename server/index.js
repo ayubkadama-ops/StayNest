@@ -252,6 +252,8 @@ const strongPassword = password => typeof password === 'string'
   && password.length >= 12
   && password.length <= 200
   && [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter(pattern => pattern.test(password)).length >= 3;
+const normalizeProfileName = value => String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+const normalizeProfileBio = value => String(value || '').replace(/\r\n?/g, '\n').split('\n').map(line => line.replace(/[\t ]+/g, ' ').trim()).join('\n').trim().slice(0, 5000);
 const hashResetToken = token => crypto.createHash('sha256').update(token).digest();
 const publicAppUrl = () => String(process.env.PUBLIC_APP_URL || process.env.APP_ORIGIN || 'https://staynest-np7j.onrender.com').replace(/\/$/, '');
 async function sendEmailVerification(userId, email, requestedIp) {
@@ -951,21 +953,21 @@ app.post('/api/tenant/profile/photo', requireAuth, requireRole('tenant'), upload
 app.patch('/api/tenant/profile', requireAuth, requireRole('tenant'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const firstName = String(req.body.firstName || '').trim().slice(0, 80);
-    const lastName = String(req.body.lastName || '').trim().slice(0, 80);
+    const firstName = normalizeProfileName(req.body.firstName);
+    const lastName = normalizeProfileName(req.body.lastName);
     const phone = String(req.body.phone || '').trim().slice(0, 32);
-    const city = String(req.body.city || '').trim().slice(0, 100);
-    const bio = String(req.body.bio || '').slice(0, 5000);
+    const city = normalizeProfileName(String(req.body.city || '').trim()).slice(0, 100);
+    const bio = normalizeProfileBio(req.body.bio);
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number' });
     await connection.beginTransaction();
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, display_name) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), last_name=VALUES(last_name)', [req.session.user.id, firstName, lastName, `${firstName} ${lastName}`.slice(0, 160)]);
     await connection.execute('UPDATE users SET phone=? WHERE id=?', [phone || null, req.session.user.id]);
     await connection.execute('UPDATE user_profiles SET first_name=?, last_name=?, display_name=?, bio=?, city=? WHERE user_id=?', [firstName, lastName, `${firstName} ${lastName}`.slice(0, 160), bio, city || null, req.session.user.id]);
+    await audit(req, 'tenant_profile_updated', 'user_profile', req.session.user.id, {}, connection);
     await connection.commit();
     req.session.user.firstName = firstName;
     req.session.user.lastName = lastName;
-    await audit(req, 'tenant_profile_updated', 'user_profile', req.session.user.id);
     res.json({ ok: true, profile: { firstName, lastName, phone, city, bio } });
   } catch (error) {
     await connection.rollback();
@@ -1618,11 +1620,11 @@ app.delete('/api/listings/:id/like', requireAuth, async (req, res, next) => {
 app.patch('/api/agent/profile', requireAuth, requireAgentAccess('profile.manage'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const firstName = String(req.body.firstName || '').trim().slice(0, 80);
-    const lastName = String(req.body.lastName || '').trim().slice(0, 80);
+    const firstName = normalizeProfileName(req.body.firstName);
+    const lastName = normalizeProfileName(req.body.lastName);
     const phone = String(req.body.phone || '').trim().slice(0, 32);
-    const city = String(req.body.city || '').trim().slice(0, 100);
-    const bio = String(req.body.bio || '').slice(0, 5000);
+    const city = normalizeProfileName(String(req.body.city || '').trim()).slice(0, 100);
+    const bio = normalizeProfileBio(req.body.bio);
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number' });
     await connection.beginTransaction();
@@ -1630,12 +1632,14 @@ app.patch('/api/agent/profile', requireAuth, requireAgentAccess('profile.manage'
     await connection.execute('INSERT INTO agent_profiles (user_id, phone, bio) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE phone=VALUES(phone), bio=VALUES(bio)', [req.session.user.id, phone || null, bio]);
     await connection.execute('UPDATE user_profiles SET first_name=?, last_name=?, display_name=?, city=? WHERE user_id=?', [firstName, lastName, `${firstName} ${lastName}`.slice(0, 160), city || null, req.session.user.id]);
     await connection.execute('UPDATE agent_profiles SET phone=?, bio=? WHERE user_id=?', [phone || null, bio, req.session.user.id]);
+    await audit(req, 'agent_profile_updated', 'agent_profile', req.session.user.id, {}, connection);
     await connection.commit();
     req.session.user.firstName = firstName;
     req.session.user.lastName = lastName;
     res.json({ ok: true, profile: { firstName, lastName, phone, city, bio } });
   } catch (error) {
     await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That phone number is already in use' });
     next(error);
   } finally { connection.release(); }
 });
@@ -2229,8 +2233,8 @@ app.post('/api/auth/mfa/enable', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-async function audit(req, action, entityType, entityId, metadata = {}) {
-  await pool.execute(
+async function audit(req, action, entityType, entityId, metadata = {}, executor = pool) {
+  await executor.execute(
     'INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, ip_address, user_agent, metadata) VALUES (?, ?, ?, ?, INET6_ATON(?), ?, ?)',
     [req.session.user?.id || null, action, entityType, entityId || null, req.ip, req.get('user-agent') || null, JSON.stringify(metadata)]
   );

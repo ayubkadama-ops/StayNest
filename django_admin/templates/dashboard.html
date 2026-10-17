@@ -32,6 +32,11 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
   .head-tools { align-items: flex-start; flex-direction: column; }
   .stats { grid-template-columns: 1fr 1fr; }
 }
+.user-detail-link { position: relative; z-index: 1; display: inline-flex; min-height: 36px; align-items: center; pointer-events: auto; }
+.table td, .table th { position: relative; }
+.table td a, .table td button, .table td form { position: relative; z-index: 1; pointer-events: auto; }
+.table td form { display: inline-flex; margin: 2px 4px 2px 0; }
+.table td a,.table td button { min-height: 38px; align-items: center; cursor: pointer; }
 </style>
 </head>
 <body>

@@ -49,6 +49,79 @@ def invalidate_api_sessions(user_id):
         if session_user_id == int(user_id):
             execute('DELETE FROM web_sessions WHERE sid=%s', [row['sid']])
 
+def purge_user_account(user_id):
+    relations = rows(
+        """SELECT kcu.TABLE_NAME child_table,kcu.COLUMN_NAME child_column,
+                  kcu.REFERENCED_TABLE_NAME parent_table,kcu.REFERENCED_COLUMN_NAME parent_column,
+                  column_info.IS_NULLABLE child_nullable,referential.DELETE_RULE delete_rule
+           FROM information_schema.KEY_COLUMN_USAGE kcu
+           JOIN information_schema.COLUMNS column_info
+             ON column_info.TABLE_SCHEMA=kcu.TABLE_SCHEMA
+            AND column_info.TABLE_NAME=kcu.TABLE_NAME
+            AND column_info.COLUMN_NAME=kcu.COLUMN_NAME
+           JOIN information_schema.REFERENTIAL_CONSTRAINTS referential
+             ON referential.CONSTRAINT_SCHEMA=kcu.CONSTRAINT_SCHEMA
+            AND referential.CONSTRAINT_NAME=kcu.CONSTRAINT_NAME
+           WHERE kcu.CONSTRAINT_SCHEMA=DATABASE() AND kcu.REFERENCED_TABLE_NAME IS NOT NULL"""
+    )
+    primary_key_cache = {}
+    visited = set()
+
+    def identifier(value):
+        if not re.fullmatch(r'[A-Za-z0-9_]+', value or ''):
+            raise ValueError('Unsafe database identifier in account cleanup')
+        return f'`{value}`'
+
+    def primary_key_columns(table_name):
+        if table_name not in primary_key_cache:
+            primary_key_cache[table_name] = [column['column_name'] for column in rows(
+                "SELECT COLUMN_NAME column_name FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s AND COLUMN_KEY='PRI' "
+                'ORDER BY ORDINAL_POSITION',
+                [table_name],
+            )]
+        if not primary_key_cache[table_name]:
+            raise ValueError(f'Cannot permanently delete rows without a primary key: {table_name}')
+        return primary_key_cache[table_name]
+
+    def purge_row(table_name, key_values):
+        marker = (table_name, tuple(sorted(key_values.items())))
+        if marker in visited:
+            return
+        visited.add(marker)
+        for relation in relations:
+            if relation['parent_table'] != table_name or relation['parent_column'] not in key_values:
+                continue
+            child_table = relation['child_table']
+            child_column = relation['child_column']
+            parent_value = key_values[relation['parent_column']]
+            delete_rule = str(relation['delete_rule']).upper()
+            if delete_rule == 'SET NULL' or (relation['child_nullable'] == 'YES' and delete_rule != 'CASCADE'):
+                execute(
+                    f'UPDATE {identifier(child_table)} SET {identifier(child_column)}=NULL WHERE {identifier(child_column)}=%s',
+                    [parent_value],
+                )
+                continue
+
+            key_columns = primary_key_columns(child_table)
+            selected_keys = ','.join(f'{identifier(column)} AS {identifier(f"pk_{index}")}' for index, column in enumerate(key_columns))
+            child_rows = rows(
+                f'SELECT {selected_keys} FROM {identifier(child_table)} WHERE {identifier(child_column)}=%s',
+                [parent_value],
+            )
+            for child_row in child_rows:
+                child_values = {column: child_row[f'pk_{index}'] for index, column in enumerate(key_columns)}
+                purge_row(child_table, child_values)
+                predicates = [f'{identifier(child_column)}=%s']
+                parameters = [parent_value]
+                for index, column in enumerate(key_columns):
+                    predicates.append(f'{identifier(column)}=%s')
+                    parameters.append(child_values[column])
+                execute(f'DELETE FROM {identifier(child_table)} WHERE {" AND ".join(predicates)}', parameters)
+
+    purge_row('users', {'id': int(user_id)})
+    execute('DELETE FROM users WHERE id=%s', [int(user_id)])
+
 def admin_required(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
@@ -170,7 +243,9 @@ def dashboard(request):
 def user_detail(request, user_id):
     user_rows = rows(
         """SELECT u.id,u.email,u.phone,u.status,u.email_verified_at,u.phone_verified_at,
-                  u.mfa_enabled,u.last_login_at,u.created_at,u.updated_at,u.deleted_at,
+              u.mfa_enabled,u.last_login_at,u.created_at,u.updated_at,u.deleted_at,
+              (SELECT created_at FROM account_deletion_requests WHERE user_id=u.id LIMIT 1) deletion_requested_at,
+              (SELECT reason FROM account_deletion_requests WHERE user_id=u.id LIMIT 1) deletion_reason,
                   p.first_name,p.last_name,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
                   p.city,p.country_code,p.bio,p.avatar_url
            FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=%s""",
@@ -204,6 +279,7 @@ def user_detail(request, user_id):
         'user_audit': [],
         'saved_homes': 0,
         'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
+        'avatar_fallback_url': f"{os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}/assets/default-avatar.svg",
     }
     if is_agent:
         profile_rows = rows(
@@ -264,6 +340,16 @@ def action(request, action):
                 execute('UPDATE agent_subaccounts SET status=%s WHERE subagent_user_id=%s', [{'active': 'active', 'suspended': 'suspended', 'deleted': 'revoked'}[status], user_id])
                 if status != 'active':
                     invalidate_api_sessions(user_id)
+            elif action == 'user-hard-delete':
+                user_id = int(request.POST.get('id', '0'))
+                if user_id < 1: raise ValueError('Choose a valid user')
+                if not rows('SELECT id FROM users WHERE id=%s FOR UPDATE', [user_id]): raise ValueError('User account no longer exists')
+                admin_rows = rows("SELECT u.status FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name='administrator'", [user_id])
+                if admin_rows and admin_rows[0]['status'] == 'active' and scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'") <= 1:
+                    raise ValueError('The last active administrator cannot be permanently deleted')
+                invalidate_api_sessions(user_id)
+                purge_user_account(user_id)
+                audit('user_permanently_deleted', 'user', user_id)
             elif action == 'user-role':
                 user_id = int(request.POST['id']); role = request.POST.get('role', ''); operation = request.POST.get('operation', 'assign')
                 if user_id < 1 or role not in ROLES or operation not in {'assign', 'remove'}: raise ValueError('Invalid role action')
@@ -368,6 +454,8 @@ def action(request, action):
     except Exception as error:
         messages.error(request, str(error))
     return_to = request.POST.get('return_to', '')
+    if action == 'user-hard-delete':
+        return redirect('/admin/?section=users')
     if return_to.startswith('/admin/users/') and return_to.endswith('/') and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return redirect(return_to)
     return redirect(f'/admin/?section={request.POST.get("section", "overview")}')
