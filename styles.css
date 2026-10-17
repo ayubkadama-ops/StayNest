@@ -4459,3 +4459,54 @@ footer {
     grid-column: 1 / -1;
   }
 }
+
+@media (max-width: 600px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  main,
+  section,
+  footer,
+  .search-card,
+  .listing-grid,
+  .agent-page,
+  .tenant-page,
+  .modal {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-block: 10px;
+  }
+
+  .header-actions {
+    margin-left: auto;
+  }
+
+  .hero-copy {
+    min-width: 0;
+  }
+}

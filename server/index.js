@@ -33,7 +33,12 @@ const trustProxy = process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV ==
 const defaultProductionOrigin = process.env.NODE_ENV === 'production'
   ? 'https://staynest-np7j.onrender.com'
   : '';
-const djangoAdminUrl = String(process.env.DJANGO_ADMIN_URL || 'http://127.0.0.1:8000/').replace(/\/$/, '');
+const defaultDjangoAdminUrl = 'https://staynest-django-admin.onrender.com';
+const configuredDjangoAdminUrl = String(process.env.DJANGO_ADMIN_URL || '').trim();
+const pointsToLocalAdmin = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(configuredDjangoAdminUrl);
+const djangoAdminUrl = process.env.NODE_ENV === 'production' && pointsToLocalAdmin
+  ? defaultDjangoAdminUrl
+  : String(configuredDjangoAdminUrl || defaultDjangoAdminUrl).replace(/\/$/, '');
 const configuredOrigins = new Set(
   [defaultProductionOrigin, process.env.APP_ORIGIN, ...(process.env.CORS_ORIGINS || '').split(',')]
     .map(origin => typeof origin === 'string' ? origin.trim().replace(/\/$/, '') : '')

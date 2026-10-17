@@ -15,6 +15,18 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.get('/admin/')
         self.assertRedirects(response, '/admin/login/?next=/admin/', fetch_redirect_response=False)
 
+    @patch('console.views.rows', return_value=[])
+    @patch('console.views.scalar', return_value=0)
+    def test_dashboard_is_not_cached_and_exposes_refresh_controls(self, scalar, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertContains(response, 'id="refreshDashboard"')
+        self.assertContains(response, 'Agent approvals')
+
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     def test_valid_admin_login_sets_console_session(self, checkpw):
@@ -45,7 +57,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'section': 'settings',
         })
 
-        self.assertRedirects(response, '/?section=settings', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
         execute.assert_called_once_with(
             'UPDATE feature_flags SET enabled=%s WHERE feature_key=%s',
             [1, 'booking_requests'],
@@ -62,7 +74,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'value': 'https://instagram.com/makazigo',
             'section': 'settings',
         })
-        self.assertRedirects(response, '/?section=settings', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
         execute.assert_called_once_with(
             'INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
             ['social_instagram_url', 'https://instagram.com/makazigo'],
@@ -76,7 +88,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.post('/admin/action/setting/', {
             'key': 'social_instagram_url', 'value': 'javascript:alert(1)', 'section': 'settings'
         })
-        self.assertRedirects(response, '/?section=settings', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
         execute.assert_not_called()
 
     @patch('console.views.rows', side_effect=[
@@ -131,7 +143,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_admin_can_update_a_safety_report(self, atomic, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/report-status/', {'id': '42', 'status': 'resolved', 'section': 'reports'})
-        self.assertRedirects(response, '/?section=reports', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=reports', fetch_redirect_response=False)
         execute.assert_called_once_with('UPDATE user_reports SET status=%s WHERE id=%s', ['resolved', 42])
         audit.assert_called_once()
 
@@ -142,7 +154,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_admin_can_assign_an_agent_role(self, atomic, rows, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/user-role/', {'id': '8', 'role': 'agent', 'operation': 'assign', 'section': 'access'})
-        self.assertRedirects(response, '/?section=access', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
         execute.assert_any_call('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [8, 3])
         execute.assert_any_call('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [8])
         audit.assert_called_once()
@@ -154,7 +166,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_admin_can_assign_an_agent_badge(self, atomic, rows, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/badge/', {'id': '21', 'label': 'Trusted host', 'duration': '30', 'section': 'badges'})
-        self.assertRedirects(response, '/?section=badges', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=badges', fetch_redirect_response=False)
         execute.assert_any_call('UPDATE agent_badges SET expires_at=UTC_TIMESTAMP() WHERE agent_user_id=%s AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP())', [21])
         self.assertEqual(execute.call_args_list[-1].args[0], 'INSERT INTO agent_badges (agent_user_id,badge_label,starts_at,expires_at,assigned_by) VALUES (%s,%s,UTC_TIMESTAMP(),%s,NULL)')
         audit.assert_called_once()
@@ -166,7 +178,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_admin_can_approve_a_pending_subagent(self, atomic, rows, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/agent-status/', {'id': '15', 'status': 'approved', 'section': 'agents'})
-        self.assertRedirects(response, '/?section=agents', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=agents', fetch_redirect_response=False)
         execute.assert_any_call('UPDATE users SET status=%s WHERE id=%s', ['active', 15])
         execute.assert_any_call('UPDATE agent_subaccounts SET status=%s WHERE id=%s', ['active', 31])
         audit.assert_called_once()
@@ -178,6 +190,6 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_mfa_reset_clears_configuration_and_revokes_api_sessions(self, atomic, rows, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/mfa-reset/', {'id': '8', 'section': 'access'})
-        self.assertRedirects(response, '/?section=access', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
         execute.assert_any_call('UPDATE users SET mfa_enabled=FALSE,mfa_secret_encrypted=NULL WHERE id=%s', [8])
         execute.assert_any_call('DELETE FROM web_sessions WHERE sid=%s', [rows.return_value[0]['sid']])

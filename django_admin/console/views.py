@@ -10,6 +10,7 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 from urllib.parse import urlparse
 from django.views.decorators.http import require_http_methods
 
@@ -84,6 +85,7 @@ def logout_view(request):
     return redirect('/admin/login/')
 
 @admin_required
+@never_cache
 def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
@@ -93,6 +95,8 @@ def dashboard(request):
         if section == 'overview':
             data['stats'] = {
                 'Total people': scalar("SELECT COUNT(*) FROM users WHERE status!='deleted'"),
+                'Pending accounts': scalar("SELECT COUNT(*) FROM users WHERE status='pending'"),
+                'Agent approvals': scalar("SELECT COUNT(DISTINCT u.id) FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE r.name='agent' AND u.status='pending'"),
                 'Active agents': scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='agent' AND u.status='active'"),
                 'Published homes': scalar("SELECT COUNT(*) FROM listings WHERE status='published'"),
                 'Pending bookings': scalar("SELECT COUNT(*) FROM bookings WHERE status='pending'"),
@@ -252,4 +256,4 @@ def action(request, action):
         messages.success(request, 'Administrative action completed.')
     except Exception as error:
         messages.error(request, str(error))
-    return redirect(f'/?section={request.POST.get("section", "overview")}')
+    return redirect(f'/admin/?section={request.POST.get("section", "overview")}')
