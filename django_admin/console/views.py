@@ -1,12 +1,14 @@
 import json
+import ipaddress
 import os
+import re
 from functools import wraps
 from datetime import timedelta
 
 import bcrypt
 from django.contrib import messages
 from django.db import connection, transaction
-from django.http import HttpResponseForbidden
+from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -35,7 +37,7 @@ def execute(sql, params=()):
 def audit(action_name, entity_type, entity_id=None, metadata=None):
     execute(
         'INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, ip_address, user_agent, metadata) VALUES (NULL, %s, %s, %s, NULL, %s, %s)',
-        [action_name, entity_type, entity_id, 'django-admin', str(metadata or {})],
+        [action_name, entity_type, entity_id, 'django-admin', json.dumps(metadata or {})],
     )
 
 def invalidate_api_sessions(user_id):
@@ -150,7 +152,7 @@ def dashboard(request):
                 else:
                     data['settings'].append(setting)
             data['features'] = rows('SELECT feature_key,enabled,description FROM feature_flags ORDER BY feature_key')
-            data['templates'] = rows('SELECT template_key,subject FROM email_templates ORDER BY template_key')
+            data['templates'] = rows('SELECT template_key,subject,body FROM email_templates ORDER BY template_key')
             data['rules'] = rows('SELECT id,rule_type,cidr,label,enabled FROM admin_ip_rules ORDER BY created_at DESC')
         elif section == 'analytics':
             data['stats'] = {
@@ -162,6 +164,90 @@ def dashboard(request):
     except Exception as error:
         data['error'] = f'Admin data unavailable: {error}'
     return render(request, 'dashboard.html', data)
+
+@admin_required
+@never_cache
+def user_detail(request, user_id):
+    user_rows = rows(
+        """SELECT u.id,u.email,u.phone,u.status,u.email_verified_at,u.phone_verified_at,
+                  u.mfa_enabled,u.last_login_at,u.created_at,u.updated_at,u.deleted_at,
+                  p.first_name,p.last_name,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
+                  p.city,p.country_code,p.bio,p.avatar_url
+           FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=%s""",
+        [user_id],
+    )
+    if not user_rows:
+        raise Http404('User not found')
+
+    user = user_rows[0]
+    roles = [item['name'] for item in rows(
+        'SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s ORDER BY r.name',
+        [user_id],
+    )]
+    is_agent = 'agent' in roles
+    is_tenant = 'tenant' in roles
+    context = {
+        'section': 'user-detail',
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')],
+        'user': user,
+        'user_roles': roles,
+        'is_agent': is_agent,
+        'is_tenant': is_tenant,
+        'is_administrator': 'administrator' in roles,
+        'agent_profile': None,
+        'agent_subaccounts': [],
+        'user_badges': [],
+        'user_listings': [],
+        'user_bookings': [],
+        'user_verifications': [],
+        'user_audit': [],
+        'saved_homes': 0,
+        'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
+    }
+    if is_agent:
+        profile_rows = rows(
+            'SELECT phone,bio,agency_name,followers_count,following_count,created_at,updated_at FROM agent_profiles WHERE user_id=%s',
+            [user_id],
+        )
+        context['agent_profile'] = profile_rows[0] if profile_rows else None
+        context['user_listings'] = rows(
+            'SELECT id,title,city,status,updated_at FROM listings WHERE owner_user_id=%s OR agent_user_id=%s ORDER BY updated_at DESC LIMIT 30',
+            [user_id, user_id],
+        )
+        context['user_badges'] = rows(
+            'SELECT badge_label,starts_at,expires_at FROM agent_badges WHERE agent_user_id=%s AND starts_at<=UTC_TIMESTAMP() AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP()) ORDER BY starts_at DESC',
+            [user_id],
+        )
+        context['agent_subaccounts'] = rows(
+            """SELECT sa.id,sa.label,sa.status,sa.created_at,child.id user_id,
+                      COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),child.email) name,
+                      child.email,CASE WHEN sa.main_agent_user_id=%s THEN 'Sub-agent' ELSE 'Managed by' END relation
+               FROM agent_subaccounts sa JOIN users main ON main.id=sa.main_agent_user_id
+               JOIN users child ON child.id=sa.subagent_user_id
+               LEFT JOIN user_profiles p ON p.user_id=child.id
+               WHERE sa.main_agent_user_id=%s OR sa.subagent_user_id=%s ORDER BY sa.created_at DESC""",
+            [user_id, user_id, user_id],
+        )
+    if is_tenant or is_agent:
+        context['user_bookings'] = rows(
+            """SELECT b.id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,
+                      l.title,CASE WHEN b.guest_user_id=%s THEN 'Tenant' ELSE 'Agent' END relation
+               FROM bookings b JOIN listings l ON l.id=b.listing_id
+               WHERE b.guest_user_id=%s OR b.host_user_id=%s ORDER BY b.created_at DESC LIMIT 30""",
+            [user_id, user_id, user_id],
+        )
+    if is_tenant:
+        context['saved_homes'] = scalar('SELECT COUNT(*) FROM saved_listings WHERE user_id=%s', [user_id])
+    context['user_verifications'] = rows(
+        'SELECT id,document_type,status,created_at,reviewed_at,expires_at,rejection_reason FROM identity_verifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 20',
+        [user_id],
+    )
+    context['user_audit'] = rows(
+        "SELECT action,entity_type,entity_id,created_at,metadata FROM audit_logs WHERE entity_type='user' AND entity_id=%s ORDER BY created_at DESC LIMIT 20",
+        [user_id],
+    )
+    return render(request, 'user_detail.html', context)
 
 @admin_required
 @require_http_methods(['POST'])
@@ -243,6 +329,31 @@ def action(request, action):
                 execute('UPDATE identity_verifications SET status=%s, reviewed_at=UTC_TIMESTAMP(), rejection_reason=%s WHERE id=%s', [status, None if status == 'approved' else 'Rejected by administrator', verification_id]); audit(f'verification_{status}', 'identity_verification', verification_id)
             elif action == 'feature':
                 execute('UPDATE feature_flags SET enabled=%s WHERE feature_key=%s', [1 if request.POST.get('enabled') == '1' else 0, request.POST['key']]); audit('feature_updated', 'feature', None, {'key': request.POST['key']})
+            elif action == 'email-template':
+                template_key = request.POST.get('key', '').strip()
+                subject = request.POST.get('subject', '').strip()
+                body = request.POST.get('body', '').strip()
+                if not re.fullmatch(r'[a-z0-9_.-]{1,80}', template_key): raise ValueError('Invalid email template key')
+                if not subject or len(subject) > 255 or not body or len(body) > 20000: raise ValueError('Enter a subject and body within the allowed lengths')
+                execute('INSERT INTO email_templates (template_key,subject,body,updated_by) VALUES (%s,%s,%s,NULL) ON DUPLICATE KEY UPDATE subject=VALUES(subject),body=VALUES(body),updated_by=NULL', [template_key, subject, body])
+                audit('email_template_updated', 'email_template', None, {'templateKey': template_key})
+            elif action == 'ip-rule':
+                rule_type = request.POST.get('rule_type', '')
+                cidr = request.POST.get('cidr', '').strip()
+                label = request.POST.get('label', '').strip()[:120] or None
+                if rule_type not in {'allow', 'deny'}: raise ValueError('Choose allow or deny for the IP rule')
+                try:
+                    network = ipaddress.ip_network(cidr, strict=False)
+                except ValueError as error:
+                    raise ValueError('Enter a valid IP address or CIDR range') from error
+                normalized_cidr = str(network)
+                execute('INSERT INTO admin_ip_rules (rule_type,cidr,label,enabled,created_by) VALUES (%s,%s,%s,TRUE,NULL)', [rule_type, normalized_cidr, label])
+                audit('admin_ip_rule_created', 'admin_ip_rule', None, {'ruleType': rule_type, 'cidr': normalized_cidr})
+            elif action == 'ip-rule-delete':
+                rule_id = int(request.POST.get('id', '0'))
+                if rule_id < 1: raise ValueError('Choose a valid IP rule')
+                execute('DELETE FROM admin_ip_rules WHERE id=%s', [rule_id])
+                audit('admin_ip_rule_deleted', 'admin_ip_rule', rule_id)
             elif action == 'setting':
                 key = request.POST.get('key', '').strip()
                 value = request.POST.get('value', '').strip()
@@ -256,4 +367,7 @@ def action(request, action):
         messages.success(request, 'Administrative action completed.')
     except Exception as error:
         messages.error(request, str(error))
+    return_to = request.POST.get('return_to', '')
+    if return_to.startswith('/admin/users/') and return_to.endswith('/') and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(return_to)
     return redirect(f'/admin/?section={request.POST.get("section", "overview")}')

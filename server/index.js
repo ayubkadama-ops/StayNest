@@ -2950,5 +2950,6 @@ assertDatabaseConnection()
         }
       } catch (error) { console.error('Scheduled announcement processing failed:', error.message); }
     }, 60 * 1000);
+    setInterval(() => { void loadRuntimeConfig(); }, 30 * 1000);
   }))
   .catch(error => { console.error('Database connection failed:', error.message); process.exitCode = 1; });

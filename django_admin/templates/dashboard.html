@@ -43,7 +43,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
   </nav>
   <form method="post" action="/admin/logout/">{% csrf_token %}<button class="signout" type="submit">Sign out</button></form>
 </aside>
-<main class="main">
+<main class="main" data-admin-section="{{ section }}">
 <header class="head"><div><h1>{% if section == 'overview' %}Founder dashboard{% else %}{{ section|title }}{% endif %}</h1><p>Marketplace operations · Database-backed account and activity data</p></div><div class="head-tools"><span class="refresh-status" id="refreshStatus" role="status" aria-live="polite">Auto-refreshes every 30 seconds</span><button class="button" id="refreshDashboard" type="button">Refresh data</button><a class="link" href="{{ marketplace_url }}/">Open marketplace</a></div></header>
 {% for message in messages %}<div class="notice {% if message.tags == 'error' %}error{% else %}success{% endif %}" role="status">{{ message }}</div>{% endfor %}
 {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
@@ -55,7 +55,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 {% elif section == 'access' %}
 <section class="panel"><h2>Roles, account access, and MFA</h2><table class="table"><tr><th>Person</th><th>Roles</th><th>Status / MFA</th><th>Assign role</th><th>Actions</th></tr>{% for row in access_rows %}<tr><td>{{ row.name }}<small>{{ row.email }}</small></td><td>{% for role in row.assigned_roles %}<span class="pill">{{ role }}</span> {% empty %}<span class="muted">No roles</span>{% endfor %}</td><td>{{ row.status }} · MFA {% if row.mfa_enabled %}on{% else %}off{% endif %}</td><td><form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="assign"><select name="role" aria-label="Role to assign"><option value="tenant">Tenant</option><option value="agent">Agent</option><option value="administrator">Administrator</option></select><button class="button primary">Assign</button></form></td><td><div class="actions">{% for role in row.assigned_roles %}<form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="remove"><input type="hidden" name="role" value="{{ role }}"><button class="button danger">Remove {{ role }}</button></form>{% endfor %}{% if row.mfa_enabled %}<form method="post" action="/admin/action/mfa-reset/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><button class="button">Reset MFA</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="5">No accounts found.</td></tr>{% endfor %}</table></section>
 {% elif section == 'agents' %}
-<section class="panel"><h2>Agent and sub-agent approvals</h2><table class="table"><tr><th>Applicant</th><th>Account</th><th>Parent agent</th><th>Status</th><th>Actions</th></tr>{% for row in agents %}<tr><td>{{ row.name }}<small>{{ row.email }}</small></td><td>{% if row.subaccount_id %}Sub-agent · {{ row.label }}{% else %}Agent{% endif %}</td><td>{{ row.main_agent|default:'—' }}</td><td>{{ row.user_status }}{% if row.subaccount_id %} · {{ row.subaccount_status }}{% endif %}</td><td>{% if row.user_status == 'pending' %}<div class="actions">{% for decision,label in agent_decisions %}<form method="post" action="/admin/action/agent-status/">{% csrf_token %}<input type="hidden" name="section" value="agents"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="{{ decision }}"><button class="button {% if decision == 'approved' %}primary{% else %}danger{% endif %}">{{ label }}</button></form>{% endfor %}</div>{% else %}<span class="muted">No pending review</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No agent applications are awaiting review.</td></tr>{% endfor %}</table></section>
+<section class="panel"><h2>Agent and sub-agent approvals</h2><table class="table"><tr><th>Applicant</th><th>Account</th><th>Parent agent</th><th>Status</th><th>Actions</th></tr>{% for row in agents %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a><small>{{ row.email }}</small></td><td>{% if row.subaccount_id %}Sub-agent · {{ row.label }}{% else %}Agent{% endif %}</td><td>{{ row.main_agent|default:'—' }}</td><td>{{ row.user_status }}{% if row.subaccount_id %} · {{ row.subaccount_status }}{% endif %}</td><td>{% if row.user_status == 'pending' %}<div class="actions">{% for decision,label in agent_decisions %}<form method="post" action="/admin/action/agent-status/">{% csrf_token %}<input type="hidden" name="section" value="agents"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="{{ decision }}"><button class="button {% if decision == 'approved' %}primary{% else %}danger{% endif %}">{{ label }}</button></form>{% endfor %}</div>{% else %}<span class="muted">No pending review</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No agent applications are awaiting review.</td></tr>{% endfor %}</table></section>
 {% elif section == 'listings' %}
 <section class="panel"><h2>Listings moderation</h2><table class="table"><tr><th>Listing</th><th>Owner</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><strong>{{ row.title }}</strong><small>{{ row.city }} · {{ row.currency }} {{ row.nightly_price|default:row.monthly_price }}</small></td><td>{{ row.owner_name }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'published' %}<form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>{% endif %}{% if row.status != 'rejected' %}<form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="rejected"><button class="button danger">Reject</button></form>{% endif %}</div></td></tr>{% endfor %}</table></section>
 {% elif section == 'posts' %}
@@ -77,8 +77,65 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 <div class="stats">{% for label,value in stats.items %}<div class="stat"><strong>{{ value }}</strong><span>{{ label }}</span></div>{% endfor %}</div><section class="panel"><h2>Marketplace activity</h2><p>Rolling 30-day totals from the marketplace database. Traffic attribution remains available through the configured GA4 integration.</p></section>
 {% endif %}
 </main></div>
+{% if section == 'settings' %}
+{{ templates|json_script:"adminEmailTemplatesData" }}
+{{ rules|json_script:"adminIpRulesData" }}
+{% endif %}
 <script>
 const refreshButton=document.querySelector('#refreshDashboard');
+const csrfValue=document.querySelector('form[action="/admin/logout/"] input[name="csrfmiddlewaretoken"]')?.value||'';
+function makeAdminForm(actionPath,sectionName){const form=document.createElement('form');form.method='post';form.action=actionPath;for(const [name,value] of [['csrfmiddlewaretoken',csrfValue],['section',sectionName]]){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.append(input)}return form}
+function addAdminField(form,labelText,name,value,multiline=false){const label=document.createElement('label');label.append(document.createTextNode(labelText));const input=document.createElement(multiline?'textarea':'input');input.name=name;input.value=value||'';if(multiline){input.rows=5;input.maxLength=20000}else input.maxLength=name==='subject'?255:120;input.required=true;label.append(input);form.append(label)}
+if(section==='settings'){
+  const templatesData=document.querySelector('#adminEmailTemplatesData');
+  const templatesHeading=[...document.querySelectorAll('h2')].find(node=>node.textContent.trim()==='Email templates');
+  const templatesTable=templatesHeading?.parentElement.querySelector('table');
+  if(templatesData&&templatesTable){
+    const editor=document.createElement('div');editor.className='settings';
+    JSON.parse(templatesData.textContent).forEach(template=>{
+      const form=makeAdminForm('/admin/action/email-template/','settings');form.className='setting';
+      const title=document.createElement('strong');title.textContent=template.template_key;form.append(title);
+      const key=document.createElement('input');key.type='hidden';key.name='key';key.value=template.template_key;form.append(key);
+      addAdminField(form,'Subject','subject',template.subject);
+      addAdminField(form,'Body','body',template.body,true);
+      const save=document.createElement('button');save.className='button primary';save.textContent='Save email template';form.append(save);editor.append(form);
+    });
+    templatesTable.replaceWith(editor);
+  }
+  const rulesData=document.querySelector('#adminIpRulesData');
+  const rulesHeading=[...document.querySelectorAll('h2')].find(node=>node.textContent.trim()==='Administrator network rules');
+  const rulesTable=rulesHeading?.parentElement.querySelector('table');
+  if(rulesData&&rulesTable){
+    const panel=rulesHeading.parentElement;
+    const createForm=makeAdminForm('/admin/action/ip-rule/','settings');createForm.className='setting';
+    const formTitle=document.createElement('strong');formTitle.textContent='Add administrator IP rule';createForm.append(formTitle);
+    const typeLabel=document.createElement('label');typeLabel.append(document.createTextNode('Rule type'));
+    const typeSelect=document.createElement('select');typeSelect.name='rule_type';[['allow','Allow'],['deny','Deny']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;typeSelect.append(option)});typeLabel.append(typeSelect);createForm.append(typeLabel);
+    addAdminField(createForm,'IP address or CIDR','cidr','');
+    const label=document.createElement('label');label.append(document.createTextNode('Label'));const labelInput=document.createElement('input');labelInput.name='label';labelInput.maxLength=120;label.append(labelInput);createForm.append(label);
+    const add=document.createElement('button');add.className='button primary';add.textContent='Add rule';createForm.append(add);panel.insertBefore(createForm,rulesTable);
+    const tbody=rulesTable.tBodies[0];
+    JSON.parse(rulesData.textContent).forEach(rule=>{
+      const row=[...tbody.rows].find(candidate=>candidate.cells[1]?.textContent.trim()===rule.cidr&&candidate.cells[0]?.textContent.trim()===rule.rule_type);
+      if(!row)return;
+      const actionCell=row.insertCell();const removeForm=makeAdminForm('/admin/action/ip-rule-delete/','settings');const id=document.createElement('input');id.type='hidden';id.name='id';id.value=rule.id;removeForm.append(id);const button=document.createElement('button');button.className='button danger';button.textContent='Delete';button.addEventListener('click',event=>{if(!window.confirm('Delete this IP rule?'))event.preventDefault()});removeForm.append(button);actionCell.append(removeForm);
+    });
+    rulesTable.rows[0].insertCell().textContent='Actions';
+  }
+}
+const section=document.querySelector('.main')?.dataset.adminSection;
+if(['overview','users','access','agents'].includes(section)){
+  document.querySelectorAll('.table tr').forEach(row=>{
+    const userId=row.querySelector('form input[name="id"]')?.value;
+    const nameCell=row.cells[0];
+    if(!userId||!nameCell||nameCell.querySelector('a'))return;
+    const link=document.createElement('a');
+    link.className='user-detail-link';
+    link.href=`/admin/users/${encodeURIComponent(userId)}/`;
+    while(nameCell.firstChild)link.append(nameCell.firstChild);
+    nameCell.append(link);
+  });
+}
 const refreshStatus=document.querySelector('#refreshStatus');
 let hasUnsavedChanges=false;
 refreshStatus.textContent=`Updated at ${new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date())} · Auto-refreshes every 30 seconds`;

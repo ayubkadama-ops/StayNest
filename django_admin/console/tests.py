@@ -1,4 +1,5 @@
 import os
+import json
 from contextlib import nullcontext
 from unittest.mock import patch
 
@@ -10,6 +11,15 @@ class AdminConsoleAccessTests(SimpleTestCase):
         with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'}):
             with patch('console.views.bcrypt.checkpw', return_value=True):
                 return self.client.post('/admin/login/', {'username': 'founder', 'password': 'test-password'})
+
+    @patch('console.views.execute')
+    def test_audit_serializes_metadata_as_valid_json(self, execute):
+        from console.views import audit
+
+        audit('admin_setting_updated', 'app_setting', metadata={'key': 'contact_email'})
+
+        serialized_metadata = execute.call_args.args[1][-1]
+        self.assertEqual(json.loads(serialized_metadata), {'key': 'contact_email'})
 
     def test_dashboard_redirects_without_admin_session(self):
         response = self.client.get('/admin/')
@@ -26,6 +36,71 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertIn('no-store', response['Cache-Control'])
         self.assertContains(response, 'id="refreshDashboard"')
         self.assertContains(response, 'Agent approvals')
+
+    @patch('console.views.rows')
+    @patch('console.views.scalar', return_value=3)
+    def test_tenant_detail_shows_account_actions_and_related_activity(self, scalar, rows):
+        self.authenticate_admin()
+        rows.side_effect = [
+            [{'id': 42, 'email': 'tenant@example.test', 'phone': '+255700000000', 'status': 'active',
+              'email_verified_at': None, 'phone_verified_at': None, 'mfa_enabled': False,
+              'last_login_at': None, 'created_at': '2026-10-01', 'updated_at': '2026-10-02',
+              'deleted_at': None, 'first_name': 'Asha', 'last_name': 'Mrema', 'name': 'Asha Mrema',
+              'city': 'Dar es Salaam', 'country_code': 'TZ', 'bio': None, 'avatar_url': None}],
+            [{'name': 'tenant'}],
+                        [{'id': 8, 'booking_code': 'BOOK00000042', 'status': 'confirmed', 'check_in': '2026-11-01',
+                            'check_out': '2026-11-04', 'total_amount': 300, 'currency': 'TZS', 'title': 'Garden flat',
+                            'relation': 'Tenant'}],
+            [],
+            [],
+        ]
+
+        response = self.client.get('/admin/users/42/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Asha Mrema')
+        self.assertContains(response, 'tenant@example.test')
+        self.assertContains(response, 'Suspend')
+        self.assertContains(response, 'Assign role')
+        self.assertContains(response, '3 saved homes')
+        self.assertContains(response, 'Related bookings')
+
+    @patch('console.views.rows', side_effect=[[], []])
+    def test_user_detail_returns_not_found_for_unknown_id(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/users/999999/')
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch('console.views.rows')
+    @patch('console.views.scalar', return_value=0)
+    def test_agent_detail_shows_agent_approval_and_profile_actions(self, scalar, rows):
+        self.authenticate_admin()
+        rows.side_effect = [
+            [{'id': 21, 'email': 'agent@example.test', 'phone': '+255700000001', 'status': 'pending',
+              'email_verified_at': None, 'phone_verified_at': None, 'mfa_enabled': False,
+              'last_login_at': None, 'created_at': '2026-10-01', 'updated_at': '2026-10-02',
+              'deleted_at': None, 'first_name': 'Neema', 'last_name': 'Amani', 'name': 'Neema Amani',
+              'city': 'Arusha', 'country_code': 'TZ', 'bio': 'Local agent', 'avatar_url': None}],
+            [{'name': 'agent'}],
+            [{'phone': '+255700000001', 'agency_name': 'Amani Homes', 'bio': 'Local agent',
+              'followers_count': 2, 'following_count': 1, 'created_at': '2026-10-01', 'updated_at': '2026-10-02'}],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ]
+
+        response = self.client.get('/admin/users/21/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Amani Homes')
+        self.assertContains(response, '>Approve<')
+        self.assertContains(response, '>Reject<')
+        self.assertContains(response, 'return_to')
 
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
@@ -67,6 +142,73 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.audit')
     @patch('console.views.execute')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_update_email_template(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/email-template/', {
+            'key': 'agent_approved',
+            'subject': 'Your Makazi Go account is approved',
+            'body': 'Welcome {{firstName}}',
+            'section': 'settings',
+        })
+
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'INSERT INTO email_templates (template_key,subject,body,updated_by) VALUES (%s,%s,%s,NULL) ON DUPLICATE KEY UPDATE subject=VALUES(subject),body=VALUES(body),updated_by=NULL',
+            ['agent_approved', 'Your Makazi Go account is approved', 'Welcome {{firstName}}'],
+        )
+        audit.assert_called_once()
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_add_normalized_ip_rule(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/ip-rule/', {
+            'rule_type': 'allow',
+            'cidr': '192.0.2.19/24',
+            'label': 'Office network',
+            'section': 'settings',
+        })
+
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'INSERT INTO admin_ip_rules (rule_type,cidr,label,enabled,created_by) VALUES (%s,%s,%s,TRUE,NULL)',
+            ['allow', '192.0.2.0/24', 'Office network'],
+        )
+        audit.assert_called_once()
+
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_rejects_invalid_ip_rule(self, atomic, execute):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/ip-rule/', {
+            'rule_type': 'allow', 'cidr': 'not-an-ip', 'section': 'settings'
+        })
+
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
+        execute.assert_not_called()
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_action_returns_to_requested_user_detail(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/feature/', {
+            'key': 'booking_requests',
+            'enabled': '1',
+            'section': 'settings',
+            'return_to': '/admin/users/42/',
+        })
+
+        self.assertRedirects(response, '/admin/users/42/', fetch_redirect_response=False)
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_admin_can_edit_a_social_footer_link(self, atomic, execute, audit):
         self.authenticate_admin()
         response = self.client.post('/admin/action/setting/', {
@@ -94,6 +236,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.rows', side_effect=[
         [{'setting_key': 'social_instagram_url', 'setting_value': 'https://instagram.com/makazigo'}],
         [],
+        [{'template_key': 'agent_approved', 'subject': 'Approved', 'body': 'Welcome {{firstName}}'}],
         [],
     ])
     def test_admin_settings_labels_footer_social_controls(self, rows):
@@ -103,6 +246,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Marketplace footer')
         self.assertContains(response, 'Instagram profile URL')
         self.assertContains(response, 'type="url"')
+        self.assertContains(response, 'adminEmailTemplatesData')
+        self.assertContains(response, 'Welcome')
 
     @patch('console.views.rows', side_effect=[
         [{'id': 12, 'email': 'agent@example.test', 'status': 'active', 'mfa_enabled': True, 'name': 'Asha Mrema'}],
@@ -121,6 +266,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.get('/admin/?section=agents')
         self.assertContains(response, 'Approve')
         self.assertContains(response, 'Reject')
+        self.assertContains(response, '/admin/users/21/')
         self.assertContains(response, 'Neema')
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'name': 'Asha', 'badge_label': None, 'expires_at': None}])
