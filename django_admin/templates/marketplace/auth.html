@@ -14,8 +14,12 @@
     <div class="auth-divider"><span>or use your email</span></div>
     <form data-login-form>
       <input type="hidden" name="next" value="{{ next_url }}">
-      <section data-login-step="0"><label>Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><button class="button primary auth-next" type="button" data-login-next>Continue</button></section>
-      <section data-login-step="1" hidden><label>Password<input name="password" type="password" autocomplete="current-password" required></label><label data-mfa-field hidden>Authenticator code<input name="mfaCode" inputmode="numeric" autocomplete="one-time-code"></label><label class="check-row"><input name="rememberMe" type="checkbox"> Keep me signed in</label><p class="form-message" aria-live="polite"></p><div class="auth-actions"><button class="button" type="button" data-login-back>Back</button><button class="button primary" type="submit">Sign in</button></div></section>
+      <label>Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <label data-mfa-field hidden>Authenticator code<input name="mfaCode" inputmode="numeric" autocomplete="one-time-code"></label>
+      <label class="check-row"><input name="rememberMe" type="checkbox"> Keep me signed in</label>
+      <p class="form-message" aria-live="polite"></p>
+      <button class="button primary" type="submit">Sign in</button>
     </form>
     <button class="text-link forgot-toggle" type="button" data-forgot-toggle>Forgot password?</button>
     <form class="forgot-form" data-password-reset hidden><label>Email address<input name="email" type="email" autocomplete="email" required></label><p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send recovery instructions</button></form>

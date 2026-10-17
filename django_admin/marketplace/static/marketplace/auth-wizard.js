@@ -53,11 +53,7 @@ document.querySelectorAll('form[data-auth-required]').forEach(form=>{
 
 const loginForm=document.querySelector('[data-login-form]');
 if(loginForm){
-  const steps=[...loginForm.querySelectorAll('[data-login-step]')];
   const message=loginForm.querySelector('.form-message');
-  const showStep=index=>{steps.forEach((step,stepIndex)=>{step.hidden=stepIndex!==index});if(index===1)loginForm.elements.password.focus()};
-  loginForm.querySelector('[data-login-next]').addEventListener('click',()=>{if(loginForm.elements.email.reportValidity())showStep(1)});
-  loginForm.querySelector('[data-login-back]').addEventListener('click',()=>showStep(0));
   loginForm.addEventListener('submit',async event=>{
     event.preventDefault();
     message.textContent='';
