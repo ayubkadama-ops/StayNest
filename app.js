@@ -1055,20 +1055,30 @@ function openAgentListingWizard(){
   let currentStep=0,marker=null,mediaFiles=[];
   const maxPhotoBytes=20*1024*1024,maxPhotoCount=10,maxOptimizedPhotoBytes=3*1024*1024;
   const prepareListingPhoto=async file=>{
-    if(typeof createImageBitmap!=='function')throw new Error('Photo optimization is unavailable in this browser. Try a smaller photo.');
-    const bitmap=await createImageBitmap(file);
+    if(file.size<=maxOptimizedPhotoBytes)return file;
+    let bitmap=null,image=null,objectUrl='';
+    if(typeof createImageBitmap==='function'){
+      try{bitmap=await createImageBitmap(file)}catch{}
+    }
+    if(!bitmap){
+      objectUrl=URL.createObjectURL(file);
+      image=new Image();
+      try{image.src=objectUrl;await image.decode()}
+      catch{URL.revokeObjectURL(objectUrl);throw new Error(`${file.name} could not be decoded. Choose a valid JPG, PNG, WebP, or AVIF photo.`)}
+    }
+    const source=bitmap||image,sourceWidth=bitmap?.width||image.naturalWidth,sourceHeight=bitmap?.height||image.naturalHeight;
     try{
       for(const maxDimension of [1920,1600,1280]){
-        const scale=Math.min(1,maxDimension/bitmap.width,maxDimension/bitmap.height),canvas=document.createElement('canvas');
-        canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-        canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+        const scale=Math.min(1,maxDimension/sourceWidth,maxDimension/sourceHeight),canvas=document.createElement('canvas');
+        canvas.width=Math.max(1,Math.round(sourceWidth*scale));canvas.height=Math.max(1,Math.round(sourceHeight*scale));
+        canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);
         for(const quality of [0.82,0.72,0.62]){
           const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',quality));
           if(blob&&blob.size<=maxOptimizedPhotoBytes){const name=file.name.replace(/\.[^.]+$/,'')||'listing-photo';return new File([blob],`${name}.webp`,{type:'image/webp',lastModified:file.lastModified})}
         }
       }
       throw new Error(`${file.name} could not be reduced to 3 MB. Choose a smaller photo.`);
-    }finally{bitmap.close()}
+    }finally{bitmap?.close();if(objectUrl)URL.revokeObjectURL(objectUrl)}
   };
   const categoryInput=document.createElement('input');categoryInput.type='hidden';categoryInput.name='propertyType';form.append(categoryInput);const categoryByStructure={house:'house',apartment:'apartment',room:'room',land_plot:'land',guesthouse:'hotel',serviced_apartment:'apartment',hotel:'hotel',commercial:'commercial'};const syncPropertyCategory=()=>{const structure=form.querySelector('[name="structureType"]:checked')?.value;categoryInput.value=categoryByStructure[structure]||'apartment'};
   const bathroomStepper=form.elements.bathrooms.closest('.wizard-stepper');
