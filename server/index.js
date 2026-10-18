@@ -1897,7 +1897,7 @@ app.patch('/api/agent/subagents/:id', requireAuth, requireRole('agent'), async (
 });
 
 app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create'), agentListingUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'media', maxCount: 10 }]), async (req, res, next) => {
-  const connection = await pool.getConnection();
+  let connection;
   try {
     const { title, description, city, addressLine1, countryCode = 'TZ', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
     const propertyType = resolvePropertyType(req.body.propertyType, structureType);
@@ -1917,9 +1917,27 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
-    const [types] = await connection.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
+    const [types] = await pool.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
     if (!types.length) return res.status(400).json({ error: 'Invalid property type' });
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
+    const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
+    const uploadBatchId = crypto.randomUUID();
+    const storedMedia = new Array(media.length);
+    let nextMediaIndex = 0;
+    const storeMediaBatch = async () => {
+      while (nextMediaIndex < media.length) {
+        const index = nextMediaIndex++;
+        const file = media[index];
+        const isVideo = file.mimetype.startsWith('video/');
+        const stored = isVideo ? await storeListingVideo(file, uploadBatchId) : await storeListingImage(file, uploadBatchId);
+        storedMedia[index] = { file, stored, isVideo };
+      }
+    };
+    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(2, media.length) }, storeMediaBatch));
+    const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
+    if (failedUpload) throw failedUpload.reason;
+
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     let result;
     try {
@@ -1934,22 +1952,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
       );
     }
-    const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
-    const storedMedia = new Array(media.length);
-    let nextMediaIndex = 0;
-    const storeMediaBatch = async () => {
-      while (nextMediaIndex < media.length) {
-        const index = nextMediaIndex++;
-        const file = media[index];
-        const isVideo = file.mimetype.startsWith('video/');
-        const stored = isVideo ? await storeListingVideo(file, result.insertId) : await storeListingImage(file, result.insertId);
-        storedMedia[index] = { file, stored, isVideo };
-      }
-    };
-    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(2, media.length) }, storeMediaBatch));
-    const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
-    if (failedUpload) throw failedUpload.reason;
     for (const [index, { file, stored, isVideo }] of storedMedia.entries()) {
       await connection.execute('INSERT INTO listing_media (listing_id, media_type, storage_key, public_url, caption, sort_order, is_cover) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.insertId, isVideo ? 'video' : 'image', stored.key, stored.url, String(req.body[`caption${index}`] || '').slice(0, 255), index, index === 0]);
     }
@@ -1969,9 +1972,11 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     }).catch(error => console.error('Listing moderation notification failed:', error.message));
     res.status(201).json({ id: result.insertId, status: 'pending_review' });
   } catch (error) {
-    try { await connection.rollback(); } catch (rollbackError) { error.rollbackError = rollbackError; }
+    if (connection) {
+      try { await connection.rollback(); } catch (rollbackError) { error.rollbackError = rollbackError; }
+    }
     next(error);
-  } finally { connection.release(); }
+  } finally { connection?.release(); }
 });
 
 app.get('/api/host/bookings', requireAuth, requireAgentAccess('bookings.view'), async (req, res, next) => {
