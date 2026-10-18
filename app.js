@@ -1053,7 +1053,23 @@ function openAgentListingWizard(){
   openModal(`<div class="listing-wizard"><div class="wizard-heading"><div><p class="eyebrow">Agent workspace</p><h2>Create a listing</h2></div><span class="wizard-step-label" id="wizardStepLabel"></span></div><div class="wizard-progress" role="progressbar" aria-valuemin="1" aria-valuemax="${steps.length}" aria-valuenow="1"><span id="wizardProgress"></span></div><form id="agentListingWizard" enctype="multipart/form-data"><section class="wizard-panel" data-step="0"><h3>Where is the place?</h3><p class="search-note">Your exact address stays private until booking. Search and confirm the pin so guests can find the area accurately.</p><label>Street address<input name="addressLine1" id="listingAddress" required placeholder="Street address"></label><label>City<input name="city" required></label><div class="location-search-row"><button class="outline-btn" type="button" id="findListingLocation">Find on map</button></div><input type="hidden" name="latitude"><input type="hidden" name="longitude"><div class="listing-map-wrap"><div id="listingMap" aria-label="OpenStreetMap listing location"></div><p id="listingMapStatus" class="map-status">Search for the exact property address to place it on the map.</p></div></section><section class="wizard-panel" data-step="1" hidden><h3>What kind of place is it?</h3><p class="search-note">Choose the structure that best describes the listing.</p>${optionCards('structureType',structureOptions)}</section><section class="wizard-panel" data-step="2" hidden><h3>How will guests use it?</h3><p class="search-note">This describes the privacy arrangement for a stay.</p>${optionCards('privacyType',privacyOptions)}</section><section class="wizard-panel" data-step="3" hidden><h3>Make room for the right stay</h3><p class="search-note">Use the steppers to set the capacity and layout.</p>${stepper('maxGuests','Maximum guests',1,999,1,2)}${stepper('bedrooms','Bedrooms',0,99,1,1)}${stepper('bathrooms','Bathrooms',0.5,99,0.5,1)}</section><section class="wizard-panel" data-step="4" hidden><h3>What makes it special?</h3><p class="search-note">Select the amenities guests will find at the place.</p>${amenityMarkup}<input type="hidden" name="amenities"></section><section class="wizard-panel" data-step="5" hidden><h3>Show the place</h3><p class="search-note">Add at least five photos. Drag cards to reorder them; the first one becomes the cover.</p><label class="wizard-file-drop" id="mediaDrop"><input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple required><strong>Drop photos here or browse</strong><small>Minimum 5 photos</small></label><div class="wizard-media-grid" id="mediaGrid"></div><div id="mediaCaptions"></div></section><section class="wizard-panel" data-step="6" hidden><h3>Give it a name</h3><label>Title<input name="title" maxlength="180" required placeholder="A memorable name for this place"></label><label>Description / caption<textarea name="description" maxlength="5000" required placeholder="Tell guests what makes the place feel like home."></textarea></label></section><section class="wizard-panel" data-step="7" hidden><h3>Set your pricing</h3><label>Rental duration<select name="rentalMode"><option value="short_term">Short-term — nightly</option><option value="long_term">Long-term — monthly/yearly</option><option value="both">Both short-term and long-term</option></select></label><div class="wizard-price-grid"><label>Nightly price<input name="nightlyPrice" type="number" min="1" step="0.01"></label><label>Monthly price<input name="monthlyPrice" type="number" min="1" step="0.01"></label><label>Yearly price<input name="yearlyPrice" type="number" min="1" step="0.01"></label></div></section><section class="wizard-panel" data-step="8" hidden><h3>Choose a booking mode</h3><p class="search-note">Decide whether guests can confirm instantly or need your approval.</p>${optionCards('bookingMode',[['request','Request to book'],['instant','Instant book']])}</section><section class="wizard-panel" data-step="9" hidden><h3>Review and submit</h3><div class="wizard-summary" id="wizardSummary"></div><label>Registration document<input name="document" type="file" accept=".pdf,image/jpeg,image/png" required></label><p class="search-note">Your registration document is required for review and stays private.</p></section><p class="form-error" role="alert"></p><div class="wizard-actions"><button class="outline-btn" type="button" id="wizardBack">Back</button><button class="primary" type="button" id="wizardNext">Continue <span>→</span></button></div></form></div>`);
   const form=content.querySelector('#agentListingWizard'),panels=[...form.querySelectorAll('.wizard-panel')],errorBox=form.querySelector('.form-error'),progress=content.querySelector('#wizardProgress'),stepLabel=content.querySelector('#wizardStepLabel'),back=form.querySelector('#wizardBack'),next=form.querySelector('#wizardNext');
   let currentStep=0,marker=null,mediaFiles=[];
-  const maxPhotoBytes=20*1024*1024,maxPhotoCount=10;
+  const maxPhotoBytes=20*1024*1024,maxPhotoCount=10,maxOptimizedPhotoBytes=3*1024*1024;
+  const prepareListingPhoto=async file=>{
+    if(typeof createImageBitmap!=='function')throw new Error('Photo optimization is unavailable in this browser. Try a smaller photo.');
+    const bitmap=await createImageBitmap(file);
+    try{
+      for(const maxDimension of [1920,1600,1280]){
+        const scale=Math.min(1,maxDimension/bitmap.width,maxDimension/bitmap.height),canvas=document.createElement('canvas');
+        canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+        canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
+        for(const quality of [0.82,0.72,0.62]){
+          const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',quality));
+          if(blob&&blob.size<=maxOptimizedPhotoBytes){const name=file.name.replace(/\.[^.]+$/,'')||'listing-photo';return new File([blob],`${name}.webp`,{type:'image/webp',lastModified:file.lastModified})}
+        }
+      }
+      throw new Error(`${file.name} could not be reduced to 3 MB. Choose a smaller photo.`);
+    }finally{bitmap.close()}
+  };
   const categoryInput=document.createElement('input');categoryInput.type='hidden';categoryInput.name='propertyType';form.append(categoryInput);const categoryByStructure={house:'house',apartment:'apartment',room:'room',land_plot:'land',guesthouse:'hotel',serviced_apartment:'apartment',hotel:'hotel',commercial:'commercial'};const syncPropertyCategory=()=>{const structure=form.querySelector('[name="structureType"]:checked')?.value;categoryInput.value=categoryByStructure[structure]||'apartment'};
   const bathroomStepper=form.elements.bathrooms.closest('.wizard-stepper');
   const bedsStepper=document.createElement('div');
@@ -1199,6 +1215,7 @@ function openAgentListingWizard(){
     const sequence=visibleSteps(),position=sequence.indexOf(currentStep);
     if(position<sequence.length-1){saveDraft();showStep(sequence[position+1]);return}
     if(!form.elements.document.files.length){errorBox.textContent='Upload the required registration document';return}
+    if(form.elements.document.files[0].size>8*1024*1024){errorBox.textContent='Registration documents must be 8 MB or smaller';return}
     if(mediaFiles.length<5){errorBox.textContent='Add at least five photos';return}
     next.disabled=true;back.disabled=true;next.textContent='Uploading…';errorBox.textContent=`Uploading ${mediaFiles.length} photos and submitting your listing…`;
     try{
@@ -1208,7 +1225,11 @@ function openAgentListingWizard(){
       });
       const submission=new FormData(form);
       submission.delete('media');
-      mediaFiles.forEach(file=>submission.append('media',file));
+      for(const [index,file] of mediaFiles.entries()){
+        errorBox.textContent=`Preparing photo ${index+1} of ${mediaFiles.length}…`;
+        submission.append('media',await prepareListingPhoto(file));
+      }
+      errorBox.textContent=`Uploading ${mediaFiles.length} optimized photos and submitting your listing…`;
       const originalDescription=String(form.elements.description.value||'').trim();
       if(categoryDetails.length)submission.set('description',`${originalDescription}\n\n${categoryQuestions[currentStructure].title}:\n${categoryDetails.map(value=>`- ${value}`).join('\n')}`);
       const csrf=await apiJson('/api/auth/csrf');

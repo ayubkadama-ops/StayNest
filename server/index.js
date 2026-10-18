@@ -90,7 +90,7 @@ const upload = multer({
 });
 const agentListingUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES, files: 11 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 11 },
   fileFilter: (_req, file, cb) => cb(null, file.fieldname === 'document'
     ? ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype)
     : ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4', 'video/webm'].includes(file.mimetype))
