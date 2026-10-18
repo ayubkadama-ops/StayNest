@@ -1959,7 +1959,8 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
       if (amenity) await connection.execute('INSERT IGNORE INTO listing_amenity_map (listing_id, amenity_id) VALUES (?, ?)', [result.insertId, amenity.id]);
     }
     await connection.commit();
-    await audit(req, 'agent_listing_created', 'listing', result.insertId);
+    void audit(req, 'agent_listing_created', 'listing', result.insertId)
+      .catch(error => console.error('Listing audit failed:', error.message));
     void notifyAdministrators({
       type: 'listing_pending_moderation',
       title: 'New agent listing needs moderation',
