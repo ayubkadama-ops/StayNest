@@ -943,9 +943,17 @@ app.post('/api/tenant/profile/photo', requireAuth, requireRole('tenant'), upload
   try {
     if (!req.file) return res.status(400).json({ error: 'Choose a JPG, PNG, WebP, or AVIF profile image' });
     const stored = await storeUserProfileImage(req.file, req.session.user.id);
-    await pool.execute('UPDATE user_profiles SET avatar_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('UPDATE user_profiles SET avatar_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+      await audit(req, 'tenant_profile_photo_updated', 'user_profile', req.session.user.id, {}, connection);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally { connection.release(); }
     req.session.user.avatarUrl = stored.url;
-    await audit(req, 'tenant_profile_photo_updated', 'user_profile', req.session.user.id);
     res.json({ avatarUrl: stored.url });
   } catch (error) { next(error); }
 });
@@ -1648,9 +1656,17 @@ app.post('/api/agent/profile/photo', requireAuth, requireAgentAccess('profile.ma
   try {
     if (!req.file) return res.status(400).json({ error: 'Choose a JPG, PNG, WebP, or AVIF profile image' });
     const stored = await storeAgentProfileImage(req.file, req.session.user.id);
-    await pool.execute('UPDATE agent_profiles SET profile_image_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('UPDATE agent_profiles SET profile_image_url=? WHERE user_id=?', [stored.url, req.session.user.id]);
+      await audit(req, 'agent_profile_photo_updated', 'agent_profile', req.session.user.id, {}, connection);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally { connection.release(); }
     req.session.user.profileImageUrl = stored.url;
-    await audit(req, 'agent_profile_photo_updated', 'agent_profile', req.session.user.id);
     res.json({ profileImageUrl: stored.url });
   } catch (error) { next(error); }
 });
@@ -3023,8 +3039,13 @@ app.use((error, req, res, _next) => {
     code: error.code
   }));
   if (res.headersSent) return;
-  const status = Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 600 ? error.statusCode : 500;
-  res.status(status).json({ error: status === 500 ? 'Internal server error' : error.message, requestId: req.requestId });
+  const multerStatus = typeof error.code === 'string' && error.code.startsWith('LIMIT_')
+    ? error.code === 'LIMIT_FILE_SIZE' ? 413 : 400
+    : null;
+  const candidateStatus = error.statusCode || error.status || multerStatus;
+  const status = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600 ? candidateStatus : 500;
+  const message = status === 500 ? 'Internal server error' : error.message;
+  res.status(status).json({ error: message, requestId: req.requestId });
 });
 
 const port = Number(process.env.PORT || 3000);

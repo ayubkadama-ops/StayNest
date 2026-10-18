@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
-import { hasFileSignature } from '../server/storage.js';
+import { hasFileSignature, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 
@@ -57,6 +57,13 @@ test('availability rejects a date that is already locked', () => {
 test('upload signatures are checked independently from MIME declarations', () => {
   assert.equal(hasFileSignature({ mimetype: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }), true);
   assert.equal(hasFileSignature({ mimetype: 'image/png', buffer: Buffer.from('not an image') }), false);
+});
+
+test('invalid image uploads produce a client error instead of an internal server error', async () => {
+  await assert.rejects(
+    validateUpload({ mimetype: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff]) }, ['image/jpeg']),
+    error => error.statusCode === 400 && error.message === 'The uploaded image is invalid or corrupted'
+  );
 });
 
 test('Cloudinary asset URLs use stable safe IDs and automatic delivery transforms', () => {

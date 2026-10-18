@@ -36,9 +36,19 @@ export function hasFileSignature(file) {
 
 export async function validateUpload(file, allowedTypes) {
   if (!file || !allowedTypes.includes(file.mimetype) || !hasFileSignature(file)) {
-    throw new Error('File content does not match its declared type');
+    const error = new Error('File content does not match its declared type');
+    error.statusCode = 400;
+    throw error;
   }
-  if (file.mimetype.startsWith('image/')) await sharp(file.buffer).metadata();
+  if (file.mimetype.startsWith('image/')) {
+    try {
+      await sharp(file.buffer).metadata();
+    } catch {
+      const error = new Error('The uploaded image is invalid or corrupted');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
   return file;
 }
 
@@ -62,21 +72,28 @@ async function storePublicObject(key, body, contentType) {
 
 async function storePublicImage(key, body) {
   if (!isCloudinaryConfigured) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('Cloudinary image storage is not configured');
-    }
-    return storePublicObject(key, body, 'image/webp');
+    const error = new Error('Cloudinary image storage is not configured');
+    error.statusCode = 503;
+    throw error;
   }
 
   const publicId = key.replace(/\.[^.]+$/, '');
-  const uploaded = await uploadCloudinaryImage(body, {
-    public_id: publicId,
-    format: 'webp'
-  });
-  return {
-    key: uploaded.public_id,
-    url: cloudinaryImageUrl(uploaded.public_id)
-  };
+  try {
+    const uploaded = await uploadCloudinaryImage(body, {
+      public_id: publicId,
+      format: 'webp'
+    });
+    return {
+      key: uploaded.public_id,
+      url: cloudinaryImageUrl(uploaded.public_id)
+    };
+  } catch (cause) {
+    const error = new Error('Cloudinary could not store this image');
+    error.statusCode = 502;
+    error.code = 'CLOUDINARY_UPLOAD_FAILED';
+    error.cause = cause;
+    throw error;
+  }
 }
 
 export async function storeListingImage(file, listingId) {
