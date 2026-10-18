@@ -204,6 +204,7 @@ async function ensureSchemaMigrations() {
       }
     }
   }
+  await pool.query("INSERT IGNORE INTO property_types (name) VALUES ('apartment'), ('house'), ('room'), ('commercial'), ('short_stay'), ('land'), ('hotel')");
 }
 async function ensureOperationalTables() {
   await pool.execute(`CREATE TABLE IF NOT EXISTS request_idempotency (

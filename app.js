@@ -1223,7 +1223,8 @@ function openAgentListingWizard(){
       if(categoryDetails.length)submission.set('description',`${originalDescription}\n\n${categoryQuestions[currentStructure].title}:\n${categoryDetails.map(value=>`- ${value}`).join('\n')}`);
       const csrf=await apiJson('/api/auth/csrf');
       await apiJson('/api/agent/listings',{method:'POST',headers:{'X-CSRF-Token':csrf.token},body:submission});
-      localStorage.removeItem(draftKey);closeModal();showToast('Listing submitted for moderation.');await openOwnAgentProfile();
+      localStorage.removeItem(draftKey);closeModal();showToast('Listing submitted for moderation.');
+      try{await openOwnAgentProfile()}catch{showToast('Listing submitted. Refresh your profile to see its review status.')}
     }catch(error){errorBox.textContent=error.message;next.disabled=false;back.disabled=false;next.innerHTML='Submit for review <span>→</span>'}
   };
   restoreDraft();if(draft.latitude&&draft.longitude)setLocation(draft.latitude,draft.longitude,'Saved listing location');showStep(0);
