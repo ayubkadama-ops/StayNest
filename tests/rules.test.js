@@ -75,7 +75,8 @@ test('oversized image uploads are rejected with a payload-too-large response', a
 });
 
 test('listing image optimization bounds output dimensions and encoded size', async () => {
-  const source = await sharp({ create: { width: 3000, height: 1800, channels: 3, background: '#3b765d' } }).jpeg().toBuffer();
+  const source = await sharp({ create: { width: 8000, height: 6000, channels: 3, background: '#3b765d' } }).jpeg().toBuffer();
+  await validateUpload({ mimetype: 'image/jpeg', buffer: source }, ['image/jpeg']);
   const optimized = await optimizeImageBuffer(source, { width: 1920, fit: 'inside', maxOutputBytes: 2 * 1024 * 1024 });
   const metadata = await sharp(optimized).metadata();
   assert.equal(metadata.format, 'webp');

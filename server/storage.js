@@ -7,6 +7,7 @@ import sharp from 'sharp';
 
 export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_VIDEO_UPLOAD_BYTES = 15 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 64_000_000;
 const MAX_LISTING_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PROFILE_IMAGE_BYTES = 1024 * 1024;
 
@@ -64,10 +65,13 @@ export async function validateUpload(file, allowedTypes) {
   }
   if (file.mimetype.startsWith('image/')) {
     try {
-      await sharp(file.buffer, { limitInputPixels: 40000000 }).metadata();
-    } catch {
-      const error = new Error('The uploaded image is invalid or corrupted');
-      error.statusCode = 400;
+      await sharp(file.buffer, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata();
+    } catch (cause) {
+      const exceedsPixelLimit = /pixel limit/i.test(cause.message);
+      const error = new Error(exceedsPixelLimit
+        ? 'The image exceeds the 64-megapixel processing limit'
+        : 'The uploaded image is invalid or corrupted');
+      error.statusCode = exceedsPixelLimit ? 413 : 400;
       throw error;
     }
   }
@@ -77,7 +81,7 @@ export async function validateUpload(file, allowedTypes) {
 export async function optimizeImageBuffer(buffer, { width, height, fit, maxOutputBytes }) {
   for (const scale of [1, 0.9, 0.8, 0.7]) {
     for (const quality of [84, 78, 72]) {
-      const optimized = await sharp(buffer, { limitInputPixels: 40000000 })
+      const optimized = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS })
         .rotate()
         .resize({
           width: Math.max(1, Math.round(width * scale)),

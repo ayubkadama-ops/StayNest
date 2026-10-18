@@ -1947,7 +1947,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         storedMedia[index] = { file, stored, isVideo };
       }
     };
-    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(3, media.length) }, storeMediaBatch));
+    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(2, media.length) }, storeMediaBatch));
     const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
     if (failedUpload) throw failedUpload.reason;
     for (const [index, { file, stored, isVideo }] of storedMedia.entries()) {
