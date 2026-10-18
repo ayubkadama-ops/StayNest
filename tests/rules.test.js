@@ -84,6 +84,13 @@ test('listing image optimization bounds output dimensions and encoded size', asy
   assert.ok(optimized.length <= 2 * 1024 * 1024);
 });
 
+test('image optimization reports unsupported/corrupt data as a client error', async () => {
+  await assert.rejects(
+    optimizeImageBuffer(Buffer.from('not an image'), { width: 1920, fit: 'inside', maxOutputBytes: 4 * 1024 * 1024 }),
+    error => error.statusCode === 400 && /could not be decoded/.test(error.message)
+  );
+});
+
 test('Cloudinary asset URLs use stable safe IDs and automatic delivery transforms', () => {
   assert.equal(cloudinaryAssetPublicId('/assets/makazi-category-home.webp'), 'site-assets/makazi-category-home');
   assert.equal(cloudinaryAssetPublicId('/assets/../private.jpg'), null);

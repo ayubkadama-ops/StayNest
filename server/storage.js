@@ -79,9 +79,14 @@ export async function validateUpload(file, allowedTypes) {
 }
 
 export async function optimizeImageBuffer(buffer, { width, height, fit, maxOutputBytes }) {
-  for (const scale of [1, 0.9, 0.8, 0.7]) {
-    for (const quality of [84, 78, 72]) {
-      const optimized = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS })
+  for (const { scale, quality } of [
+    { scale: 1, quality: 80 },
+    { scale: 0.8, quality: 72 },
+    { scale: 0.65, quality: 64 }
+  ]) {
+    let optimized;
+    try {
+      optimized = await sharp(buffer, { limitInputPixels: MAX_IMAGE_PIXELS })
         .rotate()
         .resize({
           width: Math.max(1, Math.round(width * scale)),
@@ -89,10 +94,20 @@ export async function optimizeImageBuffer(buffer, { width, height, fit, maxOutpu
           fit,
           withoutEnlargement: true
         })
-        .webp({ quality, effort: 5 })
+        .webp({ quality, effort: 3 })
         .toBuffer();
-      if (optimized.length <= maxOutputBytes) return optimized;
+    } catch (cause) {
+      const exceedsPixelLimit = /pixel limit/i.test(cause.message);
+      const isMemoryError = /memory|allocation/i.test(cause.message);
+      const error = new Error(exceedsPixelLimit
+        ? 'The image exceeds the 64-megapixel processing limit'
+        : isMemoryError
+          ? 'Image processing capacity is temporarily unavailable; retry with a smaller photo'
+          : 'The uploaded image could not be decoded. Try exporting it as JPG or PNG and upload again');
+      error.statusCode = exceedsPixelLimit ? 413 : isMemoryError ? 503 : 400;
+      throw error;
     }
+    if (optimized.length <= maxOutputBytes) return optimized;
   }
   const error = new Error('Image is too detailed to optimize below the upload storage limit');
   error.statusCode = 413;
