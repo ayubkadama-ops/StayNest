@@ -1,3 +1,6 @@
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
 const page = document.querySelector('#listingDetailPage');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const mediaUrl = value => { const source = /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg'; return window.cloudinaryAssetUrl?.(source) || source; };
@@ -37,11 +40,28 @@ export function markup(result) {
   return `<button class="listing-back-button" type="button" id="backToListings">← All listings</button>
     <div class="listing-page-gallery">${mediaMarkup(media, listing.title)}</div>
     <div class="listing-page-layout">
-      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'property')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts">${propertyFacts}</div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented property in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Contact the responsible agent for more information about the area.</p></article>
+      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'property')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts">${propertyFacts}</div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented property in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>Location</h2>${Number.isFinite(Number(listing.locationLatitude)) && Number.isFinite(Number(listing.locationLongitude)) ? `<div id="listingLocationMap" class="listing-page-map" role="application" aria-label="Approximate map location for ${escapeHtml(listing.title)}"></div><p class="listing-page-description">Approximate area shown to protect the exact address, which remains private until booking.</p>` : `<p class="listing-page-description">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', ') || 'Location details are available from the responsible agent.')}. The exact address remains private until booking.</p>`}</article>
       <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(mediaUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/makazi-go-icon.png'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">${enquiryOnly ? 'Enquire about property' : 'Request to book'} <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }
 export function wire(listing, { onBack } = {}) {
+  const locationMap = document.querySelector('#listingLocationMap');
+  const locationLatitude = Number(listing.locationLatitude), locationLongitude = Number(listing.locationLongitude);
+  if (locationMap && Number.isFinite(locationLatitude) && Number.isFinite(locationLongitude)) {
+    const map = L.map(locationMap, { scrollWheelZoom: false }).setView([locationLatitude, locationLongitude], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    L.circleMarker([locationLatitude, locationLongitude], {
+      radius: 9,
+      color: '#145c42',
+      fillColor: '#23825e',
+      fillOpacity: 0.8,
+      weight: 2,
+    }).addTo(map);
+    setTimeout(() => map.invalidateSize(), 0);
+  }
   const returnParameter = new URLSearchParams(location.search).get('returnTo') || '/listings.html';
   let returnTo = '/listings.html';
   try {

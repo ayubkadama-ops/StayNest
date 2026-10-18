@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
@@ -48,6 +48,13 @@ test('listing structures resolve to searchable property categories', () => {
   assert.equal(resolvePropertyType(undefined, 'hotel'), 'hotel');
   assert.equal(resolvePropertyType(undefined, 'commercial'), 'commercial');
   assert.equal(resolvePropertyType('hotel', 'guesthouse'), 'hotel');
+});
+
+test('public listing coordinates are rounded and invalid coordinates are omitted', () => {
+  assert.deepEqual(approximateListingCoordinates(-6.82341, 39.2198), { latitude: -6.82, longitude: 39.22 });
+  assert.deepEqual(approximateListingCoordinates(-0.001, 0.001), { latitude: 0, longitude: 0 });
+  assert.equal(approximateListingCoordinates(null, 39.2), null);
+  assert.equal(approximateListingCoordinates(-91, 39.2), null);
 });
 
 test('availability rejects a date that is already locked', () => {

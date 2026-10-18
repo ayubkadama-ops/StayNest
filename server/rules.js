@@ -15,6 +15,14 @@ export function resolvePropertyType(propertyType, structureType) {
   return String(propertyType || STRUCTURE_CATEGORIES[structureType] || 'apartment').trim().toLowerCase();
 }
 
+export function approximateListingCoordinates(latitude, longitude) {
+  const lat = Number(latitude), lng = Number(longitude);
+  if (latitude == null || longitude == null || !Number.isFinite(lat) || !Number.isFinite(lng)
+    || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  const roundedLat = Number(lat.toFixed(2)), roundedLng = Number(lng.toFixed(2));
+  return { latitude: roundedLat || 0, longitude: roundedLng || 0 };
+}
+
 export function datesOverlap(checkIn, checkOut, existingCheckIn, existingCheckOut) {
   return checkIn < existingCheckOut && checkOut > existingCheckIn;
 }

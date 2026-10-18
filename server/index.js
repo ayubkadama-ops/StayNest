@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, resolvePropertyType } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, resolvePropertyType, approximateListingCoordinates } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -2220,7 +2220,8 @@ app.delete('/api/search-alerts/:id', requireAuth, requireRole('tenant'), async (
 app.get('/api/listings/:id/details', async (req, res, next) => {
   try {
     const [[listing]] = await pool.query(
-      `SELECT l.id, l.title, l.description, l.address_line1 address, l.neighborhood, l.city, l.region, l.latitude, l.longitude,
+      `SELECT l.id, l.title, l.description, l.neighborhood, l.city, l.region,
+        l.approximate_latitude, l.approximate_longitude, l.latitude, l.longitude,
         l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
@@ -2239,6 +2240,18 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       [req.session.user?.id || 0, req.params.id]
     );
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    const publicLocation = approximateListingCoordinates(
+      listing.approximate_latitude ?? listing.latitude,
+      listing.approximate_longitude ?? listing.longitude
+    );
+    delete listing.approximate_latitude;
+    delete listing.approximate_longitude;
+    delete listing.latitude;
+    delete listing.longitude;
+    if (publicLocation) {
+      listing.locationLatitude = publicLocation.latitude;
+      listing.locationLongitude = publicLocation.longitude;
+    }
     const [media] = await pool.query(
       `SELECT id, media_type mediaType, public_url mediaUrl, caption, sort_order sortOrder, is_cover isCover
        FROM listing_media WHERE listing_id=? ORDER BY is_cover DESC, sort_order ASC, id ASC`,
