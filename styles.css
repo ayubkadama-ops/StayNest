@@ -3570,12 +3570,39 @@ html[data-network="offline"] body::before {
 /* 3. Small Screens (<= 600px) */
 @media (max-width: 600px) {
   .modal:has(.listing-wizard) {
-    padding: 28px 20px 22px;
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    padding: 50px 14px 16px;
+  }
+
+  .listing-wizard,
+  .wizard-panel {
+    min-width: 0;
+  }
+
+  .wizard-heading {
+    flex-direction: column;
+    gap: 4px;
+    padding-right: 0;
+  }
+
+  .wizard-heading h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .wizard-step-label {
+    max-width: none;
+    text-align: left;
+  }
+
+  .wizard-basics-group,
+  .wizard-category-details {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .wizard-option-grid,
   .wizard-price-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .wizard-amenity-grid {
@@ -3587,7 +3614,27 @@ html[data-network="offline"] body::before {
   }
 
   .wizard-stepper {
-    grid-template-columns: 1fr 34px 60px 34px;
+    grid-template-columns: minmax(0, 1fr) 34px 56px 34px;
+    gap: 6px;
+  }
+
+  .wizard-stepper span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .wizard-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .wizard-actions .primary,
+  .wizard-actions .outline-btn {
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: normal;
+    line-height: 1.2;
   }
 
   .wizard-step-label {
@@ -4543,3 +4590,27 @@ footer {
     min-width: 0;
   }
 }
+  .modal:has(.listing-wizard) {
+    padding-inline: 12px;
+  }
+
+  .wizard-stepper {
+    grid-template-columns: minmax(0, 1fr) 32px 50px 32px;
+    gap: 4px;
+  }
+
+  .wizard-stepper button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .wizard-summary dl > div {
+    grid-template-columns: minmax(0, 72px) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .wizard-summary dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
