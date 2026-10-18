@@ -70,7 +70,7 @@ test('invalid image uploads produce a client error instead of an internal server
 test('oversized image uploads are rejected with a payload-too-large response', async () => {
   await assert.rejects(
     validateUpload({ mimetype: 'image/jpeg', buffer: Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1) }, ['image/jpeg']),
-    error => error.statusCode === 413 && /10 MB/.test(error.message)
+    error => error.statusCode === 413 && /20 MB/.test(error.message)
   );
 });
 

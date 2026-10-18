@@ -13,7 +13,7 @@ import { pool, assertDatabaseConnection } from './db.js';
 import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudinary.js';
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
-import { MAX_IMAGE_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_BYTES, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
+import { MAX_IMAGE_UPLOAD_BYTES, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
 import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, resolvePropertyType } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
@@ -90,7 +90,7 @@ const upload = multer({
 });
 const agentListingUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_VIDEO_UPLOAD_BYTES, files: 11 },
+  limits: { fileSize: MAX_IMAGE_UPLOAD_BYTES, files: 11 },
   fileFilter: (_req, file, cb) => cb(null, file.fieldname === 'document'
     ? ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype)
     : ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4', 'video/webm'].includes(file.mimetype))
@@ -1936,9 +1936,21 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     }
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
-    for (const [index, file] of media.entries()) {
-      const isVideo = file.mimetype.startsWith('video/');
-      const stored = isVideo ? await storeListingVideo(file, result.insertId) : await storeListingImage(file, result.insertId);
+    const storedMedia = new Array(media.length);
+    let nextMediaIndex = 0;
+    const storeMediaBatch = async () => {
+      while (nextMediaIndex < media.length) {
+        const index = nextMediaIndex++;
+        const file = media[index];
+        const isVideo = file.mimetype.startsWith('video/');
+        const stored = isVideo ? await storeListingVideo(file, result.insertId) : await storeListingImage(file, result.insertId);
+        storedMedia[index] = { file, stored, isVideo };
+      }
+    };
+    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(3, media.length) }, storeMediaBatch));
+    const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
+    if (failedUpload) throw failedUpload.reason;
+    for (const [index, { file, stored, isVideo }] of storedMedia.entries()) {
       await connection.execute('INSERT INTO listing_media (listing_id, media_type, storage_key, public_url, caption, sort_order, is_cover) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.insertId, isVideo ? 'video' : 'image', stored.key, stored.url, String(req.body[`caption${index}`] || '').slice(0, 255), index, index === 0]);
     }
     for (const name of amenities) {

@@ -366,7 +366,8 @@ Cloudinary image delivery:
 - CLOUDINARY_API_KEY
 - CLOUDINARY_API_SECRET (secret; configure in Render, never commit)
 - Cloudinary is the primary public image store; without S3, failed or unavailable Cloudinary uploads fall back to local /media storage.
-- Uploaded images are limited to 10 MB, converted to WebP at up to 1920 px and 2 MB; profile images target 768 px and 512 KB.
+- Listing/profile image uploads accept files up to 20 MB and compress to WebP with a 4 MB listing-image ceiling; profile images target 768 px and 1 MB.
+- Listings accept up to 10 photos, with at least five required.
 - Videos are limited to 15 MB and stored without transcoding.
 - CLOUDINARY_ASSETS_ENABLED=true to enable bundled image rewrites
 - npm run cloudinary:sync-assets uploads images from assets/ before the Vite build

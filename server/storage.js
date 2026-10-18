@@ -5,10 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
-export const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_VIDEO_UPLOAD_BYTES = 15 * 1024 * 1024;
-const MAX_LISTING_IMAGE_BYTES = 2 * 1024 * 1024;
-const MAX_PROFILE_IMAGE_BYTES = 512 * 1024;
+const MAX_LISTING_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_BYTES = 1024 * 1024;
 
 const client = new S3Client({
   region: process.env.S3_REGION || 'us-east-1',
@@ -75,8 +75,8 @@ export async function validateUpload(file, allowedTypes) {
 }
 
 export async function optimizeImageBuffer(buffer, { width, height, fit, maxOutputBytes }) {
-  for (const scale of [1, 0.85, 0.7, 0.55, 0.4]) {
-    for (const quality of [82, 74, 66, 58, 50]) {
+  for (const scale of [1, 0.9, 0.8, 0.7]) {
+    for (const quality of [84, 78, 72]) {
       const optimized = await sharp(buffer, { limitInputPixels: 40000000 })
         .rotate()
         .resize({
