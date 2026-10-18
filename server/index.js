@@ -206,6 +206,30 @@ async function ensureSchemaMigrations() {
   }
   await pool.query("INSERT IGNORE INTO property_types (name) VALUES ('apartment'), ('house'), ('room'), ('commercial'), ('short_stay'), ('land'), ('hotel')");
 }
+async function ensureListingPricePrecision() {
+  const priceColumns = ['nightly_price', 'monthly_price', 'yearly_price'];
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME, COLUMN_TYPE, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='listings'
+       AND COLUMN_NAME IN ('nightly_price', 'monthly_price', 'yearly_price')`
+  );
+  for (const name of priceColumns) {
+    const column = columns.find(item => item.COLUMN_NAME === name);
+    if (!column) throw new Error(`Required listing price column is missing: ${name}`);
+    if (String(column.DATA_TYPE).toLowerCase() === 'decimal'
+      && Number(column.NUMERIC_PRECISION) >= 12
+      && Number(column.NUMERIC_SCALE) >= 2) continue;
+    await pool.query(`ALTER TABLE listings MODIFY COLUMN \`${name}\` DECIMAL(12,2) NULL`);
+    console.warn(JSON.stringify({
+      level: 'warn',
+      event: 'listing_price_schema_repaired',
+      column: name,
+      previousType: column.COLUMN_TYPE
+    }));
+  }
+}
+
 async function ensureOperationalTables() {
   await pool.execute(`CREATE TABLE IF NOT EXISTS request_idempotency (
     user_id BIGINT UNSIGNED NOT NULL,
@@ -3071,6 +3095,7 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 assertDatabaseConnection()
   .then(ensureSchemaMigrations)
+  .then(ensureListingPricePrecision)
   .then(ensureOperationalTables)
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)
