@@ -1055,7 +1055,6 @@ function openAgentListingWizard(){
   let currentStep=0,marker=null,mediaFiles=[];
   const maxPhotoBytes=20*1024*1024,maxPhotoCount=10,maxOptimizedPhotoBytes=3*1024*1024;
   const prepareListingPhoto=async file=>{
-    if(file.size<=maxOptimizedPhotoBytes)return file;
     let bitmap=null,image=null,objectUrl='';
     if(typeof createImageBitmap==='function'){
       try{bitmap=await createImageBitmap(file)}catch{}
@@ -1068,6 +1067,7 @@ function openAgentListingWizard(){
     }
     const source=bitmap||image,sourceWidth=bitmap?.width||image.naturalWidth,sourceHeight=bitmap?.height||image.naturalHeight;
     try{
+      if(file.size<=maxOptimizedPhotoBytes&&sourceWidth<=1920&&sourceHeight<=1920)return file;
       for(const maxDimension of [1920,1600,1280]){
         const scale=Math.min(1,maxDimension/sourceWidth,maxDimension/sourceHeight),canvas=document.createElement('canvas');
         canvas.width=Math.max(1,Math.round(sourceWidth*scale));canvas.height=Math.max(1,Math.round(sourceHeight*scale));
