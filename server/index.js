@@ -283,7 +283,7 @@ app.use(helmet({
       frameAncestors: ["'none'"],
       objectSrc: ["'none'"],
       frameSrc: ["'self'", 'https://www.openstreetmap.org'],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https://*.tile.openstreetmap.org'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com', 'https://*.tile.openstreetmap.org'],
       scriptSrc: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
       connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://analytics.google.com', 'https://region1.google-analytics.com'],
       scriptSrcAttr: ["'none'"],
