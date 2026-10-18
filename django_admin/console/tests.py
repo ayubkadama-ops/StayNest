@@ -78,7 +78,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
     @patch('console.views.rows', return_value=[{
         'id': 17, 'title': 'Garden flat', 'city': 'Arusha', 'status': 'pending_review',
-        'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None,
+        'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None, 'yearly_price': None,
         'updated_at': '2026-10-17', 'owner_user_id': 42, 'owner_name': 'Asha Mrema',
     }])
     def test_listing_moderation_exposes_clickable_listing_and_owner_ids(self, rows):
@@ -91,6 +91,55 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '"id": "17", "row": 0, "cell": 0')
         self.assertContains(response, '"id": "42", "row": 0, "cell": 1')
         self.assertContains(response, '/admin/listings/${encodeURIComponent(record.id)}/')
+
+    @patch('console.views.rows', return_value=[])
+    def test_listing_review_tab_filters_status_search_and_sort(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=listings&listing_tab=review&listing_status=pending_review&listing_q=garden&listing_sort=price_low')
+
+        query, params = rows.call_args.args
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['listing_tab'], 'review')
+        self.assertEqual(response.context['listing_status'], 'pending_review')
+        self.assertIn('l.status=%s', query)
+        self.assertIn('l.title LIKE %s', query)
+        self.assertIn('ORDER BY COALESCE(l.nightly_price,l.monthly_price,l.yearly_price,0) ASC', query)
+        self.assertEqual(params, ['pending_review', '%garden%', '%garden%', '%garden%', '%garden%'])
+
+    @patch('console.views.rows', return_value=[])
+    def test_available_listings_tab_is_published_and_rejects_unsafe_sort(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=listings&listing_tab=available&listing_q=Arusha&listing_sort=title;DROP%20TABLE')
+
+        query, params = rows.call_args.args
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['listing_tab'], 'available')
+        self.assertEqual(response.context['listing_status'], 'published')
+        self.assertEqual(response.context['listing_sort'], 'updated')
+        self.assertIn('l.status=%s', query)
+        self.assertIn('ORDER BY l.updated_at DESC', query)
+        self.assertEqual(params, ['published', '%Arusha%', '%Arusha%', '%Arusha%', '%Arusha%'])
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_listing_action_returns_to_current_filtered_tab(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-status/', {
+            'section': 'listings', 'listing_tab': 'available', 'listing_query': 'Arusha & coast',
+            'listing_sort': 'price_high', 'id': '17', 'status': 'unpublished',
+        })
+
+        self.assertRedirects(
+            response,
+            '/admin/?section=listings&listing_tab=available&listing_sort=price_high&listing_q=Arusha+%26+coast',
+            fetch_redirect_response=False,
+        )
+        execute.assert_called_once_with('UPDATE listings SET status=%s WHERE id=%s', ['unpublished', 17])
+        audit.assert_called_once_with('listing_unpublished', 'listing', 17)
 
     @patch('console.views.rows', side_effect=[
         [{'id': 17, 'title': 'Garden flat', 'description': 'A sunny home', 'status': 'published',

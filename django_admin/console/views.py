@@ -13,7 +13,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'access', 'agents', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
@@ -190,7 +190,54 @@ def dashboard(request):
         elif section == 'agents':
             data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,main.id main_agent_user_id,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'listings':
-            data['rows'] = rows("SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.updated_at,u.id owner_user_id,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM listings l JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY l.updated_at DESC LIMIT 200")
+            listing_tab = request.GET.get('listing_tab', 'review')
+            if listing_tab not in {'review', 'available'}:
+                listing_tab = 'review'
+            listing_status = request.GET.get('listing_status', 'all')
+            if listing_tab == 'review' and listing_status not in {'all', 'pending_review', 'draft'}:
+                listing_status = 'all'
+            if listing_tab == 'available':
+                listing_status = 'published'
+            listing_query = request.GET.get('listing_q', '').strip()[:100]
+            listing_sort = request.GET.get('listing_sort', 'updated')
+            listing_sorts = {
+                'updated': 'l.updated_at DESC, l.id DESC',
+                'oldest': 'l.created_at ASC, l.id ASC',
+                'title': 'l.title ASC, l.id ASC',
+                'city': 'l.city ASC, l.title ASC, l.id DESC',
+                'price_low': 'COALESCE(l.nightly_price,l.monthly_price,l.yearly_price,0) ASC, l.id DESC',
+                'price_high': 'COALESCE(l.nightly_price,l.monthly_price,l.yearly_price,0) DESC, l.id DESC',
+            }
+            if listing_sort not in listing_sorts:
+                listing_sort = 'updated'
+            listing_where = ['l.deleted_at IS NULL']
+            listing_params = []
+            if listing_tab == 'available':
+                listing_where.append('l.status=%s')
+                listing_params.append('published')
+            elif listing_status == 'all':
+                listing_where.append("l.status IN ('pending_review','draft')")
+            else:
+                listing_where.append('l.status=%s')
+                listing_params.append(listing_status)
+            if listing_query:
+                listing_where.append('(l.title LIKE %s OR l.city LIKE %s OR COALESCE(p.display_name,CONCAT(p.first_name,\' \',p.last_name),u.email) LIKE %s OR u.email LIKE %s)')
+                search_pattern = f'%{listing_query}%'
+                listing_params.extend([search_pattern] * 4)
+            data['rows'] = rows(
+                f"""SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.yearly_price,
+                          l.updated_at,l.created_at,u.id owner_user_id,
+                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name
+                   FROM listings l JOIN users u ON u.id=l.owner_user_id
+                   LEFT JOIN user_profiles p ON p.user_id=u.id
+                   WHERE {' AND '.join(listing_where)}
+                   ORDER BY {listing_sorts[listing_sort]} LIMIT 200""",
+                listing_params,
+            )
+            data['listing_tab'] = listing_tab
+            data['listing_status'] = listing_status
+            data['listing_query'] = listing_query
+            data['listing_sort'] = listing_sort
         elif section == 'posts':
             data['rows'] = rows("SELECT po.id,po.listing_id,po.post_type,po.caption,po.status,po.created_at,l.title listing_title,u.id owner_user_id,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM posts po JOIN listings l ON l.id=po.listing_id JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY po.created_at DESC LIMIT 200")
         elif section == 'badges':
@@ -553,6 +600,21 @@ def action(request, action):
     return_to = request.POST.get('return_to', '')
     if action == 'user-hard-delete':
         return redirect('/admin/?section=users')
+    if action == 'listing-status' and request.POST.get('listing_tab') in {'review', 'available'}:
+        listing_tab = request.POST['listing_tab']
+        listing_sort = request.POST.get('listing_sort', 'updated')
+        if listing_sort not in {'updated', 'oldest', 'title', 'city', 'price_low', 'price_high'}:
+            listing_sort = 'updated'
+        params = {
+            'section': 'listings',
+            'listing_tab': listing_tab,
+            'listing_sort': listing_sort,
+            'listing_q': request.POST.get('listing_query', '').strip()[:100],
+        }
+        if listing_tab == 'review':
+            listing_status = request.POST.get('listing_status', 'all')
+            params['listing_status'] = listing_status if listing_status in {'all', 'pending_review', 'draft'} else 'all'
+        return redirect(f'/admin/?{urlencode(params)}')
     if return_to.startswith('/admin/users/') and return_to.endswith('/') and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return redirect(return_to)
     return redirect(f'/admin/?section={request.POST.get("section", "overview")}')

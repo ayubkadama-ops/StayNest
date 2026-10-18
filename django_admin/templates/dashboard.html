@@ -37,6 +37,8 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 .table td a, .table td button, .table td form { position: relative; z-index: 1; pointer-events: auto; }
 .table td form { display: inline-flex; margin: 2px 4px 2px 0; }
 .table td a,.table td button { min-height: 38px; align-items: center; cursor: pointer; }
+.listing-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}.listing-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:18px}.listing-filters label{display:grid;gap:5px;color:var(--muted);font-size:12px}.listing-filters input,.listing-filters select{min-height:38px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink)}.listing-filters input{min-width:240px}.listing-clear{padding:9px 4px}
+@media(max-width:760px){.listing-filters{align-items:stretch;flex-direction:column}.listing-filters label,.listing-filters input,.listing-filters select{width:100%}}
 </style>
 </head>
 <body>
@@ -62,7 +64,41 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 {% elif section == 'agents' %}
 <section class="panel"><h2>Agent and sub-agent approvals</h2><table class="table"><tr><th>Applicant</th><th>Account</th><th>Parent agent</th><th>Status</th><th>Actions</th></tr>{% for row in agents %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a><small>{{ row.email }}</small></td><td>{% if row.subaccount_id %}Sub-agent · {{ row.label }}{% else %}Agent{% endif %}</td><td>{{ row.main_agent|default:'—' }}</td><td>{{ row.user_status }}{% if row.subaccount_id %} · {{ row.subaccount_status }}{% endif %}</td><td>{% if row.user_status == 'pending' %}<div class="actions">{% for decision,label in agent_decisions %}<form method="post" action="/admin/action/agent-status/">{% csrf_token %}<input type="hidden" name="section" value="agents"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="{{ decision }}"><button class="button {% if decision == 'approved' %}primary{% else %}danger{% endif %}">{{ label }}</button></form>{% endfor %}</div>{% else %}<span class="muted">No pending review</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No agent applications are awaiting review.</td></tr>{% endfor %}</table></section>
 {% elif section == 'listings' %}
-<section class="panel"><h2>Listings moderation</h2><table class="table"><tr><th>Listing</th><th>Owner</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><strong>{{ row.title }}</strong><small>{{ row.city }} · {{ row.currency }} {{ row.nightly_price|default:row.monthly_price }}</small></td><td>{{ row.owner_name }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'published' %}<form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>{% endif %}{% if row.status != 'rejected' %}<form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="rejected"><button class="button danger">Reject</button></form>{% endif %}</div></td></tr>{% endfor %}</table></section>
+<section class="panel">
+  <h2>Listings moderation</h2>
+  <nav class="listing-tabs" aria-label="Listing moderation queues">
+    <a class="button {% if listing_tab == 'review' %}primary{% endif %}" href="/admin/?section=listings&listing_tab=review" {% if listing_tab == 'review' %}aria-current="page"{% endif %}>Needs review</a>
+    <a class="button {% if listing_tab == 'available' %}primary{% endif %}" href="/admin/?section=listings&listing_tab=available" {% if listing_tab == 'available' %}aria-current="page"{% endif %}>Available</a>
+  </nav>
+  <form class="listing-filters" method="get" action="/admin/">
+    <input type="hidden" name="section" value="listings">
+    <input type="hidden" name="listing_tab" value="{{ listing_tab }}">
+    <label>Search listings<input type="search" name="listing_q" value="{{ listing_query }}" placeholder="Title, city, owner, or email"></label>
+    {% if listing_tab == 'review' %}<label>Review status<select name="listing_status"><option value="all" {% if listing_status == 'all' %}selected{% endif %}>All review items</option><option value="pending_review" {% if listing_status == 'pending_review' %}selected{% endif %}>Pending review</option><option value="draft" {% if listing_status == 'draft' %}selected{% endif %}>Draft</option></select></label>{% endif %}
+    <label>Sort by<select name="listing_sort"><option value="updated" {% if listing_sort == 'updated' %}selected{% endif %}>Recently updated</option><option value="oldest" {% if listing_sort == 'oldest' %}selected{% endif %}>Oldest first</option><option value="title" {% if listing_sort == 'title' %}selected{% endif %}>Title A-Z</option><option value="city" {% if listing_sort == 'city' %}selected{% endif %}>City A-Z</option><option value="price_low" {% if listing_sort == 'price_low' %}selected{% endif %}>Price low to high</option><option value="price_high" {% if listing_sort == 'price_high' %}selected{% endif %}>Price high to low</option></select></label>
+    <button class="button primary" type="submit">Apply filters</button>
+    <a class="link listing-clear" href="/admin/?section=listings&listing_tab={{ listing_tab }}">Clear</a>
+  </form>
+  <table class="table">
+    <tr><th>Listing</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td><strong>{{ row.title }}</strong><small>{{ row.city }} · {{ row.currency }} {{ row.nightly_price|default:row.monthly_price|default:row.yearly_price|default:'—' }}</small></td>
+      <td>{{ row.owner_name }}</td>
+      <td><span class="pill">{{ row.status }}</span></td>
+      <td><div class="actions">
+        {% if listing_tab == 'review' %}
+        <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_status" value="{{ listing_status }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>
+        <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_status" value="{{ listing_status }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="rejected"><button class="button danger">Reject</button></form>
+        {% else %}
+        <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="unpublished"><button class="button">Unpublish</button></form>
+        <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="rejected"><button class="button danger">Reject</button></form>
+        {% endif %}
+      </div></td>
+    </tr>
+    {% empty %}<tr><td colspan="4">{% if listing_tab == 'review' %}No listings need review.{% else %}No published listings match these filters.{% endif %}</td></tr>{% endfor %}
+  </table>
+</section>
 {% elif section == 'posts' %}
 <section class="panel"><h2>Posts moderation</h2><table class="table"><tr><th>Post</th><th>Type</th><th>Caption</th><th>Listing</th><th>Status</th><th>Created</th><th>Actions</th></tr>{% for row in rows %}<tr><td>#{{ row.id }}</td><td>{{ row.post_type }}</td><td>{{ row.caption }}</td><td>{{ row.listing_title }}</td><td><span class="pill">{{ row.status }}</span></td><td>{{ row.created_at }}</td><td><div class="actions">{% if row.status != 'published' %}<form method="post" action="/admin/action/post-status/">{% csrf_token %}<input type="hidden" name="section" value="posts"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>{% endif %}{% if row.status != 'draft' %}<form method="post" action="/admin/action/post-status/">{% csrf_token %}<input type="hidden" name="section" value="posts"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="draft"><button class="button danger">Return to draft</button></form>{% endif %}</div></td></tr>{% endfor %}</table></section>
 {% elif section == 'badges' %}
