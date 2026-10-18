@@ -230,6 +230,42 @@ async function ensureListingPricePrecision() {
   }
 }
 
+async function ensureListingAmenityIdPrecision() {
+  const [columns] = await pool.query(
+    `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, DATA_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA=DATABASE()
+       AND ((TABLE_NAME='listing_amenities' AND COLUMN_NAME='id')
+         OR (TABLE_NAME='listing_amenity_map' AND COLUMN_NAME='amenity_id'))`
+  );
+  const amenityId = columns.find(column => column.TABLE_NAME === 'listing_amenities' && column.COLUMN_NAME === 'id');
+  const mapAmenityId = columns.find(column => column.TABLE_NAME === 'listing_amenity_map' && column.COLUMN_NAME === 'amenity_id');
+  if (!amenityId || !mapAmenityId) throw new Error('Required listing amenity ID columns are missing');
+  const isUnsignedInt = column => String(column.DATA_TYPE).toLowerCase() === 'int' && /unsigned/i.test(column.COLUMN_TYPE);
+  if (isUnsignedInt(amenityId) && isUnsignedInt(mapAmenityId)) return;
+
+  const [constraints] = await pool.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='listing_amenity_map'
+       AND COLUMN_NAME='amenity_id' AND REFERENCED_TABLE_NAME='listing_amenities'`
+  );
+  for (const { CONSTRAINT_NAME: name } of constraints) {
+    const safeName = String(name).replaceAll('`', '``');
+    await pool.query(`ALTER TABLE listing_amenity_map DROP FOREIGN KEY \`${safeName}\``);
+  }
+  await pool.query('ALTER TABLE listing_amenities MODIFY COLUMN id INT UNSIGNED NOT NULL AUTO_INCREMENT');
+  await pool.query('ALTER TABLE listing_amenity_map MODIFY COLUMN amenity_id INT UNSIGNED NOT NULL');
+  for (const { CONSTRAINT_NAME: name } of constraints) {
+    const safeName = String(name).replaceAll('`', '``');
+    await pool.query(`ALTER TABLE listing_amenity_map ADD CONSTRAINT \`${safeName}\` FOREIGN KEY (amenity_id) REFERENCES listing_amenities(id)`);
+  }
+  console.warn(JSON.stringify({
+    level: 'warn',
+    event: 'listing_amenity_id_schema_repaired',
+    previousAmenityIdType: amenityId.COLUMN_TYPE,
+    previousMappingIdType: mapAmenityId.COLUMN_TYPE
+  }));
+}
 async function ensureOperationalTables() {
   await pool.execute(`CREATE TABLE IF NOT EXISTS request_idempotency (
     user_id BIGINT UNSIGNED NOT NULL,
@@ -3124,6 +3160,7 @@ const host = process.env.HOST || '0.0.0.0';
 assertDatabaseConnection()
   .then(ensureSchemaMigrations)
   .then(ensureListingPricePrecision)
+  .then(ensureListingAmenityIdPrecision)
   .then(ensureOperationalTables)
   .then(ensureSessionTable)
   .then(loadRuntimeConfig)

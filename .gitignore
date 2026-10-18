@@ -6,6 +6,7 @@ dist/
 storage/media/
 storage/private/
 *.pem
+client_secret_*.json
 *_backup.sql
 django_admin/.venv/
 django_admin/staticfiles/
