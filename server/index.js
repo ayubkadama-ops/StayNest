@@ -1923,6 +1923,8 @@ app.patch('/api/agent/subagents/:id', requireAuth, requireRole('agent'), async (
 
 app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create'), agentListingUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'media', maxCount: 10 }]), async (req, res, next) => {
   let connection;
+  let savePhase = 'validate_listing';
+  let numericFields = [];
   try {
     const { title, description, city, addressLine1, countryCode = 'TZ', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
     const propertyType = resolvePropertyType(req.body.propertyType, structureType);
@@ -1942,9 +1944,20 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
+    savePhase = 'lookup_property_type';
     const [types] = await pool.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
     if (!types.length) return res.status(400).json({ error: 'Invalid property type' });
+    numericFields = [
+      ['propertyTypeId', Number(types[0].id)],
+      ['bedrooms', bedrooms],
+      ['beds', beds],
+      ['maxGuests', maxGuests],
+      ['nightlyPrice', Number(nightlyPrice) || 0],
+      ['monthlyPrice', Number(monthlyPrice) || 0],
+      ['yearlyPrice', Number(yearlyPrice) || 0]
+    ];
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
+    savePhase = 'store_identity_document';
     const storedDocument = await storePrivateDocument(document, agentOwnerId(req));
     const uploadBatchId = crypto.randomUUID();
     const storedMedia = new Array(media.length);
@@ -1955,6 +1968,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         const file = media[index];
         const isVideo = file.mimetype.startsWith('video/');
         const stored = isVideo ? await storeListingVideo(file, uploadBatchId) : await storeListingImage(file, uploadBatchId);
+        savePhase = 'store_listing_media';
         storedMedia[index] = { file, stored, isVideo };
       }
     };
@@ -1962,30 +1976,37 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
     if (failedUpload) throw failedUpload.reason;
 
+    savePhase = 'begin_listing_transaction';
     connection = await pool.getConnection();
     await connection.beginTransaction();
     let result;
     try {
+      savePhase = 'insert_listing';
       [result] = await connection.execute(
         'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, beds, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
       );
     } catch (error) {
       if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+      savePhase = 'insert_listing_compatibility';
       [result] = await connection.execute(
         'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
       );
     }
+    savePhase = 'insert_identity_verification';
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
     for (const [index, { file, stored, isVideo }] of storedMedia.entries()) {
+      savePhase = 'insert_listing_media';
       await connection.execute('INSERT INTO listing_media (listing_id, media_type, storage_key, public_url, caption, sort_order, is_cover) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.insertId, isVideo ? 'video' : 'image', stored.key, stored.url, String(req.body[`caption${index}`] || '').slice(0, 255), index, index === 0]);
     }
     for (const name of amenities) {
+      savePhase = 'insert_listing_amenity';
       await connection.execute('INSERT INTO listing_amenities (name) VALUES (?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)', [name]);
       const [[amenity]] = await connection.query('SELECT id FROM listing_amenities WHERE name=?', [name]);
       if (amenity) await connection.execute('INSERT IGNORE INTO listing_amenity_map (listing_id, amenity_id) VALUES (?, ?)', [result.insertId, amenity.id]);
     }
+    savePhase = 'commit_listing';
     await connection.commit();
     void audit(req, 'agent_listing_created', 'listing', result.insertId)
       .catch(error => console.error('Listing audit failed:', error.message));
@@ -1997,6 +2018,11 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     }).catch(error => console.error('Listing moderation notification failed:', error.message));
     res.status(201).json({ id: result.insertId, status: 'pending_review' });
   } catch (error) {
+    error.listingSavePhase = savePhase;
+    if (error.code === 'ER_DATA_OUT_OF_RANGE') {
+      const overflowValue = Number(String(error.message).match(/constant\s+(\d+)\s+overflows\s+smallint/i)?.[1]);
+      error.listingOverflowFields = numericFields.filter(([, value]) => value === overflowValue).map(([name]) => name);
+    }
     if (connection) {
       try { await connection.rollback(); } catch (rollbackError) { error.rollbackError = rollbackError; }
     }
@@ -3079,7 +3105,9 @@ app.use((error, req, res, _next) => {
     path: req.originalUrl,
     userId: req.session?.user?.id || null,
     error: error.message,
-    code: error.code
+    code: error.code,
+    phase: error.listingSavePhase,
+    overflowFields: error.listingOverflowFields
   }));
   if (res.headersSent) return;
   const multerStatus = typeof error.code === 'string' && error.code.startsWith('LIMIT_')
