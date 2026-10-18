@@ -46,6 +46,12 @@ function showToast(message) {
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => { toast.hidden = true; }, 3600);
 }
+function listingDetailUrl(id) {
+  const returnUrl = new URL(location.href);
+  returnUrl.searchParams.delete('listing');
+  const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
+  return `/listing-detail.html?listing=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`;
+}
 function cardMarkup(listing) {
   const cover = imageUrl(listing.coverUrl);
   const enquiryOnly = ['land', 'commercial'].includes(listing.propertyType);
@@ -77,7 +83,10 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     const listings = Array.isArray(result.listings) ? result.listings : [];
     resultNote.textContent = `${listings.length} listing${listings.length === 1 ? '' : 's'} available`;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
-    grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', () => openDetail(card.dataset.listingId)));
+    grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', event => {
+      if (event.target.closest('[data-agent-link]')) return;
+      location.href = listingDetailUrl(card.dataset.listingId);
+    }));
     grid.querySelectorAll('[data-agent-link]').forEach(link => link.addEventListener('click', event => event.stopPropagation()));
   } catch (error) {
     if (error.name === 'AbortError') return;
@@ -167,6 +176,6 @@ filters.elements.q.addEventListener('input', () => {
 });
 filters.querySelectorAll('select').forEach(select => select.addEventListener('change', () => void loadListings(null)));
 syncFiltersFromUrl();
-window.addEventListener('popstate', () => { syncFiltersFromUrl(); const listingId = new URLSearchParams(location.search).get('listing'); if (listingId) void openDetail(listingId, { updateHistory: false }); else showListingResults(); });
+window.addEventListener('popstate', () => { syncFiltersFromUrl(); const listingId = new URLSearchParams(location.search).get('listing'); if (listingId) location.replace(listingDetailUrl(listingId)); else showListingResults(); });
 const initialListing = new URLSearchParams(location.search).get('listing');
-if (initialListing) void openDetail(initialListing, { updateHistory: false }); else void loadListings();
+if (initialListing) location.replace(listingDetailUrl(initialListing)); else void loadListings();

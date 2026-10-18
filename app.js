@@ -27,20 +27,10 @@ function mountPropertyCategories(){
   section.innerHTML=`<div class="property-category-inner"><div class="property-category-heading"><div><p class="eyebrow">Find your place</p><h2>Explore by property type</h2></div><button class="property-category-reset" type="button" data-property-category-reset>All properties</button></div><nav class="property-category-nav" aria-label="Property type">${propertyCategoryOptions.map(({value,label,caption,image,icon})=>`<button type="button" class="property-category" data-property-category="${value}" aria-pressed="false"><span class="property-category-photo"><img src="${image}" alt="" loading="lazy"></span><span class="property-category-shade"></span><span class="property-category-icon" aria-hidden="true"><svg viewBox="0 0 24 24">${icon}</svg></span><span class="property-category-copy"><strong>${label}</strong><small>${caption}</small></span></button>`).join('')}</nav></div>`;
   hero.after(section);
   section.querySelectorAll('[data-property-category]').forEach(button=>button.addEventListener('click',()=>{
-    const propertyType=document.querySelector('#searchType');
-    if(propertyType)propertyType.value=button.dataset.propertyCategory;
-    const query=document.querySelector('#locationInput');
-    if(query)query.value='';
-    void runSearch();
-    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
+    location.href=`/listings.html?propertyType=${encodeURIComponent(button.dataset.propertyCategory)}`;
   }));
   section.querySelector('[data-property-category-reset]').addEventListener('click',()=>{
-    const propertyType=document.querySelector('#searchType');
-    if(propertyType)propertyType.value='';
-    const query=document.querySelector('#locationInput');
-    if(query)query.value='';
-    void runSearch();
-    document.querySelector('#explore')?.scrollIntoView({behavior:'smooth',block:'start'});
+    location.href='/listings.html';
   });
 }
 mountPropertyCategories();
@@ -1002,7 +992,7 @@ initCookieConsent();
 document.querySelectorAll('#postsNav, .main-nav a[href="/posts.html"]').forEach(link=>link.remove());
 document.querySelectorAll('.main-nav a[href="/index.html#explore"]').forEach(link=>{link.textContent='Listings';link.href='/listings.html'});
 document.querySelector('#viewAll')?.addEventListener('click',event=>{event.preventDefault();location.href='/listings.html'} ,true);
-document.addEventListener('click',event=>{const card=event.target.closest('.listing-card');if(!card||event.target.closest('.heart'))return;event.preventDefault();event.stopImmediatePropagation();location.href=`/listings.html?listing=${encodeURIComponent(card.dataset.listingId)}`},true);
+document.addEventListener('click',event=>{const card=event.target.closest('.listing-card');if(!card||event.target.closest('.heart'))return;event.preventDefault();event.stopImmediatePropagation();location.href=`/listing-detail.html?listing=${encodeURIComponent(card.dataset.listingId)}&returnTo=${encodeURIComponent('/listings.html')}`},true);
 
 openAgentProfile=async function(id,owner=false){
   if(owner&&!currentUser)return requireAccount('manage your agent profile');
