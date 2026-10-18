@@ -12,6 +12,7 @@ cloudinary.config({
 });
 
 export const isCloudinaryConfigured = Boolean(cloudName && apiKey && apiSecret);
+export const isCloudinaryDeliveryConfigured = Boolean(cloudName);
 export { cloudinary };
 
 export function cloudinaryAssetPublicId(assetPath) {

@@ -188,19 +188,19 @@ def dashboard(request):
             for user in data['access_rows']:
                 user['assigned_roles'] = roles_by_user.get(user['id'], [])
         elif section == 'agents':
-            data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
+            data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,main.id main_agent_user_id,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'listings':
-            data['rows'] = rows("SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.updated_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM listings l JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY l.updated_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.updated_at,u.id owner_user_id,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM listings l JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY l.updated_at DESC LIMIT 200")
         elif section == 'posts':
-            data['rows'] = rows("SELECT po.id,po.post_type,po.caption,po.status,po.created_at,l.title listing_title FROM posts po JOIN listings l ON l.id=po.listing_id ORDER BY po.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT po.id,po.listing_id,po.post_type,po.caption,po.status,po.created_at,l.title listing_title,u.id owner_user_id,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name FROM posts po JOIN listings l ON l.id=po.listing_id JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY po.created_at DESC LIMIT 200")
         elif section == 'badges':
             data['badges'] = rows("SELECT u.id,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,ab.badge_label,ab.expires_at FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP()) WHERE r.name='agent' AND u.status='active' ORDER BY name LIMIT 200")
         elif section == 'bookings':
-            data['rows'] = rows("SELECT b.id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT b.id,b.guest_user_id,b.host_user_id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
-            data['rows'] = rows("SELECT v.id,v.status,v.document_type,v.created_at,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.created_at,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
         elif section == 'reports':
-            data['reports'] = rows("SELECT r.id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
+            data['reports'] = rows("SELECT r.id,r.reporter_user_id,r.reported_user_id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
         elif section == 'audit':
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
@@ -236,6 +236,57 @@ def dashboard(request):
             }
     except Exception as error:
         data['error'] = f'Admin data unavailable: {error}'
+    user_links = []
+    listing_links = []
+
+    def add_user_link(user_id, row_index, cell_index, *labels, append=False):
+        if not user_id:
+            return
+        clean_labels = [str(label).strip() for label in labels if label]
+        if clean_labels:
+            user_links.append({
+                'id': str(user_id), 'row': row_index, 'cell': cell_index,
+                'labels': clean_labels, 'append': append,
+            })
+
+    if section in {'overview', 'users'}:
+        for row_index, row in enumerate(data['rows']):
+            add_user_link(row.get('id'), row_index, 0, row.get('name'), row.get('email'))
+    elif section == 'access':
+        for row_index, row in enumerate(data['access_rows']):
+            add_user_link(row.get('id'), row_index, 0, row.get('name'), row.get('email'))
+    elif section == 'agents':
+        for row_index, row in enumerate(data['agents']):
+            add_user_link(row.get('id'), row_index, 0, row.get('name'), row.get('email'))
+            add_user_link(row.get('main_agent_user_id'), row_index, 2, row.get('main_agent'))
+    elif section == 'listings':
+        for row_index, row in enumerate(data['rows']):
+            add_user_link(row.get('owner_user_id'), row_index, 1, row.get('owner_name'))
+            listing_links.append({'id': str(row['id']), 'row': row_index, 'cell': 0})
+    elif section == 'posts':
+        for row_index, row in enumerate(data['rows']):
+            add_user_link(row.get('owner_user_id'), row_index, 2, row.get('owner_name'), append=True)
+            listing_links.append({'id': str(row['listing_id']), 'row': row_index, 'cell': 3})
+    elif section == 'badges':
+        for row_index, row in enumerate(data['badges']):
+            add_user_link(row.get('id'), row_index, 0, row.get('name'), row.get('email'))
+    elif section == 'bookings':
+        for row_index, row in enumerate(data['rows']):
+            add_user_link(row.get('guest_user_id'), row_index, 1, row.get('guest_name'))
+            add_user_link(row.get('host_user_id'), row_index, 2, row.get('host_name'))
+    elif section == 'verifications':
+        for row_index, row in enumerate(data['rows']):
+            add_user_link(row.get('user_id'), row_index, 0, row.get('applicant_name'), row.get('email'))
+    elif section == 'reports':
+        for row_index, row in enumerate(data['reports']):
+            add_user_link(row.get('reporter_user_id'), row_index, 1, row.get('reporter_email'))
+            add_user_link(row.get('reported_user_id'), row_index, 1, row.get('reported_email'))
+    elif section == 'audit':
+        for row_index, row in enumerate(data['rows']):
+            if row.get('entity_type') == 'user':
+                add_user_link(row.get('entity_id'), row_index, 2, f"user #{row.get('entity_id')}")
+    data['user_link_records'] = user_links
+    data['listing_link_records'] = listing_links
     return render(request, 'dashboard.html', data)
 
 @admin_required
@@ -324,6 +375,52 @@ def user_detail(request, user_id):
         [user_id],
     )
     return render(request, 'user_detail.html', context)
+
+@admin_required
+@never_cache
+def listing_detail(request, listing_id):
+    listing_rows = rows(
+        """SELECT l.id,l.title,l.description,l.status,l.currency,l.nightly_price,l.monthly_price,
+                  l.yearly_price,l.city,l.region,l.country_code,l.bedrooms,l.beds,l.bathrooms,
+                  l.max_guests,l.created_at,l.updated_at,u.id owner_user_id,
+                  COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
+                  u.email owner_email
+           FROM listings l JOIN users u ON u.id=l.owner_user_id
+           LEFT JOIN user_profiles p ON p.user_id=u.id WHERE l.id=%s""",
+        [listing_id],
+    )
+    if not listing_rows:
+        raise Http404('Listing not found')
+    return render(request, 'content_detail.html', {
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'content_type': 'Listing',
+        'page_title': listing_rows[0]['title'],
+        'content': listing_rows[0],
+        'media': rows('SELECT media_type media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id', [listing_id]),
+    })
+
+@admin_required
+@never_cache
+def post_detail(request, post_id):
+    post_rows = rows(
+        """SELECT po.id,po.listing_id,po.post_type,po.caption,po.amenity_tags,po.status,
+                  po.created_at,l.title listing_title,u.id owner_user_id,
+                  COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
+                  u.email owner_email
+           FROM posts po JOIN listings l ON l.id=po.listing_id
+           JOIN users u ON u.id=l.owner_user_id LEFT JOIN user_profiles p ON p.user_id=u.id
+           WHERE po.id=%s""",
+        [post_id],
+    )
+    if not post_rows:
+        raise Http404('Post not found')
+    return render(request, 'content_detail.html', {
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'content_type': 'Post',
+        'page_title': post_rows[0]['listing_title'],
+        'content': post_rows[0],
+        'media': [],
+    })
 
 @admin_required
 @require_http_methods(['POST'])

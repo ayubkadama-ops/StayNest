@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ content_type }} #{{ content.id }} · Makazi Go Operations</title>
+  <style>
+    :root{--green:#2d5a3d;--ink:#173222;--muted:#6d7d72;--line:#dfe7df;--bg:#f5f7f5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,Segoe UI,sans-serif}.shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.side{padding:24px 16px;background:#fff;border-right:1px solid var(--line)}.brand{font-size:20px;font-weight:800;margin:0 10px 28px;color:var(--green)}.nav{display:grid;gap:4px}.nav a{padding:11px 12px;color:var(--muted);text-decoration:none;border-radius:6px}.nav a.active,.nav a:hover{color:var(--green);background:#eef5ef}.main{padding:28px;min-width:0}.head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.head h1{margin:0 0 5px;font-size:26px}.muted{color:var(--muted)}.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.fact{padding:12px;background:#f5f7f5;border-radius:6px;overflow-wrap:anywhere}.fact span{display:block;color:var(--muted);font-size:12px}.fact strong{display:block;margin-top:5px}.link{color:var(--green);font-weight:700}.media{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.media img,.media video{width:100%;aspect-ratio:4/3;object-fit:cover;background:#edf3ef;border-radius:6px}.media a{color:var(--green);overflow-wrap:anywhere}@media(max-width:760px){.shell{display:flex;flex-direction:column}.side{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 10px}.nav{display:flex;overflow-x:auto}.nav a{white-space:nowrap}.main{padding:16px}.head{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">Makazi Go</div>
+    <nav class="nav" aria-label="Admin sections">
+      {% for key,label in sections %}<a href="/admin/?section={{ key }}">{{ label }}</a>{% endfor %}
+    </nav>
+  </aside>
+  <main class="main">
+    <header class="head">
+      <div><h1>{{ page_title|default:content_type }} <span class="muted">#{{ content.id }}</span></h1><p class="muted">{{ content_type }} record · {{ content.status }}</p></div>
+      <a class="link" href="/admin/?section={% if content_type == 'Listing' %}listings{% else %}posts{% endif %}">Back to {{ content_type|lower }} moderation</a>
+    </header>
+    <section class="panel">
+      <h2>{{ content_type }} details</h2>
+      <div class="facts">
+        {% if content_type == 'Listing' %}
+          <div class="fact"><span>Owner</span><strong><a class="link" href="/admin/users/{{ content.owner_user_id }}/">{{ content.owner_name }}</a></strong><span>{{ content.owner_email }}</span></div>
+          <div class="fact"><span>Location</span><strong>{{ content.city }}{% if content.region %}, {{ content.region }}{% endif %}{% if content.country_code %}, {{ content.country_code }}{% endif %}</strong></div>
+          <div class="fact"><span>Prices</span><strong>{% if content.nightly_price %}{{ content.currency }} {{ content.nightly_price }} / night{% endif %}{% if content.monthly_price %} · {{ content.currency }} {{ content.monthly_price }} / month{% endif %}{% if content.yearly_price %} · {{ content.currency }} {{ content.yearly_price }} / year{% endif %}</strong></div>
+          <div class="fact"><span>Bedrooms · beds · bathrooms</span><strong>{{ content.bedrooms }} · {{ content.beds|default:'—' }} · {{ content.bathrooms }}</strong></div>
+          <div class="fact"><span>Maximum guests</span><strong>{{ content.max_guests }}</strong></div>
+          <div class="fact"><span>Updated</span><strong>{{ content.updated_at }}</strong></div>
+        {% else %}
+          <div class="fact"><span>Type</span><strong>{{ content.post_type }}</strong></div>
+          <div class="fact"><span>Owner</span><strong><a class="link" href="/admin/users/{{ content.owner_user_id }}/">{{ content.owner_name }}</a></strong><span>{{ content.owner_email }}</span></div>
+          <div class="fact"><span>Listing</span><strong><a class="link" href="/admin/listings/{{ content.listing_id }}/">{{ content.listing_title }}</a></strong></div>
+          <div class="fact"><span>Created</span><strong>{{ content.created_at }}</strong></div>
+          <div class="fact"><span>Amenity tags</span><strong>{{ content.amenity_tags|default:'—' }}</strong></div>
+        {% endif %}
+      </div>
+      {% if content.description %}<h3>Description</h3><p>{{ content.description }}</p>{% endif %}
+      {% if content.caption %}<h3>Caption</h3><p>{{ content.caption }}</p>{% endif %}
+    </section>
+    {% if media %}<section class="panel"><h2>Listing media</h2><div class="media">{% for item in media %}<div>{% if item.media_type == 'video' %}<video controls preload="metadata" src="{{ item.public_url }}"></video>{% else %}<img loading="lazy" src="{{ item.public_url }}" alt="{{ item.caption|default:content.title }}">{% endif %}{% if item.caption %}<p>{{ item.caption }}</p>{% endif %}<a href="{{ item.public_url }}" target="_blank" rel="noopener">Open media</a></div>{% endfor %}</div></section>{% endif %}
+  </main>
+</div>
+</body>
+</html>

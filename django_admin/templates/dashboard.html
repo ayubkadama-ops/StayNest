@@ -54,11 +54,11 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
 {% if section == 'overview' %}
 <div class="stats">{% for label,value in stats.items %}<div class="stat"><strong>{{ value }}</strong><span>{{ label }}</span></div>{% endfor %}</div>
-<section class="panel"><h2>Accounts needing attention</h2><table class="table"><tr><th>Person</th><th>Email</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td>{{ row.name }}</td><td>{{ row.email }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'active' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="overview"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="active"><button class="button primary">Activate</button></form>{% endif %}{% if row.status != 'suspended' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="overview"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="suspended"><button class="button danger">Suspend</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="4">No accounts need attention.</td></tr>{% endfor %}</table></section>
+<section class="panel"><h2>Accounts needing attention</h2><table class="table"><tr><th>Person</th><th>Email</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a></td><td>{{ row.email }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'active' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="overview"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="active"><button class="button primary">Activate</button></form>{% endif %}{% if row.status != 'suspended' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="overview"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="suspended"><button class="button danger">Suspend</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="4">No accounts need attention.</td></tr>{% endfor %}</table></section>
 {% elif section == 'users' %}
-<section class="panel"><h2>People and access</h2><table class="table"><tr><th>Person</th><th>Email</th><th>Phone</th><th>Roles</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td>{{ row.name }}</td><td>{{ row.email }}</td><td>{{ row.phone }}</td><td>{{ row.roles }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'active' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="users"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="active"><button class="button primary">Activate</button></form>{% endif %}{% if row.status != 'suspended' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="users"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="suspended"><button class="button danger">Suspend</button></form>{% endif %}</div></td></tr>{% endfor %}</table></section>
+<section class="panel"><h2>People and access</h2><table class="table"><tr><th>Person</th><th>Email</th><th>Phone</th><th>Roles</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a></td><td>{{ row.email }}</td><td>{{ row.phone }}</td><td>{{ row.roles }}</td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.status != 'active' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="users"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="active"><button class="button primary">Activate</button></form>{% endif %}{% if row.status != 'suspended' %}<form method="post" action="/admin/action/user-status/">{% csrf_token %}<input type="hidden" name="section" value="users"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="suspended"><button class="button danger">Suspend</button></form>{% endif %}</div></td></tr>{% endfor %}</table></section>
 {% elif section == 'access' %}
-<section class="panel"><h2>Roles, account access, and MFA</h2><table class="table"><tr><th>Person</th><th>Roles</th><th>Status / MFA</th><th>Assign role</th><th>Actions</th></tr>{% for row in access_rows %}<tr><td>{{ row.name }}<small>{{ row.email }}</small></td><td>{% for role in row.assigned_roles %}<span class="pill">{{ role }}</span> {% empty %}<span class="muted">No roles</span>{% endfor %}</td><td>{{ row.status }} · MFA {% if row.mfa_enabled %}on{% else %}off{% endif %}</td><td><form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="assign"><select name="role" aria-label="Role to assign"><option value="tenant">Tenant</option><option value="agent">Agent</option><option value="administrator">Administrator</option></select><button class="button primary">Assign</button></form></td><td><div class="actions">{% for role in row.assigned_roles %}<form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="remove"><input type="hidden" name="role" value="{{ role }}"><button class="button danger">Remove {{ role }}</button></form>{% endfor %}{% if row.mfa_enabled %}<form method="post" action="/admin/action/mfa-reset/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><button class="button">Reset MFA</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="5">No accounts found.</td></tr>{% endfor %}</table></section>
+<section class="panel"><h2>Roles, account access, and MFA</h2><table class="table"><tr><th>Person</th><th>Roles</th><th>Status / MFA</th><th>Assign role</th><th>Actions</th></tr>{% for row in access_rows %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a><small>{{ row.email }}</small></td><td>{% for role in row.assigned_roles %}<span class="pill">{{ role }}</span> {% empty %}<span class="muted">No roles</span>{% endfor %}</td><td>{{ row.status }} · MFA {% if row.mfa_enabled %}on{% else %}off{% endif %}</td><td><form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="assign"><select name="role" aria-label="Role to assign"><option value="tenant">Tenant</option><option value="agent">Agent</option><option value="administrator">Administrator</option></select><button class="button primary">Assign</button></form></td><td><div class="actions">{% for role in row.assigned_roles %}<form method="post" action="/admin/action/user-role/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="operation" value="remove"><input type="hidden" name="role" value="{{ role }}"><button class="button danger">Remove {{ role }}</button></form>{% endfor %}{% if row.mfa_enabled %}<form method="post" action="/admin/action/mfa-reset/">{% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="id" value="{{ row.id }}"><button class="button">Reset MFA</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="5">No accounts found.</td></tr>{% endfor %}</table></section>
 {% elif section == 'agents' %}
 <section class="panel"><h2>Agent and sub-agent approvals</h2><table class="table"><tr><th>Applicant</th><th>Account</th><th>Parent agent</th><th>Status</th><th>Actions</th></tr>{% for row in agents %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.id }}/">{{ row.name }}</a><small>{{ row.email }}</small></td><td>{% if row.subaccount_id %}Sub-agent · {{ row.label }}{% else %}Agent{% endif %}</td><td>{{ row.main_agent|default:'—' }}</td><td>{{ row.user_status }}{% if row.subaccount_id %} · {{ row.subaccount_status }}{% endif %}</td><td>{% if row.user_status == 'pending' %}<div class="actions">{% for decision,label in agent_decisions %}<form method="post" action="/admin/action/agent-status/">{% csrf_token %}<input type="hidden" name="section" value="agents"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="{{ decision }}"><button class="button {% if decision == 'approved' %}primary{% else %}danger{% endif %}">{{ label }}</button></form>{% endfor %}</div>{% else %}<span class="muted">No pending review</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No agent applications are awaiting review.</td></tr>{% endfor %}</table></section>
 {% elif section == 'listings' %}
@@ -82,6 +82,8 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 <div class="stats">{% for label,value in stats.items %}<div class="stat"><strong>{{ value }}</strong><span>{{ label }}</span></div>{% endfor %}</div><section class="panel"><h2>Marketplace activity</h2><p>Rolling 30-day totals from the marketplace database. Traffic attribution remains available through the configured GA4 integration.</p></section>
 {% endif %}
 </main></div>
+{{ user_link_records|json_script:"adminUserLinksData" }}
+{{ listing_link_records|json_script:"adminListingLinksData" }}
 {% if section == 'settings' %}
 {{ templates|json_script:"adminEmailTemplatesData" }}
 {{ rules|json_script:"adminIpRulesData" }}
@@ -129,18 +131,41 @@ if(section==='settings'){
   }
 }
 const section=document.querySelector('.main')?.dataset.adminSection;
-if(['overview','users','access','agents'].includes(section)){
-  document.querySelectorAll('.table tr').forEach(row=>{
-    const userId=row.querySelector('form input[name="id"]')?.value;
-    const nameCell=row.cells[0];
-    if(!userId||!nameCell||nameCell.querySelector('a'))return;
-    const link=document.createElement('a');
-    link.className='user-detail-link';
-    link.href=`/admin/users/${encodeURIComponent(userId)}/`;
-    while(nameCell.firstChild)link.append(nameCell.firstChild);
-    nameCell.append(link);
+const userLinks=JSON.parse(document.querySelector('#adminUserLinksData')?.textContent||'[]');
+const listingLinks=JSON.parse(document.querySelector('#adminListingLinksData')?.textContent||'[]');
+document.querySelectorAll('.table tr').forEach(row=>{
+  const id=row.querySelector('form input[name="id"]')?.value;
+  if(id&&section==='listings'){
+    const title=row.cells[0]?.querySelector('strong');
+    if(title&&!title.querySelector('a')){
+      const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/listings/${encodeURIComponent(id)}/`;
+      while(title.firstChild)link.append(title.firstChild);title.append(link);
+    }
+  }else if(id&&section==='posts'){
+    const cell=row.cells[0];
+    if(cell&&!cell.querySelector('a')){const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/posts/${encodeURIComponent(id)}/`;while(cell.firstChild)link.append(cell.firstChild);cell.append(link)}
+  }
+});
+const adminTable=document.querySelector('.main .table');
+listingLinks.forEach(record=>{
+  const cell=adminTable?.rows[record.row+1]?.cells[record.cell];
+  if(!cell||cell.querySelector('a'))return;
+  const text=cell.querySelector('strong')||cell;const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/listings/${encodeURIComponent(record.id)}/`;
+  while(text.firstChild)link.append(text.firstChild);text.append(link);
+});
+userLinks.forEach(record=>{
+  const row=adminTable?.rows[record.row+1];const cell=row?.cells[record.cell];
+  if(!cell)return;
+  if(record.append){
+    const note=document.createElement('small');note.append(document.createTextNode('Posted by '));
+    const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/users/${encodeURIComponent(record.id)}/`;link.textContent=record.labels[0];note.append(link);cell.append(note);return;
+  }
+  const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+  nodes.forEach(node=>{
+    if(!record.labels.includes(node.textContent.trim())||node.parentElement.closest('a'))return;
+    const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/users/${encodeURIComponent(record.id)}/`;link.textContent=node.textContent;node.replaceWith(link);
   });
-}
+});
 const refreshStatus=document.querySelector('#refreshStatus');
 let hasUnsavedChanges=false;
 refreshStatus.textContent=`Updated at ${new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date())} · Auto-refreshes every 30 seconds`;

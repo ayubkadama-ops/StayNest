@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import { calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
-import { hasFileSignature, validateUpload } from '../server/storage.js';
+import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
+import sharp from 'sharp';
 
 test('date overlap detects intersecting stays but permits checkout/check-in boundary', () => {
   assert.equal(datesOverlap('2026-10-10', '2026-10-15', '2026-10-12', '2026-10-18'), true);
@@ -64,6 +65,22 @@ test('invalid image uploads produce a client error instead of an internal server
     validateUpload({ mimetype: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff]) }, ['image/jpeg']),
     error => error.statusCode === 400 && error.message === 'The uploaded image is invalid or corrupted'
   );
+});
+
+test('oversized image uploads are rejected with a payload-too-large response', async () => {
+  await assert.rejects(
+    validateUpload({ mimetype: 'image/jpeg', buffer: Buffer.alloc(MAX_IMAGE_UPLOAD_BYTES + 1) }, ['image/jpeg']),
+    error => error.statusCode === 413 && /10 MB/.test(error.message)
+  );
+});
+
+test('listing image optimization bounds output dimensions and encoded size', async () => {
+  const source = await sharp({ create: { width: 3000, height: 1800, channels: 3, background: '#3b765d' } }).jpeg().toBuffer();
+  const optimized = await optimizeImageBuffer(source, { width: 1920, fit: 'inside', maxOutputBytes: 2 * 1024 * 1024 });
+  const metadata = await sharp(optimized).metadata();
+  assert.equal(metadata.format, 'webp');
+  assert.equal(metadata.width, 1920);
+  assert.ok(optimized.length <= 2 * 1024 * 1024);
 });
 
 test('Cloudinary asset URLs use stable safe IDs and automatic delivery transforms', () => {

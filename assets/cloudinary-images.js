@@ -12,12 +12,23 @@
   };
 
   const rewrite = root => {
-    root.querySelectorAll?.('img[src], link[rel~="icon"][href]').forEach(element => {
+    const selector = 'img[src], link[rel~="icon"][href]';
+    const elements = [...(root.matches?.(selector) ? [root] : []), ...(root.querySelectorAll?.(selector) || [])];
+    elements.forEach(element => {
+      if (element.dataset.cloudinaryFallbackApplied) return;
       const attribute = element.tagName === 'IMG' ? 'src' : 'href';
       const source = element.getAttribute(attribute);
       if (source === '/assets/makazi-go-icon.png') return;
       const optimized = cloudinaryAssetUrl(source);
-      if (optimized !== source) element.setAttribute(attribute, optimized);
+      if (optimized !== source) {
+        if (element.tagName === 'IMG') {
+          element.addEventListener('error', () => {
+            element.dataset.cloudinaryFallbackApplied = 'true';
+            element.setAttribute('src', source);
+          }, { once: true });
+        }
+        element.setAttribute(attribute, optimized);
+      }
     });
   };
 
@@ -30,11 +41,12 @@
 
     const hero = cloudinaryAssetUrl('/assets/makazi-go-hero.webp');
     const family = cloudinaryAssetUrl('/assets/makazi-go-family.webp');
-    const frameRules = [32, 84, 156, 220].map((frame, index) =>
-      `.listing-card:nth-child(${index + 1}) .listing-photo{background-image:url("${cloudinaryAssetUrl(`/assets/ezgif-frame-${String(frame).padStart(3, '0')}.jpg`)}")!important}`
-    ).join('');
+    const frameRules = [32, 84, 156, 220].map((frame, index) => {
+      const local = `/assets/ezgif-frame-${String(frame).padStart(3, '0')}.jpg`;
+      return `.listing-card:nth-child(${index + 1}) .listing-photo{background-image:url("${cloudinaryAssetUrl(local)}"),url("${local}")!important}`;
+    }).join('');
     const style = document.createElement('style');
-    style.textContent = `.hero-image{background-image:linear-gradient(90deg,rgba(6,43,34,.12),transparent),url("${hero}")!important}.auth-intro{background-image:linear-gradient(180deg,rgba(6,43,34,.12),rgba(6,43,34,.92)),url("${hero}")!important}.split-image{background-image:url("${family}")!important}${frameRules}`;
+    style.textContent = `.hero-image{background-image:linear-gradient(90deg,rgba(6,43,34,.12),transparent),url("${hero}"),url("/assets/makazi-go-hero.webp")!important}.auth-intro{background-image:linear-gradient(180deg,rgba(6,43,34,.12),rgba(6,43,34,.92)),url("${hero}"),url("/assets/makazi-go-hero.webp")!important}.split-image{background-image:url("${family}"),url("/assets/makazi-go-family.webp")!important}${frameRules}`;
     document.head.append(style);
 
     new MutationObserver(records => records.forEach(record => {

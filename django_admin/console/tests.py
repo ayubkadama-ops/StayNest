@@ -76,6 +76,56 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    @patch('console.views.rows', return_value=[{
+        'id': 17, 'title': 'Garden flat', 'city': 'Arusha', 'status': 'pending_review',
+        'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None,
+        'updated_at': '2026-10-17', 'owner_user_id': 42, 'owner_name': 'Asha Mrema',
+    }])
+    def test_listing_moderation_exposes_clickable_listing_and_owner_ids(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=listings')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'adminListingLinksData')
+        self.assertContains(response, '"id": "17", "row": 0, "cell": 0')
+        self.assertContains(response, '"id": "42", "row": 0, "cell": 1')
+        self.assertContains(response, '/admin/listings/${encodeURIComponent(record.id)}/')
+
+    @patch('console.views.rows', side_effect=[
+        [{'id': 17, 'title': 'Garden flat', 'description': 'A sunny home', 'status': 'published',
+          'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None, 'yearly_price': None,
+          'city': 'Arusha', 'region': None, 'country_code': 'TZ', 'bedrooms': 2, 'beds': 2,
+          'bathrooms': 1, 'max_guests': 4, 'created_at': '2026-10-01', 'updated_at': '2026-10-17',
+          'owner_user_id': 42, 'owner_name': 'Asha Mrema', 'owner_email': 'asha@example.test'}],
+        [{'media_type': 'image', 'public_url': '/media/listings/17/cover.webp', 'caption': 'Living room', 'is_cover': True}],
+    ])
+    def test_admin_listing_detail_renders_listing_and_media(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/listings/17/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Garden flat')
+        self.assertContains(response, '/admin/users/42/')
+        self.assertContains(response, '/media/listings/17/cover.webp')
+
+    @patch('console.views.rows', return_value=[{
+        'id': 8, 'listing_id': 17, 'post_type': 'new_listing', 'caption': 'Now available',
+        'amenity_tags': '[]', 'status': 'pending_review', 'created_at': '2026-10-17',
+        'listing_title': 'Garden flat', 'owner_user_id': 42, 'owner_name': 'Asha Mrema',
+        'owner_email': 'asha@example.test',
+    }])
+    def test_admin_post_detail_renders_post_and_related_links(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/posts/8/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Now available')
+        self.assertContains(response, '/admin/users/42/')
+        self.assertContains(response, '/admin/listings/17/')
+
     @patch('console.views.rows')
     @patch('console.views.scalar', return_value=0)
     def test_agent_detail_shows_agent_approval_and_profile_actions(self, scalar, rows):

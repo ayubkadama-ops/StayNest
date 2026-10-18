@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: staynest
+    name: MakaziGO
     runtime: node
     plan: free
     buildCommand: npm ci --include=dev && npm run cloudinary:sync-assets && npm run build
@@ -12,9 +12,9 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: APP_ORIGIN
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: CORS_ORIGINS
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_ENCRYPTION_KEY
@@ -44,7 +44,7 @@ services:
       - key: CLOUDINARY_ASSETS_ENABLED
         value: "true"
       - key: GOOGLE_CALLBACK_URL
-        value: https://staynest-np7j.onrender.com/api/auth/google/callback
+        value: https://staynest-fb9b.onrender.com/api/auth/google/callback
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -52,7 +52,7 @@ services:
       - key: DJANGO_ADMIN_URL
         value: https://staynest-django-admin.onrender.com
       - key: PUBLIC_APP_URL
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
@@ -70,7 +70,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: API_UPSTREAM_URL
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: DJANGO_ALLOWED_HOSTS
         value: staynest-django-admin.onrender.com
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
@@ -78,7 +78,7 @@ services:
       - key: DJANGO_DEBUG
         value: "false"
       - key: MARKETPLACE_URL
-        value: https://staynest-np7j.onrender.com
+        value: https://staynest-fb9b.onrender.com
       - key: ADMIN_GATE_USERNAME
         sync: false
       - key: ADMIN_GATE_PASSWORD_HASH
