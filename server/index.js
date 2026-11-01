@@ -2275,6 +2275,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
        FROM reviews r JOIN user_profiles p ON p.user_id=r.author_user_id
        WHERE r.listing_id=? AND r.status="published" ORDER BY r.created_at DESC LIMIT 20`,
       [req.params.id]
+    );
     let reviewBookings = [];
     if (req.session.user?.roles?.includes('tenant')) {
       await pool.execute(
@@ -2290,7 +2291,6 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         [req.session.user.id, req.params.id]
       );
     }
-    );
     const [similar] = await pool.query(
       `SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice,
         l.average_rating rating, l.review_count reviewCount,
