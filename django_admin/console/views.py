@@ -594,7 +594,40 @@ def action(request, action):
                 execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})
             else:
                 raise ValueError('Unknown admin action')
-        messages.success(request, 'Administrative action completed.')
+        action_id = request.POST.get('id', '').strip()
+        action_status = request.POST.get('status', '').strip()
+        success_messages = {
+            'user-status': {
+                'active': 'User account restored',
+                'suspended': 'User account suspended',
+                'deleted': 'User account deactivated',
+            },
+            'user-hard-delete': 'User account permanently deleted',
+            'user-role': f"Role {'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'} user",
+            'mfa-reset': 'Multi-factor authentication reset for user',
+            'agent-status': f"Agent application {action_status}",
+            'badge': 'Agent badge removed' if request.POST.get('duration') == 'remove' else 'Agent badge updated',
+            'report-status': f"Safety report marked {action_status}",
+            'listing-status': f"Listing {action_status}",
+            'post-status': f"Post marked {action_status}",
+            'booking-status': f"Booking marked {action_status}",
+            'verification-status': f"Identity verification {action_status}",
+            'feature': 'Marketplace feature setting updated',
+            'email-template': 'Email template saved',
+            'ip-rule': 'Administrator IP rule added',
+            'ip-rule-delete': 'Administrator IP rule deleted',
+            'setting': f"Marketplace setting '{request.POST.get('key', '').replace('_', ' ')}' saved",
+        }
+        success_message = success_messages.get(action, 'Administrative action completed successfully.')
+        if action == 'user-status':
+            success_message = success_message.get(action_status, 'User account status updated')
+        elif action == 'user-role':
+            role = request.POST.get('role', 'account')
+            operation = 'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'
+            success_message = f"Role '{role}' {operation} user"
+        if action_id and action != 'user-hard-delete':
+            success_message = f'{success_message} (ID {action_id})'
+        messages.success(request, f'{success_message}.')
     except Exception as error:
         messages.error(request, str(error))
     return_to = request.POST.get('return_to', '')

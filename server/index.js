@@ -1083,7 +1083,17 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
       const [[follow]] = await pool.query('SELECT 1 AS followed FROM agent_follows WHERE follower_user_id=? AND agent_user_id=?', [req.session.user.id, req.params.id]);
       following = Boolean(follow);
     }
-    res.json({ profile, listings: posts, posts, following });
+    const [reviews] = await pool.query(
+      `SELECT r.rating, r.comment, r.created_at createdAt, l.title listingTitle,
+        p.first_name firstName, p.last_name lastName
+       FROM reviews r
+       JOIN listings l ON l.id=r.listing_id
+       JOIN user_profiles p ON p.user_id=r.author_user_id
+       WHERE l.agent_user_id=? AND r.status="published"
+       ORDER BY r.created_at DESC LIMIT 10`,
+      [req.params.id]
+    );
+    res.json({ profile, listings: posts, posts, reviews, following });
   } catch (error) { next(error); }
 });
 
@@ -1328,12 +1338,13 @@ app.get('/api/listings/discover', async (req, res, next) => {
       where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
       params.push(maxPrice);
     }
-    const order = req.query.sort === 'new'
+    const order = !req.query.sort || req.query.sort === 'new'
       ? 'l.published_at DESC, l.created_at DESC'
       : req.query.sort === 'price_low'
         ? 'COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
         : req.query.sort === 'popular'
           ? 'l.average_rating DESC, l.review_count DESC, l.updated_at DESC'
+            const savedUserId = Number(req.session.user?.id) || 0;
           : 'l.updated_at DESC, l.published_at DESC';
     const [listings] = await pool.execute(
       `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
@@ -1341,16 +1352,18 @@ app.get('/api/listings/discover', async (req, res, next) => {
         l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
-        l.average_rating rating, l.review_count reviewCount,
-        up.first_name agentFirstName, up.last_name agentLastName,
+        l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
+        EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved,
+        up.first_name agentFirstName, up.last_name agentLastName, ap.agency_name agencyName,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
        FROM listings l
        JOIN property_types pt ON pt.id=l.property_type_id
+       LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        LEFT JOIN user_profiles up ON up.user_id=l.agent_user_id
        WHERE ${where.join(' AND ')}
        ORDER BY ${order}
        LIMIT 40`,
-      params
+      [savedUserId, ...params]
     );
     res.json({ listings, filters: { query, location, rentalMode, propertyType, minPrice: Number.isFinite(minPrice) ? minPrice : null, maxPrice: Number.isFinite(maxPrice) ? maxPrice : null } });
   } catch (error) { next(error); }
@@ -1580,17 +1593,17 @@ app.get('/api/notifications', requireAuth, async (req, res, next) => {
   try {
     const { page, limit, offset } = boundedPage(req.query);
     const [notifications] = await pool.execute(
-      `SELECT id, type, title, body, data, read_at readAt, created_at createdAt FROM notifications WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY created_at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT id, type, title, body, data, read_at readAt, created_at createdAt FROM notifications WHERE user_id=? AND type<>"new_message" AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY (read_at IS NULL) DESC, created_at DESC, id DESC LIMIT ${limit} OFFSET ${offset}`,
       [req.session.user.id]
     );
-    const [[counts]] = await pool.query('SELECT COUNT(*) unread FROM notifications WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND read_at IS NULL', [req.session.user.id]);
+    const [[counts]] = await pool.query('SELECT COUNT(*) unread FROM notifications WHERE user_id=? AND type<>"new_message" AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND read_at IS NULL', [req.session.user.id]);
     res.json({ notifications, unread: counts.unread, page, limit });
   } catch (error) { next(error); }
 });
 
 app.post('/api/notifications/read', requireAuth, async (req, res, next) => {
   try {
-    await pool.execute('UPDATE notifications SET read_at=COALESCE(read_at, UTC_TIMESTAMP()) WHERE user_id=? AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY', [req.session.user.id]);
+    await pool.execute('UPDATE notifications SET read_at=COALESCE(read_at, UTC_TIMESTAMP()) WHERE user_id=? AND type<>"new_message" AND created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY', [req.session.user.id]);
     res.json({ ok: true });
   } catch (error) { next(error); }
 });
@@ -2262,6 +2275,21 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
        FROM reviews r JOIN user_profiles p ON p.user_id=r.author_user_id
        WHERE r.listing_id=? AND r.status="published" ORDER BY r.created_at DESC LIMIT 20`,
       [req.params.id]
+    let reviewBookings = [];
+    if (req.session.user?.roles?.includes('tenant')) {
+      await pool.execute(
+        'UPDATE bookings SET status="completed" WHERE guest_user_id=? AND status="confirmed" AND check_out < UTC_DATE()',
+        [req.session.user.id]
+      );
+      [reviewBookings] = await pool.execute(
+        `SELECT b.id, b.created_at createdAt
+         FROM bookings b
+         LEFT JOIN reviews r ON r.booking_id=b.id AND r.author_user_id=b.guest_user_id
+         WHERE b.guest_user_id=? AND b.listing_id=? AND b.status="completed" AND r.id IS NULL
+         ORDER BY b.created_at DESC`,
+        [req.session.user.id, req.params.id]
+      );
+    }
     );
     const [similar] = await pool.query(
       `SELECT l.id, l.title, l.city, l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice,
@@ -2271,7 +2299,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
        AND (l.city=? OR l.neighborhood=? OR l.agent_user_id=?) ORDER BY l.average_rating DESC, l.updated_at DESC LIMIT 6`,
       [req.params.id, listing.city, listing.neighborhood, listing.agentId]
     );
-    res.json({ listing, media, reviews, similar });
+    res.json({ listing, media, reviews, reviewBookings, similar });
   } catch (error) { next(error); }
 });
 
@@ -2331,12 +2359,30 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
   try {
     const rating = Number(req.body.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be from 1 to 5' });
-    const [eligible] = await pool.execute('SELECT id FROM bookings WHERE id=? AND guest_user_id=? AND listing_id=? AND status="completed"', [req.body.bookingId, req.session.user.id, req.params.id]);
+    const bookingId = positiveId(req.body.bookingId);
+    if (!bookingId) return res.status(400).json({ error: 'Choose a completed booking to review' });
+    const [eligible] = await pool.execute(
+      `SELECT b.id, l.agent_user_id agentId, l.title
+       FROM bookings b JOIN listings l ON l.id=b.listing_id
+       WHERE b.id=? AND b.guest_user_id=? AND b.listing_id=? AND b.status="completed"`,
+      [bookingId, req.session.user.id, req.params.id]
+    );
     if (!eligible.length) return res.status(403).json({ error: 'A completed booking is required to review this listing' });
-    const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [req.body.bookingId, req.session.user.id, req.params.id, rating, String(req.body.comment || '').slice(0, 5000)]);
+    const [[existingReview]] = await pool.execute('SELECT id FROM reviews WHERE booking_id=? AND author_user_id=?', [bookingId, req.session.user.id]);
+    if (existingReview) return res.status(409).json({ error: 'You have already reviewed this completed booking' });
+    const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [bookingId, req.session.user.id, req.params.id, rating, String(req.body.comment || '').slice(0, 5000)]);
+    void notifyUser(eligible[0].agentId, {
+      type: 'listing_review_received',
+      title: 'New guest review',
+      body: `A guest rated ${eligible[0].title} ${rating} out of 5.`,
+      data: { listingId: Number(req.params.id), reviewId: result.insertId }
+    }).catch(error => console.error('Agent review notification failed:', error.message));
     await pool.execute('UPDATE listings SET average_rating=(SELECT AVG(rating) FROM reviews WHERE listing_id=? AND status="published"), review_count=(SELECT COUNT(*) FROM reviews WHERE listing_id=? AND status="published") WHERE id=?', [req.params.id, req.params.id, req.params.id]);
     res.status(201).json({ id: result.insertId });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'You have already reviewed this completed booking' });
+    next(error);
+  }
 });
 
 app.post('/api/listings/:id/geocode', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {

@@ -1,5 +1,5 @@
 import { installLiveFormValidation } from './form-validation.js';
-import { markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
+import { addToComparison, markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
 
 installLiveFormValidation();
 
@@ -60,7 +60,9 @@ function cardMarkup(listing) {
   const agent = listing.agentId ? `<a class="all-listing-agent" href="/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}" data-agent-link>${escapeHtml(agentName)}</a>` : `<span class="all-listing-agent">${escapeHtml(agentName)}</span>`;
   return `<article class="all-listing-card" data-listing-id="${escapeHtml(listing.id)}">
     <button class="all-listing-cover" type="button" aria-label="Open ${escapeHtml(listing.title)}"><img src="${escapeHtml(cover)}" alt="${escapeHtml(listing.title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'"><span class="cover-label">View property</span></button>
-    <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p><p class="all-listing-agent-row">Posted by ${agent}</p></div>
+    <button class="all-listing-save ${listing.saved ? 'saved' : ''}" type="button" data-save-listing="${escapeHtml(listing.id)}" aria-label="${listing.saved ? 'Remove' : 'Save'} ${escapeHtml(listing.title)}" aria-pressed="${Boolean(listing.saved)}">${listing.saved ? '♥' : '♡'}</button>
+    <div class="all-listing-actions"><button type="button" data-share-listing="${escapeHtml(listing.id)}">Share</button><button type="button" data-compare-listing="${escapeHtml(listing.id)}">Compare</button></div>
+    <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p><p class="all-listing-rating">${Number(listing.rating) > 0 ? `★ ${Number(listing.rating).toFixed(1)} (${Number(listing.reviewCount) || 0} reviews)` : 'No guest reviews yet'}</p><p class="all-listing-agent-row">Posted by ${agent}</p></div>
   </article>`;
 }
 let searchTimer;
@@ -84,10 +86,49 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     resultNote.textContent = `${listings.length} listing${listings.length === 1 ? '' : 's'} available`;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', event => {
-      if (event.target.closest('[data-agent-link]')) return;
+      if (event.target.closest('[data-agent-link],[data-save-listing],[data-share-listing],[data-compare-listing]')) return;
       location.href = listingDetailUrl(card.dataset.listingId);
     }));
     grid.querySelectorAll('[data-agent-link]').forEach(link => link.addEventListener('click', event => event.stopPropagation()));
+    grid.querySelectorAll('[data-save-listing]').forEach(button => button.addEventListener('click', async event => {
+      event.stopPropagation();
+      const saved = button.getAttribute('aria-pressed') === 'true';
+      try {
+        const csrf = await api('/api/auth/csrf');
+        await api(`/api/listings/${encodeURIComponent(button.dataset.saveListing)}/save`, {
+          method: saved ? 'DELETE' : 'POST',
+          headers: { 'X-CSRF-Token': csrf.token },
+        });
+        button.classList.toggle('saved', !saved);
+        button.setAttribute('aria-pressed', String(!saved));
+        button.setAttribute('aria-label', `${saved ? 'Save' : 'Remove'} ${button.getAttribute('aria-label').replace(/^(Save|Remove) /, '')}`);
+        button.textContent = saved ? '♡' : '♥';
+        showToast(saved ? 'Removed from your saved homes' : 'Saved to your homes');
+      } catch (error) {
+        showToast(error.message === 'Authentication required' ? 'Sign in to save properties' : error.message);
+      }
+    }));
+    grid.querySelectorAll('[data-share-listing]').forEach(button => button.addEventListener('click', async event => {
+      event.stopPropagation();
+      const listing = listings.find(item => String(item.id) === button.dataset.shareListing);
+      if (!listing) return;
+      const url = new URL(listingDetailUrl(listing.id), location.origin).href;
+      try {
+        if (navigator.share) await navigator.share({ title: listing.title, url });
+        else {
+          if (!navigator.clipboard?.writeText) throw new Error('Sharing is not available in this browser');
+          await navigator.clipboard.writeText(url);
+          showToast('Listing link copied');
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') showToast(error.message || 'Unable to share this listing');
+      }
+    }));
+    grid.querySelectorAll('[data-compare-listing]').forEach(button => button.addEventListener('click', event => {
+      event.stopPropagation();
+      const listing = listings.find(item => String(item.id) === button.dataset.compareListing);
+      if (listing) addToComparison(listing);
+    }));
   } catch (error) {
     if (error.name === 'AbortError') return;
     resultNote.textContent = '';
