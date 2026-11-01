@@ -1338,13 +1338,13 @@ app.get('/api/listings/discover', async (req, res, next) => {
       where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
       params.push(maxPrice);
     }
+    const savedUserId = Number(req.session.user?.id) || 0;
     const order = !req.query.sort || req.query.sort === 'new'
       ? 'l.published_at DESC, l.created_at DESC'
       : req.query.sort === 'price_low'
         ? 'COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
         : req.query.sort === 'popular'
           ? 'l.average_rating DESC, l.review_count DESC, l.updated_at DESC'
-            const savedUserId = Number(req.session.user?.id) || 0;
           : 'l.updated_at DESC, l.published_at DESC';
     const [listings] = await pool.execute(
       `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
