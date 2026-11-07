@@ -4646,3 +4646,180 @@ footer {
     overflow-wrap: anywhere;
   }
 
+#messageControl[hidden],
+#notificationControl[hidden],
+#settingsControl[hidden],
+body.guest-view #messageControl,
+body.guest-view #notificationControl,
+body.guest-view #settingsControl {
+  display: none !important;
+}
+
+@media (max-width: 850px) {
+  .topbar:has(> .header-actions) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand menu"
+      "actions actions";
+    align-items: center;
+    justify-content: stretch;
+    gap: 4px 12px;
+    height: auto !important;
+    min-height: 64px !important;
+    padding: 10px 4% !important;
+  }
+
+  body.role-view .topbar:has(> .header-actions),
+  body.agent-marketplace-view .topbar:has(> .header-actions) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    grid-template-areas:
+      "brand menu"
+      "actions actions" !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    gap: 4px 12px !important;
+  }
+
+  .topbar:has(> .header-actions) > .brand {
+    grid-area: brand;
+    min-width: 0;
+    width: max-content;
+    margin: 0 !important;
+  }
+
+  .topbar:has(> .header-actions) > .header-actions {
+    grid-area: actions;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    flex-flow: row wrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+  }
+
+  body.role-view .topbar:has(> .header-actions) > .header-actions,
+  body.agent-marketplace-view .topbar:has(> .header-actions) > .header-actions {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    flex-flow: row wrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+  }
+
+  .topbar:has(> .header-actions) > .menu {
+    grid-area: menu;
+    display: grid;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+    padding: 0;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 50%;
+    background: #fff;
+    line-height: 1;
+    justify-self: end;
+  }
+
+  .topbar:has(> .header-actions) > .main-nav {
+    display: none !important;
+  }
+
+  body.role-view .topbar:has(> .header-actions) > .main-nav,
+  body.agent-marketplace-view .topbar:has(> .header-actions) > .main-nav {
+    display: none !important;
+  }
+
+  .topbar .header-actions .profile-chip {
+    position: absolute;
+    top: 10px;
+    right: 60px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    margin: 0;
+    padding: 2px;
+    border-radius: 50%;
+    overflow: hidden;
+    justify-content: center;
+  }
+
+  .topbar .header-actions .profile-chip img {
+    width: 34px;
+    height: 34px;
+  }
+
+  .topbar .header-actions .profile-chip span {
+    display: none !important;
+  }
+
+  body.role-view .topbar:has(> .header-actions) > .header-actions .profile-chip,
+  body.agent-marketplace-view .topbar:has(> .header-actions) > .header-actions .profile-chip {
+    top: 12px;
+    right: 60px;
+  }
+
+  .topbar .header-actions .icon-btn[aria-label="Change language"] {
+    display: grid !important;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    place-items: center;
+    font-size: 0;
+  }
+
+  .topbar .header-actions .icon-btn[aria-label="Change language"]::before {
+    content: "🌐";
+    font-size: 19px;
+    line-height: 1;
+  }
+
+  .topbar .header-actions .icon-btn[aria-label="Change language"] > span {
+    display: none;
+  }
+
+  body.mobile-nav-open .topbar:has(> .header-actions) > .main-nav,
+  body.role-view.mobile-nav-open .topbar:has(> .header-actions) > .main-nav,
+  body.agent-marketplace-view.mobile-nav-open .topbar:has(> .header-actions) > .main-nav {
+    position: absolute;
+    top: calc(100% + 1px);
+    right: 0;
+    left: 0;
+    display: grid !important;
+    gap: 2px !important;
+    width: auto !important;
+    max-height: calc(100vh - 100%);
+    margin: 0 !important;
+    padding: 10px 4% !important;
+    overflow-y: auto !important;
+    background: var(--canvas);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: var(--shadow-float);
+    z-index: 41;
+  }
+
+  body.mobile-nav-open .topbar:has(> .header-actions) > .main-nav a,
+  body.mobile-nav-open .topbar:has(> .header-actions) > .main-nav .nav-dropdown summary {
+    display: block;
+    width: 100%;
+    padding: 12px 10px !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    text-align: left;
+  }
+
+  body.mobile-nav-open .topbar:has(> .header-actions) > .main-nav .nav-dropdown-menu {
+    position: static;
+    padding: 0 0 0 12px !important;
+    border: 0;
+    box-shadow: none;
+  }
+}

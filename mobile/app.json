@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Makazi Go",
+    "slug": "makazi-go-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/makazi-go-icon.png",
+    "scheme": "makazigo",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#062b22",
+        "foregroundImage": "./assets/images/makazi-go-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "server",
+      "favicon": "./assets/images/makazi-go-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/makazi-go-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#062b22"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

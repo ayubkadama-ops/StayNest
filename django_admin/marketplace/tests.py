@@ -37,6 +37,8 @@ class MarketplaceRoutingTests(SimpleTestCase):
         login = self.client.get('/login/?next=/account/dashboard/')
         self.assertEqual(login.status_code, 200)
         self.assertContains(login, 'data-login-form')
+        self.assertContains(login, 'Email or username')
+        self.assertContains(login, 'name="email" type="text" autocomplete="username"')
         self.assertContains(login, 'data-mfa-field')
         self.assertContains(login, '/signup/?next=')
         signup = self.client.get('/signup/?role=agent&next=/agent/')

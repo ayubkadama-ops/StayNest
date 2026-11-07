@@ -24,6 +24,7 @@ VALUES ('tenant'), ('agent'), ('administrator');
 
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(120) NULL UNIQUE,
   email VARCHAR(254) NULL UNIQUE,
   phone VARCHAR(32) NULL UNIQUE,
   password_hash VARCHAR(255) NULL,

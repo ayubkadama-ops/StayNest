@@ -2,6 +2,39 @@
 
 Read this file after `MOBILE-APP-ROADMAP.md` and `mobile/docs/feature-parity.md` whenever work resumes. The newest checkpoint is at the top. Check actual files and `git status` before relying on this note.
 
+## Checkpoint: Mobile marketplace header layout
+Updated: 2026-11-07
+Scope: responsive public marketplace header in `styles.css`.
+
+Completed:
+- On mobile, the brand and menu button share the top row; the profile avatar sits beside the menu, account controls are aligned below, and navigation opens as a dropdown.
+- Replaced the mobile language label with a globe icon.
+- Explicitly hide message, notification, and settings controls while hidden/guest, preventing their display styles from overriding the HTML `hidden` state.
+
+Verification:
+- `npm run build` and `git diff --check` passed.
+- Browser responsive checks at 320px and 390px confirmed aligned brand/avatar/menu, collapsed navigation that opens below the header, and hidden guest message control.
+
+The local Vite preview used for browser validation was stopped. Preserve unrelated worktree edits.
+
+## Checkpoint: Username sign-in for created administrators
+Updated: 2026-11-07
+Scope: web and mobile login forms, administrator wizard, shared account login API, and database schema.
+
+Completed:
+- Added a required username field to the administrator-creation wizard. Usernames are normalized to lowercase, validated as 3-120 letters/numbers/periods/underscores/hyphens, and retained after validation errors.
+- Persisted usernames uniquely in `users`; added `database/admin-username-migration.sql` to the Express startup migration list and updated `database/schema.sql`.
+- New administrators can sign in with either username or email using the same password. Existing email sign-in and role assignment behavior remain supported.
+- Updated the API administrator-creation endpoint, login form labels, and admin list/detail display. Mobile standard sign-in also accepts usernames, while explicitly identifying the separate protected founder-console sign-in.
+
+Verification:
+- `npm test` — 24 tests passed.
+- `npm run test:django` — 68 tests passed; Django system check clean.
+- `npm run build` and `git diff --check` passed.
+- `cd mobile && npm run typecheck` — passed after the username-login update.
+
+Other unrelated worktree edits remain; preserve them.
+
 ## Checkpoint: Live web form validation and error retention
 Updated: 2026-11-07
 Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)

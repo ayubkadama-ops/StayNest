@@ -554,6 +554,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '1. Profile')
         self.assertContains(response, '2. Credentials')
         self.assertContains(response, '3. Confirm')
+        self.assertContains(response, 'name="username"')
+        self.assertContains(response, 'username or their email address')
         self.assertContains(response, 'name="confirmationPassword"')
 
     @patch('console.views.rows', side_effect=[
@@ -726,6 +728,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'section': 'access',
             'firstName': 'Asha',
             'lastName': 'Mrema',
+            'username': ' Asha.Admin ',
             'email': ' ASHA@example.test ',
             'phone': '+255 700 000 000',
             'city': 'Dar es Salaam',
@@ -739,8 +742,12 @@ class AdminConsoleAccessTests(SimpleTestCase):
         gensalt.assert_called_once_with(rounds=12)
         hashpw.assert_called_once_with(b'StrongPass123!', b'$2b$12$salt')
         execute.assert_any_call(
-            'INSERT INTO users (email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,\'active\',UTC_TIMESTAMP())',
-            ['asha@example.test', '+255 700 000 000', '$2b$12$hashed-password'],
+            'INSERT INTO users (username,email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,%s,\'active\',UTC_TIMESTAMP())',
+            ['asha.admin', 'asha@example.test', '+255 700 000 000', '$2b$12$hashed-password'],
+        )
+        rows.assert_any_call(
+            'SELECT id FROM users WHERE email=%s OR phone=%s OR username=%s FOR UPDATE',
+            ['asha@example.test', '+255 700 000 000', 'asha.admin'],
         )
         execute.assert_any_call(
             'INSERT INTO user_profiles (user_id,first_name,last_name,avatar_url,city) VALUES (%s,%s,%s,%s,%s)',
@@ -754,7 +761,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)',
             [42],
         )
-        audit.assert_called_once_with('administrator_created', 'user', 42, {'email': 'asha@example.test'})
+        audit.assert_called_once_with('administrator_created', 'user', 42, {'email': 'asha@example.test', 'username': 'asha.admin'})
 
     @patch('console.views.load_founder_profile', return_value=None)
     @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
@@ -768,6 +775,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.post('/admin/action/admin-create/', {
             'firstName': 'Asha',
             'lastName': 'Mrema',
+            'username': 'asha-admin',
             'email': 'asha@example.test',
             'phone': '+255 700 000 000',
             'city': 'Dar es Salaam',
@@ -779,6 +787,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'at least 12 characters')
         self.assertContains(response, 'value="asha@example.test"')
+        self.assertContains(response, 'value="asha-admin"')
         self.assertContains(response, 'value="Asha"')
         self.assertNotContains(response, 'value="password"')
         rows.assert_not_called()
@@ -796,6 +805,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.post('/admin/action/admin-create/', {
             'firstName': 'Asha',
             'lastName': 'Mrema',
+            'username': 'asha-admin',
             'email': 'asha@example.test',
             'phone': '+255 700 000 000',
             'city': 'Dar es Salaam',
@@ -809,6 +819,33 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'value="asha@example.test"')
         self.assertContains(response, 'name="formStep" value="2"')
         self.assertNotContains(response, 'value="wrong-password"')
+        rows.assert_not_called()
+        execute.assert_not_called()
+
+    @patch('console.views.load_founder_profile', return_value=None)
+    @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_creation_rejects_invalid_username_and_retains_it(self, atomic, rows, execute, checkpw, founder_profile):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-create/', {
+            'firstName': 'Asha',
+            'lastName': 'Mrema',
+            'username': 'asha admin',
+            'email': 'asha@example.test',
+            'phone': '+255 700 000 000',
+            'city': 'Dar es Salaam',
+            'password': 'StrongPass123!',
+            'confirmPassword': 'StrongPass123!',
+            'confirmationPassword': 'founder-password',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Use a username of 3 to 120')
+        self.assertContains(response, 'value="asha admin"')
         rows.assert_not_called()
         execute.assert_not_called()
 

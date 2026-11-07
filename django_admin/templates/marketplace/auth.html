@@ -12,10 +12,10 @@
     <p class="eyebrow">Secure account access</p><h2 id="authTitle">Sign in</h2>
     {% if google_signup_complete %}<p class="search-note" role="status">Your Google account was created. Sign in with the email address and password you chose.</p>{% endif %}
     <a class="google-auth-link" href="/api/auth/google"><span class="google-mark" aria-hidden="true">G</span>Continue with Google</a>
-    <div class="auth-divider"><span>or use your email</span></div>
+    <div class="auth-divider"><span>or use your email or username</span></div>
     <form data-login-form>
       <input type="hidden" name="next" value="{{ next_url }}">
-      <label>Email address<input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+      <label>Email or username<input name="email" type="text" autocomplete="username" placeholder="you@example.com or username" required></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <label data-mfa-field hidden>Authenticator code<input name="mfaCode" inputmode="numeric" autocomplete="one-time-code"></label>
       <label class="check-row"><input name="rememberMe" type="checkbox"> Keep me signed in</label>

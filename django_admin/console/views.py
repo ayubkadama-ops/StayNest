@@ -259,7 +259,7 @@ def dashboard(request):
             for user in data['access_rows']:
                 user['assigned_roles'] = roles_by_user.get(user['id'], [])
             data['admin_rows'] = rows(
-                """SELECT u.id,u.email,u.status,u.mfa_enabled,
+                """SELECT u.id,u.username,u.email,u.status,u.mfa_enabled,
                           COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
                           ap.user_id IS NOT NULL has_access_profile,COUNT(aap.permission_key) permission_count
                    FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
@@ -267,7 +267,7 @@ def dashboard(request):
                    LEFT JOIN admin_access_profiles ap ON ap.user_id=u.id
                    LEFT JOIN admin_access_permissions aap ON aap.user_id=u.id
                    WHERE r.name='administrator'
-                   GROUP BY u.id,u.email,u.status,u.mfa_enabled,p.display_name,p.first_name,p.last_name,ap.user_id
+                   GROUP BY u.id,u.username,u.email,u.status,u.mfa_enabled,p.display_name,p.first_name,p.last_name,ap.user_id
                    ORDER BY u.created_at DESC"""
             )
         elif section == 'agents':
@@ -437,7 +437,7 @@ def admin_create_context(form_values=None, form_step=0, form_error=''):
 @never_cache
 def admin_detail(request, user_id):
     user_rows = rows(
-        """SELECT u.id,u.email,u.phone,u.status,u.mfa_enabled,u.email_verified_at,u.last_login_at,u.created_at,
+        """SELECT u.id,u.username,u.email,u.phone,u.status,u.mfa_enabled,u.email_verified_at,u.last_login_at,u.created_at,
                   COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name
            FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=%s""",
         [user_id],
@@ -723,6 +723,7 @@ def action(request, action):
         with transaction.atomic():
             if action == 'admin-create':
                 email = request.POST.get('email', '').strip().lower()
+                username = request.POST.get('username', '').strip().lower()
                 phone = request.POST.get('phone', '').strip()
                 city = request.POST.get('city', '').strip()
                 first_name = request.POST.get('firstName', '').strip()
@@ -739,6 +740,8 @@ def action(request, action):
                     raise ValueError('Enter your administrator password to confirm this change')
                 if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or len(email) > 254:
                     raise ValueError('Enter a valid email address')
+                if not re.fullmatch(r'[a-z0-9._-]{3,120}', username):
+                    raise ValueError('Use a username of 3 to 120 letters, numbers, periods, underscores, or hyphens')
                 if not first_name or len(first_name) > 80 or not last_name or len(last_name) > 80:
                     raise ValueError('Enter a first and last name within 80 characters')
                 if not re.fullmatch(r'\+?[0-9][0-9\s().-]{6,24}', phone):
@@ -749,15 +752,15 @@ def action(request, action):
                     raise ValueError('Use a password of at least 12 characters with at least three character types')
                 if password != confirmation_password:
                     raise ValueError('Passwords do not match')
-                if rows('SELECT id FROM users WHERE email=%s OR phone=%s FOR UPDATE', [email, phone]):
-                    raise ValueError('An account with that email or phone already exists')
+                if rows('SELECT id FROM users WHERE email=%s OR phone=%s OR username=%s FOR UPDATE', [email, phone, username]):
+                    raise ValueError('An account with that username, email, or phone already exists')
                 role_rows = rows('SELECT id FROM roles WHERE name=%s', ['administrator'])
                 if not role_rows:
                     raise ValueError('Administrator role not found')
                 password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
                 execute(
-                    'INSERT INTO users (email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,\'active\',UTC_TIMESTAMP())',
-                    [email, phone, password_hash.decode()],
+                    'INSERT INTO users (username,email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,%s,\'active\',UTC_TIMESTAMP())',
+                    [username, email, phone, password_hash.decode()],
                 )
                 created_admin_id = scalar('SELECT LAST_INSERT_ID()')
                 if not created_admin_id:
@@ -774,7 +777,7 @@ def action(request, action):
                     'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)',
                     [created_admin_id],
                 )
-                audit('administrator_created', 'user', created_admin_id, {'email': email})
+                audit('administrator_created', 'user', created_admin_id, {'email': email, 'username': username})
             elif action == 'admin-access-save':
                 user_id = int(request.POST.get('id', '0'))
                 if user_id < 1:
@@ -976,7 +979,7 @@ def action(request, action):
     except IntegrityError as error:
         if action == 'admin-create':
             created_admin_id = None
-            action_error = 'An account with that email or phone already exists'
+            action_error = 'An account with that username, email, or phone already exists'
         else:
             messages.error(request, str(error))
     except Exception as error:
@@ -988,7 +991,7 @@ def action(request, action):
     if action == 'admin-create' and created_admin_id is None:
         form_values = {
             key: request.POST.get(key, '').strip()
-            for key in ('firstName', 'lastName', 'email', 'phone', 'city')
+            for key in ('firstName', 'lastName', 'username', 'email', 'phone', 'city')
         }
         try:
             form_step = max(0, min(int(request.POST.get('formStep', '0')), 2))

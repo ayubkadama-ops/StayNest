@@ -27,6 +27,7 @@
 <div class="form-grid">
 <label>First name<input name="firstName" autocomplete="given-name" maxlength="80" value="{{ form_values.firstName|default:'' }}" required></label>
 <label>Last name<input name="lastName" autocomplete="family-name" maxlength="80" value="{{ form_values.lastName|default:'' }}" required></label>
+<label>Username for sign-in<input name="username" autocomplete="username" maxlength="120" pattern="[A-Za-z0-9._-]{3,120}" data-validation-message="Use 3 to 120 letters, numbers, periods, underscores, or hyphens." value="{{ form_values.username|default:'' }}" required></label>
 <label>Email address<input name="email" type="email" autocomplete="email" maxlength="254" value="{{ form_values.email|default:'' }}" required></label>
 <label>Phone number<input name="phone" type="tel" autocomplete="tel" maxlength="32" pattern="\+?[0-9][0-9\s().-]{6,24}" data-validation-message="Enter a valid phone number." value="{{ form_values.phone|default:'' }}" required></label>
 <label class="form-wide">City or region<input name="city" autocomplete="address-level2" maxlength="100" value="{{ form_values.city|default:'' }}" required></label>
@@ -39,7 +40,7 @@
 <label>Password<input name="password" type="password" autocomplete="new-password" data-validation-rule="strong-password" minlength="12" maxlength="200" required></label>
 <label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="200" required></label>
 </div>
-<p class="muted" style="margin-top:12px">Use at least 12 characters with at least three character types. This account uses the same email-and-password sign-in as other Makazi Go accounts.</p>
+<p class="muted" style="margin-top:12px">Use at least 12 characters with at least three character types. The administrator can sign in with this username or their email address and password.</p>
 <div class="step-actions"><button class="button back" type="button">Back</button><button class="button primary next" type="button">Continue</button></div>
 </fieldset>
 <fieldset data-step-panel disabled hidden>

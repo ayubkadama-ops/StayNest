@@ -146,6 +146,7 @@ async function loadRuntimeConfig() {
 async function ensureSchemaMigrations() {
   const migrationFiles = [
     'admin-access-migration.sql',
+    'admin-username-migration.sql',
     'admin-control-migration.sql',
     'email-verification-migration.sql',
     'footer-social-migration.sql',
@@ -803,13 +804,14 @@ app.post('/api/auth/register', async (req, res, next) => {
 
 app.post('/api/auth/login', async (req, res, next) => {
   try {
+    const identifier = String(req.body.identifier || req.body.email || req.body.username || '').toLowerCase().trim();
     const [rows] = await pool.execute(
-      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE u.email=? AND u.status IN ("active","pending") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
-      [String(req.body.email || '').toLowerCase().trim()]
+      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE (u.email=? OR u.username=?) AND u.status IN ("active","pending") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
+      [identifier, identifier]
     );
     const user = rows[0];
     if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash || ''))) {
-      await pool.execute('INSERT INTO security_events (event_type, ip_address, metadata) VALUES ("failed_login", INET6_ATON(?), ?)', [req.ip, JSON.stringify({ email: String(req.body.email || '').trim().slice(0, 254) })]);
+      await pool.execute('INSERT INTO security_events (event_type, ip_address, metadata) VALUES ("failed_login", INET6_ATON(?), ?)', [req.ip, JSON.stringify({ email: identifier.slice(0, 254) })]);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const roles = user.roles ? user.roles.split(',') : [];
@@ -2559,23 +2561,24 @@ app.post('/api/admin/admins', requireAuth, requireFounderAdminAccess, async (req
     const confirmationPassword = String(req.body.confirmationPassword || '');
     const password = String(req.body.password || '');
     const email = String(req.body.email || '').trim().toLowerCase();
+    const username = String(req.body.username || '').trim().toLowerCase();
     const firstName = String(req.body.firstName || '').trim().slice(0, 80);
     const lastName = String(req.body.lastName || '').trim().slice(0, 80);
     const [[founderProfile]] = await pool.query('SELECT password_hash FROM admin_founder_profile WHERE id=1');
     const founderPasswordHash = founderProfile ? founderProfile.password_hash : process.env.ADMIN_GATE_PASSWORD_HASH;
     if (!founderPasswordHash || !(await bcrypt.compare(confirmationPassword, founderPasswordHash))) return res.status(403).json({ error: 'Enter your administrator password to confirm this change' });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !firstName || !lastName || !strongPassword(password)) return res.status(400).json({ error: 'Provide a valid name, email, and strong password' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[a-z0-9._-]{3,120}$/.test(username) || !firstName || !lastName || !strongPassword(password)) return res.status(400).json({ error: 'Provide a valid username, name, email, and strong password' });
     await connection.beginTransaction();
-    const [result] = await connection.execute('INSERT INTO users (email, password_hash, status, email_verified_at) VALUES (?, ?, "active", UTC_TIMESTAMP())', [email, await bcrypt.hash(password, 12)]);
+    const [result] = await connection.execute('INSERT INTO users (username, email, password_hash, status, email_verified_at) VALUES (?, ?, ?, "active", UTC_TIMESTAMP())', [username, email, await bcrypt.hash(password, 12)]);
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url) VALUES (?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR]);
     await connection.execute('INSERT INTO user_roles (user_id, role_id, assigned_by) SELECT ?, id, ? FROM roles WHERE name="administrator"', [result.insertId, req.session.impersonator?.id || null]);
     await connection.execute('INSERT INTO admin_access_profiles (user_id, managed_by) VALUES (?, ?)', [result.insertId, req.session.impersonator?.id || null]);
     await connection.commit();
-    await audit(req, 'administrator_created', 'user', result.insertId, { email });
+    await audit(req, 'administrator_created', 'user', result.insertId, { email, username });
     res.status(201).json({ ok: true, id: result.insertId });
   } catch (error) {
     await connection.rollback();
-    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that email already exists' });
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that username or email already exists' });
     next(error);
   } finally { connection.release(); }
 });
