@@ -46,6 +46,14 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(signup, 'Phone number')
         self.assertContains(signup, '/login/?next=')
 
+    def test_google_signup_completion_sends_new_user_to_login_with_password_notice(self):
+        response = self.client.get('/login/?googleSignup=1')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Your Google account was created.')
+        self.assertContains(response, 'Sign in with the email address and password you chose.')
+        self.assertContains(response, 'data-login-form')
+
     def test_agent_signup_selects_agent_wizard_and_optional_business_fields(self):
         response = self.client.get('/signup/?role=agent&next=/agent/')
         self.assertEqual(response.status_code, 200)

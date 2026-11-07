@@ -871,29 +871,14 @@ function openGoogleSetupWithPassword() {
           }),
         });
         if (result.requiresLogin) {
-          closeModal();
-          auth("login", `Your account was created successfully. Please sign in with ${result.email} and the password you chose.`);
-          const loginForm = content.querySelector('[data-auth="login"]');
-          if (loginForm) loginForm.elements.email.value = result.email;
+          location.assign("/login/?googleSignup=1");
           return;
         }
         if (result.pendingApproval) {
           showAgentApproval(result);
           return;
         }
-        closeModal();
-        const googleUser = (await apiJson("/api/auth/me")).user;
-        sessionStorage.setItem(
-          "stayNest.tabUser",
-          JSON.stringify({
-            id: googleUser?.id,
-            roles: googleUser?.roles || [],
-          }),
-        );
-        await updateAuthControls(googleUser);
-        showToast("Your Makazi Go account is ready.");
-        if (form.elements.role.value === "tenant") location.hash = "explore";
-        else showRoleDashboard(result.roles || ["agent"]);
+        throw new Error("Your account was created. Please sign in to continue.");
       } catch (error) {
         errorNode.textContent = error.message;
         button.disabled = false;

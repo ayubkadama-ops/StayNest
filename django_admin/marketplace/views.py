@@ -126,6 +126,7 @@ def login_page(request):
         'mode': 'login',
         'next_url': next_url,
         'next_query': quote(next_url, safe=''),
+        'google_signup_complete': request.GET.get('googleSignup') == '1',
         'property_types': PROPERTY_TYPES,
     })
 

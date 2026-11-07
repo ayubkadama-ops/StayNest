@@ -19,6 +19,21 @@ from django.views.decorators.http import require_http_methods
 SECTIONS = {'overview', 'users', 'access', 'agents', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
 SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
 ROLES = {'tenant', 'agent', 'administrator'}
+ADMIN_FEATURES = [
+    ('overview', 'Overview', 'View marketplace summary metrics.'),
+    ('users', 'People and accounts', 'View and manage non-administrator accounts.'),
+    ('access', 'Roles and access', 'Assign non-administrator roles to accounts.'),
+    ('agents', 'Agent approvals', 'Review agent and sub-agent applications.'),
+    ('listings', 'Listings', 'Review and moderate property listings.'),
+    ('posts', 'Posts', 'Review and moderate marketplace posts.'),
+    ('badges', 'Agent badges', 'Assign or remove agent badges.'),
+    ('bookings', 'Bookings', 'View and update reservation status.'),
+    ('verifications', 'Identity checks', 'Review identity and agent verification requests.'),
+    ('reports', 'Safety reports', 'Review and resolve safety reports.'),
+    ('audit', 'Audit logs', 'View administrative activity logs.'),
+    ('settings', 'Settings and controls', 'Manage marketplace settings and announcements.'),
+    ('analytics', 'Analytics', 'View marketplace analytics and insights.'),
+]
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -177,7 +192,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     try:
         if section == 'overview':
             data['stats'] = {
@@ -199,6 +214,18 @@ def dashboard(request):
                 roles_by_user.setdefault(assigned_role['user_id'], []).append(assigned_role['name'])
             for user in data['access_rows']:
                 user['assigned_roles'] = roles_by_user.get(user['id'], [])
+            data['admin_rows'] = rows(
+                """SELECT u.id,u.email,u.status,u.mfa_enabled,
+                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
+                          ap.user_id IS NOT NULL has_access_profile,COUNT(aap.permission_key) permission_count
+                   FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+                   LEFT JOIN user_profiles p ON p.user_id=u.id
+                   LEFT JOIN admin_access_profiles ap ON ap.user_id=u.id
+                   LEFT JOIN admin_access_permissions aap ON aap.user_id=u.id
+                   WHERE r.name='administrator'
+                   GROUP BY u.id,u.email,u.status,u.mfa_enabled,p.display_name,p.first_name,p.last_name,ap.user_id
+                   ORDER BY u.created_at DESC"""
+            )
         elif section == 'agents':
             data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,main.id main_agent_user_id,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'listings':
@@ -347,6 +374,51 @@ def dashboard(request):
     data['user_link_records'] = user_links
     data['listing_link_records'] = listing_links
     return render(request, 'dashboard.html', data)
+
+@admin_required
+@never_cache
+def admin_create(request):
+    return render(request, 'admin_wizard.html', {
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
+    })
+
+@admin_required
+@never_cache
+def admin_detail(request, user_id):
+    user_rows = rows(
+        """SELECT u.id,u.email,u.phone,u.status,u.mfa_enabled,u.email_verified_at,u.last_login_at,u.created_at,
+                  COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name
+           FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=%s""",
+        [user_id],
+    )
+    if not user_rows:
+        raise Http404('Administrator not found')
+    user = user_rows[0]
+    assigned_roles = [item['name'] for item in rows(
+        'SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s ORDER BY r.name',
+        [user_id],
+    )]
+    if 'administrator' not in assigned_roles:
+        raise Http404('Administrator not found')
+    access_profiles = rows('SELECT user_id FROM admin_access_profiles WHERE user_id=%s', [user_id])
+    assigned_permissions = {
+        item['permission_key']
+        for item in rows('SELECT permission_key FROM admin_access_permissions WHERE user_id=%s', [user_id])
+    }
+    is_legacy_full_access = not access_profiles
+    features = [
+        {'key': key, 'label': label, 'description': description,
+         'checked': is_legacy_full_access or key in assigned_permissions}
+        for key, label, description in ADMIN_FEATURES
+    ]
+    return render(request, 'admin_detail.html', {
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'user': user,
+        'features': features,
+        'is_legacy_full_access': is_legacy_full_access,
+        'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
+    })
 
 @admin_required
 @never_cache
@@ -536,7 +608,52 @@ def action(request, action):
                     'INSERT INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
                     [created_admin_id, role_rows[0]['id']],
                 )
+                execute(
+                    'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)',
+                    [created_admin_id],
+                )
                 audit('administrator_created', 'user', created_admin_id, {'email': email})
+            elif action == 'admin-access-save':
+                user_id = int(request.POST.get('id', '0'))
+                if user_id < 1:
+                    raise ValueError('Choose a valid administrator')
+                if not rows(
+                    "SELECT ur.user_id FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name='administrator'",
+                    [user_id],
+                ):
+                    raise ValueError('Administrator account no longer exists')
+                selected_permissions = set(request.POST.getlist('permissions'))
+                allowed_permissions = {key for key, _, _ in ADMIN_FEATURES}
+                if not selected_permissions.issubset(allowed_permissions):
+                    raise ValueError('Choose only listed administrator features')
+                execute(
+                    'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)',
+                    [user_id],
+                )
+                execute('DELETE FROM admin_access_permissions WHERE user_id=%s', [user_id])
+                for permission in sorted(selected_permissions):
+                    execute(
+                        'INSERT INTO admin_access_permissions (user_id,permission_key,assigned_by) VALUES (%s,%s,NULL)',
+                        [user_id, permission],
+                    )
+                audit('administrator_access_updated', 'user', user_id, {'permissions': sorted(selected_permissions)})
+            elif action == 'admin-delete':
+                user_id = int(request.POST.get('id', '0'))
+                if user_id < 1:
+                    raise ValueError('Choose a valid administrator')
+                admin_rows = rows(
+                    "SELECT u.status FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=%s AND r.name='administrator' FOR UPDATE",
+                    [user_id],
+                )
+                if not admin_rows:
+                    raise ValueError('Administrator account no longer exists')
+                if admin_rows[0]['status'] == 'active' and scalar(
+                    "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'"
+                ) <= 1:
+                    raise ValueError('The last active administrator cannot be permanently deleted')
+                invalidate_api_sessions(user_id)
+                purge_user_account(user_id)
+                audit('administrator_permanently_deleted', 'user', user_id)
             elif action == 'user-status':
                 user_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'active', 'suspended', 'deleted'}: raise ValueError('Invalid user status')
@@ -562,6 +679,10 @@ def action(request, action):
                 if user_id < 1 or role not in ROLES or operation not in {'assign', 'remove'}: raise ValueError('Invalid role action')
                 role_rows = rows('SELECT id FROM roles WHERE name=%s', [role])
                 if not role_rows: raise ValueError('Role not found')
+                was_administrator = role == 'administrator' and bool(rows(
+                    'SELECT user_id FROM user_roles WHERE user_id=%s AND role_id=%s',
+                    [user_id, role_rows[0]['id']],
+                ))
                 if operation == 'remove':
                     if role == 'administrator' and scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'") <= 1:
                         raise ValueError('The last active administrator cannot be removed')
@@ -570,6 +691,8 @@ def action(request, action):
                     if role in {'tenant', 'agent'}:
                         execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name IN (\'tenant\',\'agent\')', [user_id])
                     execute('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [user_id, role_rows[0]['id']])
+                    if role == 'administrator' and not was_administrator:
+                        execute('INSERT IGNORE INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)', [user_id])
                     if role == 'agent': execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [user_id])
                 invalidate_api_sessions(user_id)
                 audit(f'user_role_{operation}', 'user', user_id, {'role': role})
@@ -703,8 +826,12 @@ def action(request, action):
     except Exception as error:
         messages.error(request, str(error))
     return_to = request.POST.get('return_to', '')
-    if action == 'user-hard-delete':
+    if action in {'user-hard-delete', 'admin-delete'}:
+        if action == 'admin-delete':
+            return redirect('/admin/?section=access')
         return redirect('/admin/?section=users')
+    if action == 'admin-create' and created_admin_id is not None:
+        return redirect(f'/admin/admins/{created_admin_id}/')
     if action == 'listing-status' and request.POST.get('listing_tab') in {'review', 'available'}:
         listing_tab = request.POST['listing_tab']
         listing_sort = request.POST.get('listing_sort', 'updated')
@@ -721,5 +848,7 @@ def action(request, action):
             params['listing_status'] = listing_status if listing_status in {'all', 'pending_review', 'draft'} else 'all'
         return redirect(f'/admin/?{urlencode(params)}')
     if return_to.startswith('/admin/users/') and return_to.endswith('/') and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(return_to)
+    if re.fullmatch(r'/admin/admins/\d+/', return_to) and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return redirect(return_to)
     return redirect(f'/admin/?section={request.POST.get("section", "overview")}')

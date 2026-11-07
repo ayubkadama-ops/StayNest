@@ -20,6 +20,7 @@ import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
 import { sendBrandedEmail } from './email.js';
 import { getGa4Analytics } from './google-analytics.js';
+import { canAccessAdminFeature } from './admin-access.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -144,6 +145,7 @@ async function loadRuntimeConfig() {
 }
 async function ensureSchemaMigrations() {
   const migrationFiles = [
+    'admin-access-migration.sql',
     'admin-control-migration.sql',
     'email-verification-migration.sql',
     'footer-social-migration.sql',
@@ -676,30 +678,47 @@ const requireAuth = async (req, res, next) => {
 const requireRole = (role) => (req, res, next) =>
   hasRole(req.session.user?.roles, role) ? next() : res.status(403).json({ error: 'Insufficient permissions' });
 async function adminIpAllowed(ip) {
-  let rules;
-  try {
-    [rules] = await pool.query('SELECT rule_type, cidr FROM admin_ip_rules WHERE enabled=TRUE');
-  } catch (error) {
-    console.warn('Admin IP rules unavailable; allowing access until the migration is applied:', error.code || error.message);
-    return true;
-  }
-  let normalized;
-  try {
-    normalized = String(ip || '').replace(/^::ffff:/, '');
-  } catch (error) {
-    console.warn('IP normalization failed:', error.code || error.message);
-    return true;
-  }
+  const [rules] = await pool.query('SELECT rule_type, cidr FROM admin_ip_rules WHERE enabled=TRUE');
+  const normalized = String(ip || '').replace(/^::ffff:/, '');
   const matches = rule => rule === normalized || (rule.includes('/') && normalized.startsWith(rule.split('/')[0].split('.').slice(0, 3).join('.')));
   const denied = rules.some(rule => rule.rule_type === 'deny' && matches(rule.cidr));
   const allowRules = rules.filter(rule => rule.rule_type === 'allow');
   return !denied && (!allowRules.length || allowRules.some(rule => matches(rule.cidr)));
 }
-const requireAdminAccess = async (req, res, next) => {
+const requireAdminAccess = (feature) => async (req, res, next) => {
   if (!(req.session.user?.roles?.includes('administrator') || req.session.adminGate === true)) return res.status(403).json({ error: 'Administrator access required' });
-  if (!(await adminIpAllowed(req.ip))) return res.status(403).json({ error: 'This administrator network is not allowed' });
-  next();
+  try {
+    if (!(await adminIpAllowed(req.ip))) return res.status(403).json({ error: 'This administrator network is not allowed' });
+    const isFounder = req.session.adminGate === true;
+    const userId = positiveId(req.session.user?.id);
+    if (!isFounder && userId) {
+      const [[profile]] = await pool.query('SELECT user_id FROM admin_access_profiles WHERE user_id=?', [userId]);
+      if (profile) {
+        const [permissions] = await pool.query('SELECT permission_key FROM admin_access_permissions WHERE user_id=?', [userId]);
+        const grantedFeatures = permissions.map(permission => permission.permission_key);
+        if (!canAccessAdminFeature({ isFounder, hasProfile: true, grantedFeatures }, feature)) {
+          return res.status(403).json({ error: 'You do not have access to this administrator feature' });
+        }
+      }
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 };
+const requireFounderAdminAccess = (req, res, next) => {
+  if (req.session.adminGate !== true) return res.status(403).json({ error: 'Founder administrator access required' });
+  return requireAdminAccess('access')(req, res, next);
+};
+async function isAdministratorAccount(userId, executor = pool) {
+  const [[row]] = await executor.query(
+    `SELECT 1 administrator FROM user_roles ur
+     JOIN roles r ON r.id=ur.role_id
+     WHERE ur.user_id=? AND r.name='administrator' LIMIT 1`,
+    [userId]
+  );
+  return Boolean(row);
+}
 const adminGateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -2444,7 +2463,7 @@ app.post('/api/admin/gate', adminGateLimiter, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/settings', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/settings', requireAuth, requireAdminAccess('settings'), async (_req, res, next) => {
   try {
     const [settings, features, templates, rules] = await Promise.all([
       pool.query('SELECT setting_key, setting_value, updated_at FROM app_settings').then(([rows]) => rows),
@@ -2456,7 +2475,7 @@ app.get('/api/admin/settings', requireAuth, requireAdminAccess, async (_req, res
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/analytics', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/analytics', requireAuth, requireAdminAccess('analytics'), async (_req, res, next) => {
   try {
     res.json(await getGa4Analytics());
   } catch (error) {
@@ -2465,7 +2484,7 @@ app.get('/api/admin/analytics', requireAuth, requireAdminAccess, async (_req, re
   }
 });
 
-app.patch('/api/admin/settings', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.patch('/api/admin/settings', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const values = req.body?.settings && typeof req.body.settings === 'object' ? req.body.settings : {};
     const allowed = Object.keys(adminSettingKeys);
@@ -2481,7 +2500,7 @@ app.patch('/api/admin/settings', requireAuth, requireAdminAccess, async (req, re
   } catch (error) { next(error); }
 });
 
-app.patch('/api/admin/features/:featureKey', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.patch('/api/admin/features/:featureKey', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const key = String(req.params.featureKey || '').trim().slice(0, 80);
     if (!/^[a-z0-9_]+$/.test(key)) return res.status(400).json({ error: 'Invalid feature key' });
@@ -2493,7 +2512,7 @@ app.patch('/api/admin/features/:featureKey', requireAuth, requireAdminAccess, as
   } catch (error) { next(error); }
 });
 
-app.patch('/api/admin/email-templates/:templateKey', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.patch('/api/admin/email-templates/:templateKey', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const key = String(req.params.templateKey || '').trim().slice(0, 80);
     const subject = String(req.body.subject || '').trim().slice(0, 255);
@@ -2505,7 +2524,7 @@ app.patch('/api/admin/email-templates/:templateKey', requireAuth, requireAdminAc
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/ip-rules', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/ip-rules', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const type = ['allow', 'deny'].includes(req.body.ruleType) ? req.body.ruleType : null;
     const cidr = String(req.body.cidr || '').trim().slice(0, 64);
@@ -2520,7 +2539,7 @@ app.post('/api/admin/ip-rules', requireAuth, requireAdminAccess, async (req, res
   }
 });
 
-app.delete('/api/admin/ip-rules/:id', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.delete('/api/admin/ip-rules/:id', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const [result] = await pool.execute('DELETE FROM admin_ip_rules WHERE id=?', [req.params.id]);
     if (!result.affectedRows) return res.status(404).json({ error: 'IP rule not found' });
@@ -2529,7 +2548,7 @@ app.delete('/api/admin/ip-rules/:id', requireAuth, requireAdminAccess, async (re
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/admins', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/admins', requireAuth, requireFounderAdminAccess, async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const confirmationPassword = String(req.body.confirmationPassword || '');
@@ -2543,6 +2562,7 @@ app.post('/api/admin/admins', requireAuth, requireAdminAccess, async (req, res, 
     const [result] = await connection.execute('INSERT INTO users (email, password_hash, status, email_verified_at) VALUES (?, ?, "active", UTC_TIMESTAMP())', [email, await bcrypt.hash(password, 12)]);
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url) VALUES (?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR]);
     await connection.execute('INSERT INTO user_roles (user_id, role_id, assigned_by) SELECT ?, id, ? FROM roles WHERE name="administrator"', [result.insertId, req.session.impersonator?.id || null]);
+    await connection.execute('INSERT INTO admin_access_profiles (user_id, managed_by) VALUES (?, ?)', [result.insertId, req.session.impersonator?.id || null]);
     await connection.commit();
     await audit(req, 'administrator_created', 'user', result.insertId, { email });
     res.status(201).json({ ok: true, id: result.insertId });
@@ -2553,11 +2573,11 @@ app.post('/api/admin/admins', requireAuth, requireAdminAccess, async (req, res, 
   } finally { connection.release(); }
 });
 
-app.get('/api/admin/announcements', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/announcements', requireAuth, requireAdminAccess('settings'), async (_req, res, next) => {
   try { const [announcements] = await pool.query('SELECT id, title, body, audience, status, scheduled_for, published_at, created_at FROM announcements ORDER BY created_at DESC LIMIT 100'); res.json({ announcements }); } catch (error) { next(error); }
 });
 
-app.post('/api/admin/announcements', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/announcements', requireAuth, requireAdminAccess('settings'), async (req, res, next) => {
   try {
     const title = String(req.body.title || '').trim().slice(0, 180);
     const body = String(req.body.body || '').trim().slice(0, 5000);
@@ -2578,7 +2598,7 @@ async function deliverAnnouncement(id, title, body, audience) {
   await Promise.all(users.map(user => notifyUser(user.id, { type: 'announcement', title, body, data: { announcementId: id } })));
 }
 
-app.get('/api/admin/insights', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/insights', requireAuth, requireAdminAccess('analytics'), async (_req, res, next) => {
   try {
     const [[summary]] = await pool.query(`SELECT (SELECT COUNT(*) FROM users WHERE created_at>=UTC_DATE()) newUsersToday, (SELECT COUNT(*) FROM users WHERE created_at>=DATE_SUB(UTC_DATE(),INTERVAL 30 DAY)) newUsers30Days, (SELECT COUNT(*) FROM bookings WHERE created_at>=DATE_SUB(UTC_DATE(),INTERVAL 30 DAY)) bookings30Days, (SELECT COUNT(*) FROM listings WHERE status='published') publishedListings`);
     const [security] = await pool.query(`SELECT event_type, COUNT(*) count FROM security_events WHERE created_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 HOUR) GROUP BY event_type`);
@@ -2586,7 +2606,7 @@ app.get('/api/admin/insights', requireAuth, requireAdminAccess, async (_req, res
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/users/:id/impersonate', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/users/:id/impersonate', requireAuth, requireFounderAdminAccess, async (req, res, next) => {
   try {
     const [[target]] = await pool.query('SELECT u.id, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE u.id=? AND u.status="active" GROUP BY u.id', [req.params.id]);
     if (!target || Number(target.id) === Number(req.session.user.id)) return res.status(404).json({ error: 'Active user not found' });
@@ -2608,7 +2628,7 @@ app.post('/api/admin/impersonation/stop', requireAuth, async (req, res, next) =>
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/overview', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/overview', requireAuth, requireAdminAccess('overview'), async (_req, res, next) => {
   try {
     const count = async query => { try { const [[row]] = await pool.query(query); return Number(Object.values(row || {})[0] || 0); } catch (error) { console.warn('Admin overview count unavailable:', error.code || error.message); return 0; } };
     const stats = {
@@ -2631,7 +2651,7 @@ app.get('/api/admin/overview', requireAuth, requireAdminAccess, async (_req, res
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/users', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/users', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
   try {
     const query = String(req.query.q || '').trim();
     const status = ['pending', 'active', 'suspended', 'deleted'].includes(req.query.status) ? req.query.status : null;
@@ -2660,7 +2680,7 @@ app.get('/api/admin/users', requireAuth, requireAdminAccess, async (req, res, ne
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/listings', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/listings', requireAuth, requireAdminAccess('listings'), async (req, res, next) => {
   try {
     const query = String(req.query.q || '').trim();
     const status = ['draft', 'pending_review', 'published', 'unpublished', 'rejected', 'archived'].includes(req.query.status) ? req.query.status : null;
@@ -2685,7 +2705,7 @@ app.get('/api/admin/listings', requireAuth, requireAdminAccess, async (req, res,
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/posts', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/posts', requireAuth, requireAdminAccess('posts'), async (req, res, next) => {
   try {
     const status = ['draft','pending_review','published','unpublished','rejected','archived'].includes(req.query.status) ? req.query.status : null;
     const sortMap = { recent: 'created_at DESC', oldest: 'created_at ASC', title: 'title ASC', engagement: 'engagement DESC' };
@@ -2723,7 +2743,7 @@ app.get('/api/admin/posts', requireAuth, requireAdminAccess, async (req, res, ne
   }
 });
 
-app.post('/api/admin/posts/:id/moderation', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/posts/:id/moderation', requireAuth, requireAdminAccess('posts'), async (req, res, next) => {
   try {
     const status = ['draft', 'pending_review', 'published'].includes(req.body?.status) ? req.body.status : null;
     if (!status) return res.status(400).json({ error: 'Choose a valid post status' });
@@ -2734,7 +2754,7 @@ app.post('/api/admin/posts/:id/moderation', requireAuth, requireAdminAccess, asy
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/agents', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/agents', requireAuth, requireAdminAccess('agents'), async (_req, res, next) => {
   try {
     const [agents] = await pool.query(`SELECT u.id,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
       u.email,ab.badge_label badgeLabel,ab.expires_at badgeExpiresAt
@@ -2746,7 +2766,7 @@ app.get('/api/admin/agents', requireAuth, requireAdminAccess, async (_req, res, 
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/agents/:id/badge', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/agents/:id/badge', requireAuth, requireAdminAccess('badges'), async (req, res, next) => {
   try {
     const duration = String(req.body.duration || '30');
     const days = duration === 'forever' ? null : Number(duration);
@@ -2761,7 +2781,7 @@ app.post('/api/admin/agents/:id/badge', requireAuth, requireAdminAccess, async (
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/bookings', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/bookings', requireAuth, requireAdminAccess('bookings'), async (req, res, next) => {
   try {
     const status = ['pending', 'payment_pending', 'confirmed', 'completed', 'cancelled', 'declined'].includes(req.query.status) ? req.query.status : null;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
@@ -2786,7 +2806,7 @@ app.get('/api/admin/bookings', requireAuth, requireAdminAccess, async (req, res,
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/verifications', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/verifications', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   try {
     const status = ['pending', 'approved', 'rejected', 'expired'].includes(req.query.status) ? req.query.status : null;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
@@ -2807,7 +2827,7 @@ app.get('/api/admin/verifications', requireAuth, requireAdminAccess, async (req,
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess, async (_req, res, next) => {
+app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess('verifications'), async (_req, res, next) => {
   try {
     const [registrations] = await pool.query(`
       SELECT u.id, 'agent' verification_type,
@@ -2837,7 +2857,7 @@ app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess, async
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/agent-verifications/:id/decision', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/agent-verifications/:id/decision', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   const userId = Number(req.params.id);
   const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
   if (!Number.isSafeInteger(userId) || userId < 1 || !status) return res.status(400).json({ error: 'Invalid agent verification decision' });
@@ -2870,11 +2890,12 @@ app.post('/api/admin/agent-verifications/:id/decision', requireAuth, requireAdmi
   } catch (error) { await connection.rollback(); next(error); } finally { connection.release(); }
 });
 
-app.post('/api/admin/users/:id/status', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/users/:id/status', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
   try {
     const status = ['pending', 'active', 'suspended', 'deleted'].includes(req.body.status) ? req.body.status : null;
     const userId = Number(req.params.id);
     if (!status || !Number.isSafeInteger(userId) || userId < 1) return res.status(400).json({ error: 'Invalid user status or ID' });
+    if (!req.session.adminGate && await isAdministratorAccount(userId)) return res.status(403).json({ error: 'Only the founder administrator can change administrator account status' });
     if (userId === req.session.user.id && status !== 'active') return res.status(400).json({ error: 'You cannot deactivate your own administrator account' });
     const [result] = await pool.execute('UPDATE users SET status=?, deleted_at=IF(?="deleted", UTC_TIMESTAMP(), NULL) WHERE id=?', [status, status, userId]);
     if (!result.affectedRows) return res.status(404).json({ error: 'User not found' });
@@ -2887,10 +2908,11 @@ app.post('/api/admin/users/:id/status', requireAuth, requireAdminAccess, async (
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/users/:id/mfa/reset', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/users/:id/mfa/reset', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
   try {
     const userId = positiveId(req.params.id);
     if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    if (!req.session.adminGate && await isAdministratorAccount(userId)) return res.status(403).json({ error: 'Only the founder administrator can change administrator account security' });
     const [result] = await pool.execute('UPDATE users SET mfa_enabled=FALSE, mfa_secret_encrypted=NULL WHERE id=?', [userId]);
     if (!result.affectedRows) return res.status(404).json({ error: 'User not found' });
     await sessionStore.destroyUserSessions(userId);
@@ -2899,10 +2921,11 @@ app.post('/api/admin/users/:id/mfa/reset', requireAuth, requireAdminAccess, asyn
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/users/:id/email/verify', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/users/:id/email/verify', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
   try {
     const userId = positiveId(req.params.id);
     if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    if (!req.session.adminGate && await isAdministratorAccount(userId)) return res.status(403).json({ error: 'Only the founder administrator can change administrator account security' });
     const [result] = await pool.execute('UPDATE users SET email_verified_at=COALESCE(email_verified_at, UTC_TIMESTAMP()) WHERE id=? AND email IS NOT NULL', [userId]);
     if (!result.affectedRows) return res.status(404).json({ error: 'User not found or has no email' });
     await audit(req, 'user_email_verified', 'user', userId);
@@ -2910,19 +2933,25 @@ app.post('/api/admin/users/:id/email/verify', requireAuth, requireAdminAccess, a
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess('access'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const role = ['tenant', 'agent', 'administrator'].includes(req.body.role) ? req.body.role : null;
     const userId = Number(req.params.id);
     if (!role || !Number.isSafeInteger(userId) || userId < 1) return res.status(400).json({ error: 'Invalid role or user ID' });
+    if (role === 'administrator' && !req.session.adminGate) return res.status(403).json({ error: 'Only the founder administrator can assign administrator access' });
     await connection.beginTransaction();
     const [roleRows] = await connection.execute('SELECT id FROM roles WHERE name=?', [role]);
     if (!roleRows.length) { await connection.rollback(); return res.status(400).json({ error: 'Role not found' }); }
     const [userRows] = await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [userId]);
     if (!userRows.length) { await connection.rollback(); return res.status(404).json({ error: 'User not found' }); }
+    const alreadyAdministrator = await isAdministratorAccount(userId, connection);
+    if (!req.session.adminGate && alreadyAdministrator) { await connection.rollback(); return res.status(403).json({ error: 'Only the founder administrator can manage administrator accounts' }); }
     await connection.execute('DELETE ur FROM user_roles ur JOIN roles old_role ON old_role.id=ur.role_id WHERE ur.user_id=? AND old_role.name IN ("tenant","agent")', [userId]);
     await connection.execute('INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)', [userId, roleRows[0].id, req.session.user.id]);
+    if (role === 'administrator' && !alreadyAdministrator) {
+      await connection.execute('INSERT INTO admin_access_profiles (user_id, managed_by) VALUES (?, ?)', [userId, req.session.user.id || null]);
+    }
     if (role === 'agent') await connection.execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (?)', [userId]);
     await connection.commit();
     await audit(req, 'user_role_assigned', 'user', userId, { role });
@@ -2936,14 +2965,19 @@ app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess, async (re
   } catch (error) { await connection.rollback(); next(error); } finally { connection.release(); }
 });
 
-app.delete('/api/admin/users/:id/role/:role', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.delete('/api/admin/users/:id/role/:role', requireAuth, requireAdminAccess('access'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const userId = positiveId(req.params.id);
     const role = ['tenant', 'agent', 'administrator'].includes(req.params.role) ? req.params.role : null;
     if (!userId || !role) return res.status(400).json({ error: 'Invalid role or user ID' });
+    if (role === 'administrator' && !req.session.adminGate) return res.status(403).json({ error: 'Only the founder administrator can remove administrator access' });
     if (userId === req.session.user.id && role === 'administrator') return res.status(400).json({ error: 'You cannot remove your own administrator role' });
     await connection.beginTransaction();
+    if (!req.session.adminGate && await isAdministratorAccount(userId, connection)) {
+      await connection.rollback();
+      return res.status(403).json({ error: 'Only the founder administrator can manage administrator accounts' });
+    }
     const [[roleRow]] = await connection.query('SELECT id FROM roles WHERE name=?', [role]);
     if (!roleRow) {
       await connection.rollback();
@@ -2972,7 +3006,7 @@ app.delete('/api/admin/users/:id/role/:role', requireAuth, requireAdminAccess, a
   } catch (error) { await connection.rollback(); next(error); } finally { connection.release(); }
 });
 
-app.post('/api/admin/bookings/:id/status', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/bookings/:id/status', requireAuth, requireAdminAccess('bookings'), async (req, res, next) => {
   try {
     const status = ['confirmed', 'declined', 'cancelled', 'completed'].includes(req.body.status) ? req.body.status : null;
     const bookingId = Number(req.params.id);
@@ -2984,7 +3018,7 @@ app.post('/api/admin/bookings/:id/status', requireAuth, requireAdminAccess, asyn
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/audit-logs', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.get('/api/admin/audit-logs', requireAuth, requireAdminAccess('audit'), async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
     const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
@@ -3016,7 +3050,7 @@ app.get('/api/admin/audit-logs', requireAuth, requireAdminAccess, async (req, re
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('listings'), async (req, res, next) => {
   try {
     const status = ['published', 'rejected', 'unpublished'].includes(req.body.status) ? req.body.status : null;
     if (!status) return res.status(400).json({ error: 'Invalid listing moderation status' });
@@ -3036,7 +3070,7 @@ app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess, 
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAccess, async (req, res, next) => {
+app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   try {
     const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
     if (!status) return res.status(400).json({ error: 'Invalid verification decision' });

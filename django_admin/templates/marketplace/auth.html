@@ -10,6 +10,7 @@
   <section class="auth-card" aria-labelledby="authTitle">
     {% if mode == 'login' %}
     <p class="eyebrow">Secure account access</p><h2 id="authTitle">Sign in</h2>
+    {% if google_signup_complete %}<p class="search-note" role="status">Your Google account was created. Sign in with the email address and password you chose.</p>{% endif %}
     <a class="google-auth-link" href="/api/auth/google"><span class="google-mark" aria-hidden="true">G</span>Continue with Google</a>
     <div class="auth-divider"><span>or use your email</span></div>
     <form data-login-form>

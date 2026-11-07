@@ -392,16 +392,126 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.rows', side_effect=[
         [{'id': 12, 'email': 'agent@example.test', 'status': 'active', 'mfa_enabled': True, 'name': 'Asha Mrema'}],
         [{'user_id': 12, 'name': 'agent'}],
+        [],
     ])
     def test_access_page_shows_role_removal_and_mfa_reset_actions(self, rows):
         self.authenticate_admin()
         response = self.client.get('/admin/?section=access')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Create administrator account')
-        self.assertContains(response, 'name="confirmPassword"')
+        self.assertContains(response, 'Administrator accounts')
+        self.assertContains(response, '/admin/admins/create/')
+        self.assertContains(response, 'Create administrator')
         self.assertContains(response, "keeps that person's current email address and password")
         self.assertContains(response, 'Remove agent')
         self.assertContains(response, 'Reset MFA')
+
+    def test_create_admin_route_renders_multistep_wizard(self):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/admins/create/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1. Profile')
+        self.assertContains(response, '2. Credentials')
+        self.assertContains(response, '3. Confirm')
+        self.assertContains(response, 'name="confirmationPassword"')
+
+    @patch('console.views.rows', side_effect=[
+        [{'id': 15, 'email': 'admin@example.test', 'phone': '+255700000015', 'status': 'active',
+          'mfa_enabled': True, 'email_verified_at': '2026-10-01', 'last_login_at': '2026-10-18',
+          'created_at': '2026-10-01', 'name': 'Admin User'}],
+        [{'name': 'administrator'}],
+        [{'user_id': 15}],
+        [{'permission_key': 'users'}],
+    ])
+    def test_admin_detail_shows_status_and_restricted_feature_grants(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/admins/15/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Admin User')
+        self.assertContains(response, 'Administrator feature access')
+        self.assertContains(response, 'value="users" checked')
+        self.assertContains(response, 'Permanently delete administrator')
+        self.assertContains(response, 'Suspend account')
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'user_id': 15}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_save_feature_grants_for_an_existing_admin(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-access-save/', {
+            'id': '15',
+            'section': 'access',
+            'permissions': ['users', 'listings'],
+            'return_to': '/admin/admins/15/',
+        })
+
+        self.assertRedirects(response, '/admin/admins/15/', fetch_redirect_response=False)
+        execute.assert_any_call(
+            'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)',
+            [15],
+        )
+        execute.assert_any_call('DELETE FROM admin_access_permissions WHERE user_id=%s', [15])
+        execute.assert_any_call(
+            'INSERT INTO admin_access_permissions (user_id,permission_key,assigned_by) VALUES (%s,%s,NULL)',
+            [15, 'listings'],
+        )
+        execute.assert_any_call(
+            'INSERT INTO admin_access_permissions (user_id,permission_key,assigned_by) VALUES (%s,%s,NULL)',
+            [15, 'users'],
+        )
+        audit.assert_called_once_with('administrator_access_updated', 'user', 15, {'permissions': ['listings', 'users']})
+
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'user_id': 15}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_access_save_rejects_unlisted_permissions(self, atomic, rows, execute):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-access-save/', {
+            'id': '15',
+            'section': 'access',
+            'permissions': ['users', 'administrator.delete'],
+        })
+
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        self.assertTrue(any('only listed administrator features' in str(message) for message in response.wsgi_request._messages))
+        execute.assert_not_called()
+
+    @patch('console.views.audit')
+    @patch('console.views.purge_user_account')
+    @patch('console.views.invalidate_api_sessions')
+    @patch('console.views.rows', return_value=[{'status': 'active'}])
+    @patch('console.views.scalar', return_value=2)
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_delete_revokes_sessions_and_audits_account_removal(
+        self, atomic, scalar, rows, invalidate_sessions, purge_user, audit
+    ):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-delete/', {'id': '15', 'section': 'access'})
+
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        invalidate_sessions.assert_called_once_with(15)
+        purge_user.assert_called_once_with(15)
+        audit.assert_called_once_with('administrator_permanently_deleted', 'user', 15)
+
+    @patch('console.views.purge_user_account')
+    @patch('console.views.rows', return_value=[{'status': 'active'}])
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_delete_protects_the_last_active_administrator(self, atomic, scalar, rows, purge_user):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-delete/', {'id': '15', 'section': 'access'})
+
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        self.assertTrue(any('last active administrator' in str(message) for message in response.wsgi_request._messages))
+        purge_user.assert_not_called()
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'user_status': 'pending', 'subaccount_id': 33, 'label': 'Bookings', 'subaccount_status': 'pending', 'name': 'Asha', 'main_agent': 'Neema'}])
     def test_agent_approval_page_renders_approve_and_reject_actions(self, rows):
@@ -438,7 +548,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
     @patch('console.views.audit')
     @patch('console.views.execute')
-    @patch('console.views.rows', side_effect=[[{'id': 3}], []])
+    @patch('console.views.rows', side_effect=[[{'id': 3}], [], []])
     @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_admin_can_assign_an_agent_role(self, atomic, rows, execute, audit):
         self.authenticate_admin()
@@ -474,7 +584,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'confirmationPassword': 'founder-password',
         })
 
-        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        self.assertRedirects(response, '/admin/admins/42/', fetch_redirect_response=False)
         checkpw.assert_called_once_with(b'founder-password', b'gate-hash')
         gensalt.assert_called_once_with(rounds=12)
         hashpw.assert_called_once_with(b'StrongPass123!', b'$2b$12$salt')
@@ -489,6 +599,10 @@ class AdminConsoleAccessTests(SimpleTestCase):
         execute.assert_any_call(
             'INSERT INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
             [42, 3],
+        )
+        execute.assert_any_call(
+            'INSERT INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)',
+            [42],
         )
         audit.assert_called_once_with('administrator_created', 'user', 42, {'email': 'asha@example.test'})
 
@@ -544,7 +658,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
     @patch('console.views.audit')
     @patch('console.views.execute')
-    @patch('console.views.rows', side_effect=[[{'id': 3}], []])
+    @patch('console.views.rows', side_effect=[[{'id': 3}], [], []])
     @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_assigning_admin_role_preserves_existing_account_credentials(self, atomic, rows, execute, audit):
         self.authenticate_admin()
@@ -557,9 +671,13 @@ class AdminConsoleAccessTests(SimpleTestCase):
         })
 
         self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
-        execute.assert_called_once_with(
+        execute.assert_any_call(
             'INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
             [8, 3],
+        )
+        execute.assert_any_call(
+            'INSERT IGNORE INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)',
+            [8],
         )
         self.assertNotIn('password_hash', execute.call_args.args[0])
         audit.assert_called_once_with('user_role_assign', 'user', 8, {'role': 'administrator'})
