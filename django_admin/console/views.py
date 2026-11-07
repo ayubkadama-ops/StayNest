@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import bcrypt
 from django.contrib import messages
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -33,6 +33,18 @@ def scalar(sql, params=()):
 def execute(sql, params=()):
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
+
+def strong_password(value):
+    return (
+        isinstance(value, str)
+        and 12 <= len(value) <= 200
+        and sum(bool(pattern.search(value)) for pattern in (
+            re.compile(r'[a-z]'),
+            re.compile(r'[A-Z]'),
+            re.compile(r'\d'),
+            re.compile(r'[^A-Za-z0-9]'),
+        )) >= 3
+    )
 
 def audit(action_name, entity_type, entity_id=None, metadata=None):
     execute(
@@ -472,9 +484,60 @@ def post_detail(request, post_id):
 @admin_required
 @require_http_methods(['POST'])
 def action(request, action):
+    created_admin_id = None
     try:
         with transaction.atomic():
-            if action == 'user-status':
+            if action == 'admin-create':
+                email = request.POST.get('email', '').strip().lower()
+                phone = request.POST.get('phone', '').strip()
+                city = request.POST.get('city', '').strip()
+                first_name = request.POST.get('firstName', '').strip()
+                last_name = request.POST.get('lastName', '').strip()
+                password = request.POST.get('password', '')
+                confirmation_password = request.POST.get('confirmPassword', '')
+                gate_password = request.POST.get('confirmationPassword', '').encode()
+                gate_hash = os.getenv('ADMIN_GATE_PASSWORD_HASH', '').encode()
+                try:
+                    gate_confirmed = bool(gate_hash) and bcrypt.checkpw(gate_password, gate_hash)
+                except ValueError:
+                    gate_confirmed = False
+                if not gate_confirmed:
+                    raise ValueError('Enter your administrator password to confirm this change')
+                if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or len(email) > 254:
+                    raise ValueError('Enter a valid email address')
+                if not first_name or len(first_name) > 80 or not last_name or len(last_name) > 80:
+                    raise ValueError('Enter a first and last name within 80 characters')
+                if not re.fullmatch(r'\+?[0-9][0-9\s().-]{6,24}', phone):
+                    raise ValueError('Enter a valid phone number')
+                if not city or len(city) > 100:
+                    raise ValueError('Enter a city or region within 100 characters')
+                if not strong_password(password):
+                    raise ValueError('Use a password of at least 12 characters with at least three character types')
+                if password != confirmation_password:
+                    raise ValueError('Passwords do not match')
+                if rows('SELECT id FROM users WHERE email=%s OR phone=%s FOR UPDATE', [email, phone]):
+                    raise ValueError('An account with that email or phone already exists')
+                role_rows = rows('SELECT id FROM roles WHERE name=%s', ['administrator'])
+                if not role_rows:
+                    raise ValueError('Administrator role not found')
+                password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
+                execute(
+                    'INSERT INTO users (email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,\'active\',UTC_TIMESTAMP())',
+                    [email, phone, password_hash.decode()],
+                )
+                created_admin_id = scalar('SELECT LAST_INSERT_ID()')
+                if not created_admin_id:
+                    raise ValueError('The administrator account could not be created')
+                execute(
+                    'INSERT INTO user_profiles (user_id,first_name,last_name,avatar_url,city) VALUES (%s,%s,%s,%s,%s)',
+                    [created_admin_id, first_name, last_name, '/assets/default-avatar.svg', city],
+                )
+                execute(
+                    'INSERT INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
+                    [created_admin_id, role_rows[0]['id']],
+                )
+                audit('administrator_created', 'user', created_admin_id, {'email': email})
+            elif action == 'user-status':
                 user_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'active', 'suspended', 'deleted'}: raise ValueError('Invalid user status')
                 admin_rows = rows("SELECT 1 administrator FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name='administrator'", [user_id])
@@ -597,6 +660,7 @@ def action(request, action):
         action_id = request.POST.get('id', '').strip()
         action_status = request.POST.get('status', '').strip()
         success_messages = {
+            'admin-create': 'Administrator account created',
             'user-status': {
                 'active': 'User account restored',
                 'suspended': 'User account suspended',
@@ -621,6 +685,9 @@ def action(request, action):
         success_message = success_messages.get(action, 'Administrative action completed successfully.')
         if action == 'user-status':
             success_message = success_message.get(action_status, 'User account status updated')
+        elif action == 'admin-create':
+            if created_admin_id is not None:
+                action_id = str(created_admin_id)
         elif action == 'user-role':
             role = request.POST.get('role', 'account')
             operation = 'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'
@@ -628,6 +695,11 @@ def action(request, action):
         if action_id and action != 'user-hard-delete':
             success_message = f'{success_message} (ID {action_id})'
         messages.success(request, f'{success_message}.')
+    except IntegrityError:
+        if action == 'admin-create':
+            messages.error(request, 'An account with that email or phone already exists')
+        else:
+            messages.error(request, str(error))
     except Exception as error:
         messages.error(request, str(error))
     return_to = request.POST.get('return_to', '')

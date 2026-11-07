@@ -397,6 +397,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.authenticate_admin()
         response = self.client.get('/admin/?section=access')
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Create administrator account')
+        self.assertContains(response, 'name="confirmPassword"')
+        self.assertContains(response, "keeps that person's current email address and password")
         self.assertContains(response, 'Remove agent')
         self.assertContains(response, 'Reset MFA')
 
@@ -444,6 +447,122 @@ class AdminConsoleAccessTests(SimpleTestCase):
         execute.assert_any_call('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [8, 3])
         execute.assert_any_call('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [8])
         audit.assert_called_once()
+
+    @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.bcrypt.hashpw', return_value=b'$2b$12$hashed-password')
+    @patch('console.views.bcrypt.gensalt', return_value=b'$2b$12$salt')
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.scalar', return_value=42)
+    @patch('console.views.rows', side_effect=[[], [{'id': 3}]])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_create_another_admin_with_signup_credentials(
+        self, atomic, rows, scalar, execute, audit, gensalt, hashpw, checkpw
+    ):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-create/', {
+            'section': 'access',
+            'firstName': 'Asha',
+            'lastName': 'Mrema',
+            'email': ' ASHA@example.test ',
+            'phone': '+255 700 000 000',
+            'city': 'Dar es Salaam',
+            'password': 'StrongPass123!',
+            'confirmPassword': 'StrongPass123!',
+            'confirmationPassword': 'founder-password',
+        })
+
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        checkpw.assert_called_once_with(b'founder-password', b'gate-hash')
+        gensalt.assert_called_once_with(rounds=12)
+        hashpw.assert_called_once_with(b'StrongPass123!', b'$2b$12$salt')
+        execute.assert_any_call(
+            'INSERT INTO users (email,phone,password_hash,status,email_verified_at) VALUES (%s,%s,%s,\'active\',UTC_TIMESTAMP())',
+            ['asha@example.test', '+255 700 000 000', '$2b$12$hashed-password'],
+        )
+        execute.assert_any_call(
+            'INSERT INTO user_profiles (user_id,first_name,last_name,avatar_url,city) VALUES (%s,%s,%s,%s,%s)',
+            [42, 'Asha', 'Mrema', '/assets/default-avatar.svg', 'Dar es Salaam'],
+        )
+        execute.assert_any_call(
+            'INSERT INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
+            [42, 3],
+        )
+        audit.assert_called_once_with('administrator_created', 'user', 42, {'email': 'asha@example.test'})
+
+    @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_creation_rejects_weak_signup_password(self, atomic, rows, execute, checkpw):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-create/', {
+            'firstName': 'Asha',
+            'lastName': 'Mrema',
+            'email': 'asha@example.test',
+            'phone': '+255 700 000 000',
+            'city': 'Dar es Salaam',
+            'password': 'password',
+            'confirmPassword': 'password',
+            'confirmationPassword': 'founder-password',
+        })
+
+        self.assertRedirects(response, '/admin/?section=overview', fetch_redirect_response=False)
+        messages = list(response.wsgi_request._messages)
+        self.assertTrue(any('at least 12 characters' in str(message) for message in messages))
+        rows.assert_not_called()
+        execute.assert_not_called()
+
+    @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
+    @patch('console.views.bcrypt.checkpw', return_value=False)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_creation_requires_console_password_confirmation(self, atomic, rows, execute, checkpw):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/admin-create/', {
+            'firstName': 'Asha',
+            'lastName': 'Mrema',
+            'email': 'asha@example.test',
+            'phone': '+255 700 000 000',
+            'city': 'Dar es Salaam',
+            'password': 'StrongPass123!',
+            'confirmPassword': 'StrongPass123!',
+            'confirmationPassword': 'wrong-password',
+        })
+
+        self.assertRedirects(response, '/admin/?section=overview', fetch_redirect_response=False)
+        messages = list(response.wsgi_request._messages)
+        self.assertTrue(any('administrator password' in str(message).lower() for message in messages))
+        rows.assert_not_called()
+        execute.assert_not_called()
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', side_effect=[[{'id': 3}], []])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_assigning_admin_role_preserves_existing_account_credentials(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/user-role/', {
+            'id': '8',
+            'role': 'administrator',
+            'operation': 'assign',
+            'section': 'access',
+        })
+
+        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)',
+            [8, 3],
+        )
+        self.assertNotIn('password_hash', execute.call_args.args[0])
+        audit.assert_called_once_with('user_role_assign', 'user', 8, {'role': 'administrator'})
 
     @patch('console.views.audit')
     @patch('console.views.execute')
