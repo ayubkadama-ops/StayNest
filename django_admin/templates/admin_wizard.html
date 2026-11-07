@@ -20,16 +20,16 @@
 {% if form_error %}<p class="notice error" role="alert">{{ form_error }}</p>{% endif %}
 <section class="panel">
 <ol class="progress" aria-label="Creation steps"><li aria-current="step">1. Profile</li><li>2. Credentials</li><li>3. Confirm</li></ol>
-<form id="adminWizard" method="post" action="/admin/action/admin-create/">
+<form id="adminWizard" method="post" action="/admin/action/admin-create/" data-password-match-on-submit="true">
 {% csrf_token %}<input type="hidden" name="section" value="access"><input type="hidden" name="formStep" value="{{ form_step|default:0 }}">
 <fieldset data-step-panel>
 <legend><strong>Administrator profile</strong></legend>
 <div class="form-grid">
 <label>First name<input name="firstName" autocomplete="given-name" maxlength="80" value="{{ form_values.firstName|default:'' }}" required></label>
 <label>Last name<input name="lastName" autocomplete="family-name" maxlength="80" value="{{ form_values.lastName|default:'' }}" required></label>
-<label>Username for sign-in<input name="username" autocomplete="username" maxlength="120" pattern="[A-Za-z0-9._-]{3,120}" data-validation-message="Use 3 to 120 letters, numbers, periods, underscores, or hyphens." value="{{ form_values.username|default:'' }}" required></label>
+<label>Username for sign-in<input name="username" autocomplete="username" maxlength="120" pattern="[A-Za-z0-9._\-]{3,120}" data-validation-message="Use 3 to 120 letters, numbers, periods, underscores, or hyphens." value="{{ form_values.username|default:'' }}" required></label>
 <label>Email address<input name="email" type="email" autocomplete="email" maxlength="254" value="{{ form_values.email|default:'' }}" required></label>
-<label>Phone number<input name="phone" type="tel" autocomplete="tel" maxlength="32" pattern="\+?[0-9][0-9\s().-]{6,24}" data-validation-message="Enter a valid phone number." value="{{ form_values.phone|default:'' }}" required></label>
+<label>Phone number<input name="phone" type="tel" autocomplete="tel" maxlength="32" pattern="\+?[0-9][0-9\s\(\).\-]{6,24}" data-validation-message="Enter a valid phone number." value="{{ form_values.phone|default:'' }}" required></label>
 <label class="form-wide">City or region<input name="city" autocomplete="address-level2" maxlength="100" value="{{ form_values.city|default:'' }}" required></label>
 </div>
 <div class="step-actions"><span></span><button class="button primary next" type="button">Continue</button></div>
@@ -75,15 +75,22 @@
   form.querySelectorAll('.next').forEach(button => button.addEventListener('click', () => {
     const panel = panels[current];
     if (!panel.reportValidity()) return;
-    if (current === 1 && panel.querySelector('[name="password"]').value !== panel.querySelector('[name="confirmPassword"]').value) {
-      panel.querySelector('[name="confirmPassword"]').setCustomValidity('Passwords do not match.');
-      panel.querySelector('[name="confirmPassword"]').reportValidity();
-      panel.querySelector('[name="confirmPassword"]').setCustomValidity('');
-      return;
-    }
     showStep(Math.min(current + 1, panels.length - 1));
   }));
   form.querySelectorAll('.back').forEach(button => button.addEventListener('click', () => showStep(Math.max(current - 1, 0))));
+  form.addEventListener('submit', event => {
+    const password = form.elements.password;
+    const confirmation = form.elements.confirmPassword;
+    if (password.value === confirmation.value) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    form.dataset.validationAttempted = 'true';
+    showStep(1);
+    confirmation.dataset.validationTouched = 'true';
+    confirmation.setCustomValidity('Passwords do not match.');
+    confirmation.reportValidity();
+    confirmation.setCustomValidity('');
+  });
   form.addEventListener('submit', () => panels.forEach(panel => {
     panel.disabled = false;
     panel.hidden = false;

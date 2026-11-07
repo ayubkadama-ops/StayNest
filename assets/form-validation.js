@@ -1,6 +1,11 @@
 const validationMessages = new WeakMap();
 let validationMessageId = 0;
 
+function isPasswordConfirmation(field) {
+  const name = field.name.toLowerCase().replace(/[-_]/g, '');
+  return name === 'confirmpassword' || name === 'confirmnewpassword' || field.matches('[data-confirm-password]');
+}
+
 function fieldValidationMessage(field) {
   if (!field.willValidate) return '';
   const validity = field.validity;
@@ -34,7 +39,9 @@ function fieldValidationMessage(field) {
   if (field.dataset.validationRule === 'ip-network' && field.value && !validIpNetwork(field.value)) {
     return 'Enter a valid IP address or CIDR range.';
   }
-  if (/confirm.*password/i.test(field.name) || field.matches('[data-confirm-password]')) {
+  const shouldCheckPasswordMatch = field.form?.dataset.passwordMatchOnSubmit !== 'true'
+    || field.form.dataset.validationAttempted === 'true';
+  if (shouldCheckPasswordMatch && isPasswordConfirmation(field)) {
     const password = [...(field.form?.querySelectorAll('input[type="password"]') || [])]
       .find(candidate => candidate !== field && /^(new[_-]?)?password$/i.test(candidate.name));
     if (password && (password.value || field.value) && password.value !== field.value) return 'Passwords do not match.';
@@ -129,8 +136,10 @@ export function installLiveFormValidation() {
     if (field.dataset.validationTouched === 'true' || field.form.dataset.validationAttempted === 'true') updateFieldValidation(field);
     if (field.type === 'password') {
       const confirmation = [...field.form.querySelectorAll('input[type="password"]')]
-        .find(candidate => /confirm.*password/i.test(candidate.name) || candidate.matches('[data-confirm-password]'));
-      if (confirmation?.dataset.validationTouched === 'true') updateFieldValidation(confirmation);
+        .find(isPasswordConfirmation);
+      if (confirmation?.dataset.validationTouched === 'true' || field.form.dataset.validationAttempted === 'true') {
+        updateFieldValidation(confirmation);
+      }
     }
   });
 
