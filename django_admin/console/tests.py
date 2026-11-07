@@ -3,9 +3,13 @@ import json
 from contextlib import nullcontext
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
 class AdminConsoleAccessTests(SimpleTestCase):
     def authenticate_admin(self):
         with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'}):
@@ -222,6 +226,17 @@ class AdminConsoleAccessTests(SimpleTestCase):
             response = self.client.post('/admin/login/?next=https://example.test/', {'username': 'founder', 'password': 'test-password'})
         self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
 
+    @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
+    @patch('console.views.bcrypt.checkpw', return_value=False)
+    def test_invalid_admin_login_keeps_username_and_shows_error(self, checkpw):
+        with patch('console.views.load_founder_profile', return_value=None):
+            response = self.client.post('/admin/login/', {'username': 'founder', 'password': 'wrong-password'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'value="founder"')
+        self.assertContains(response, 'Invalid administrator credentials.')
+        self.assertNotContains(response, 'value="wrong-password"')
+
     def test_database_founder_profile_takes_precedence_over_environment_credentials(self):
         profile = {
             'username': 'kado-admin',
@@ -333,6 +348,12 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertRedirects(response, '/admin/profile/', fetch_redirect_response=False)
         self.assertTrue(any('current founder password' in str(message).lower() for message in response.wsgi_request._messages))
         execute.assert_not_called()
+        with patch('console.views.load_founder_profile', return_value=profile):
+            preserved = self.client.get('/admin/profile/')
+        self.assertContains(preserved, 'value="Changed Name"')
+        self.assertContains(preserved, 'value="kado-admin"')
+        self.assertContains(preserved, 'name="current_password"')
+        self.assertNotContains(preserved, 'value="wrong-password"')
 
     def test_admin_action_redirects_without_admin_session(self):
         response = self.client.post('/admin/action/feature/', {'key': 'sample', 'enabled': '1'})
@@ -755,9 +776,11 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'confirmationPassword': 'founder-password',
         })
 
-        self.assertRedirects(response, '/admin/?section=overview', fetch_redirect_response=False)
-        messages = list(response.wsgi_request._messages)
-        self.assertTrue(any('at least 12 characters' in str(message) for message in messages))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'at least 12 characters')
+        self.assertContains(response, 'value="asha@example.test"')
+        self.assertContains(response, 'value="Asha"')
+        self.assertNotContains(response, 'value="password"')
         rows.assert_not_called()
         execute.assert_not_called()
 
@@ -781,9 +804,11 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'confirmationPassword': 'wrong-password',
         })
 
-        self.assertRedirects(response, '/admin/?section=overview', fetch_redirect_response=False)
-        messages = list(response.wsgi_request._messages)
-        self.assertTrue(any('administrator password' in str(message).lower() for message in messages))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'administrator password')
+        self.assertContains(response, 'value="asha@example.test"')
+        self.assertContains(response, 'name="formStep" value="2"')
+        self.assertNotContains(response, 'value="wrong-password"')
         rows.assert_not_called()
         execute.assert_not_called()
 

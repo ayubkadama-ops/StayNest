@@ -1,9 +1,12 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1">
 	<link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
+	<link rel="stylesheet" href="{% static 'form-validation.css' %}">
+	<script type="module" src="{% static 'form-validation.js' %}"></script>
 	<title>Makazi Go Admin Login</title>
 	<style>
 		body{margin:0;background:#f5f7f5;color:#173222;font:16px system-ui;display:grid;place-items:center;min-height:100vh}
@@ -24,7 +27,7 @@
 		{% for message in messages %}<p class="error">{{ message }}</p>{% endfor %}
 		<form method="post">
 			{% csrf_token %}
-			<label>Username<input name="username" autocomplete="username" required></label>
+			<label>Username<input name="username" autocomplete="username" value="{{ username|default:'' }}" required></label>
 			<label>Password<input name="password" type="password" autocomplete="current-password" required></label>
 			<button>Open admin console</button>
 		</form>

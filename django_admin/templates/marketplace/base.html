@@ -8,6 +8,7 @@
   <meta name="description" content="Homes, apartments, land, hotels, and commercial property across Tanzania.">
   <title>{% block title %}Makazi Go | Find your place. Make your move.{% endblock %}</title>
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
+  <link rel="stylesheet" href="{% static 'form-validation.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/site.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/navigation.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/home.css' %}">
@@ -17,6 +18,7 @@
     <link rel="stylesheet" href="{% static 'marketplace/listing-map.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/footer.css' %}">
   <script src="{% static 'cloudinary-images.js' %}" defer></script>
+  <script type="module" src="{% static 'form-validation.js' %}"></script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>

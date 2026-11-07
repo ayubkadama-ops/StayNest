@@ -197,6 +197,7 @@ def admin_required(view):
 def login_view(request):
     if request.session.get('admin_authenticated'):
         return redirect('/admin/')
+    username = ''
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').encode()
@@ -220,7 +221,7 @@ def login_view(request):
                 next_url = '/admin/'
             return redirect(next_url)
         messages.error(request, 'Invalid administrator credentials.')
-    return render(request, 'login.html')
+    return render(request, 'login.html', {'username': username})
 
 @require_http_methods(['POST'])
 def logout_view(request):
@@ -421,10 +422,16 @@ def dashboard(request):
 @admin_required
 @never_cache
 def admin_create(request):
-    return render(request, 'admin_wizard.html', {
+    return render(request, 'admin_wizard.html', admin_create_context())
+
+def admin_create_context(form_values=None, form_step=0, form_error=''):
+    return {
         'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
         'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
-    })
+        'form_values': form_values or {},
+        'form_step': form_step,
+        'form_error': form_error,
+    }
 
 @admin_required
 @never_cache
@@ -480,6 +487,19 @@ def founder_profile_view(request):
     profile = stored_profile or environment_founder_profile()
 
     if request.method == 'POST':
+        form_values = {
+            'display_name': request.POST.get('display_name', '').strip(),
+            'username': request.POST.get('username', '').strip(),
+            'email': request.POST.get('email', '').strip(),
+            'phone': request.POST.get('phone', '').strip(),
+            'avatar_url': request.POST.get('avatar_url', '').strip(),
+        }
+
+        def invalid_profile(message):
+            messages.error(request, message)
+            request.session['founder_profile_form'] = form_values
+            return redirect('/admin/profile/')
+
         current_password = request.POST.get('current_password', '').encode()
         password_hash = str(profile.get('password_hash') or '').encode()
         try:
@@ -487,56 +507,47 @@ def founder_profile_view(request):
         except (TypeError, ValueError):
             password_confirmed = False
         if not password_confirmed:
-            messages.error(request, 'Enter your current founder password to update this profile.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Enter your current founder password to update this profile.')
 
-        display_name = request.POST.get('display_name', '').strip()
-        username = request.POST.get('username', '').strip()
-        email = request.POST.get('email', '').strip()
-        phone = request.POST.get('phone', '').strip()
-        avatar_url = request.POST.get('avatar_url', '').strip()
+        display_name = form_values['display_name']
+        username = form_values['username']
+        email = form_values['email']
+        phone = form_values['phone']
+        avatar_url = form_values['avatar_url']
         new_password = request.POST.get('new_password', '')
         confirm_password = request.POST.get('confirm_password', '')
 
         if not display_name or len(display_name) > 120:
-            messages.error(request, 'Enter a display name of 1 to 120 characters.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Enter a display name of 1 to 120 characters.')
         if not re.fullmatch(r'[A-Za-z0-9._@+-]{3,120}', username):
-            messages.error(request, 'Use a username of 3 to 120 letters, numbers, or . _ @ + - characters.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Use a username of 3 to 120 letters, numbers, or . _ @ + - characters.')
         if email:
             try:
                 validate_email(email)
             except ValidationError:
-                messages.error(request, 'Enter a valid email address.')
-                return redirect('/admin/profile/')
+                return invalid_profile('Enter a valid email address.')
         if len(email) > 254:
-            messages.error(request, 'Email addresses must be 254 characters or fewer.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Email addresses must be 254 characters or fewer.')
         if phone and (len(phone) > 32 or not re.fullmatch(r'\+?[0-9][0-9\s().-]{5,30}', phone)):
-            messages.error(request, 'Enter a valid phone number of 32 characters or fewer.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Enter a valid phone number of 32 characters or fewer.')
         parsed_avatar = urlparse(avatar_url)
         local_avatar = avatar_url.startswith('/assets/') and '..' not in avatar_url.split('/')
         secure_avatar = parsed_avatar.scheme == 'https' and bool(parsed_avatar.netloc)
         if len(avatar_url) > 2048 or (avatar_url and not (local_avatar or secure_avatar)):
-            messages.error(request, 'Use a secure HTTPS profile image URL or a local /assets/ path.')
-            return redirect('/admin/profile/')
+            return invalid_profile('Use a secure HTTPS profile image URL or a local /assets/ path.')
         if new_password or confirm_password:
             if new_password != confirm_password:
-                messages.error(request, 'The new passwords do not match.')
-                return redirect('/admin/profile/')
+                return invalid_profile('The new passwords do not match.')
             if not strong_password(new_password):
-                messages.error(request, 'Use a password of at least 12 characters with at least three character types.')
-                return redirect('/admin/profile/')
+                return invalid_profile('Use a password of at least 12 characters with at least three character types.')
             password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(rounds=12)).decode()
         else:
             password_hash = str(profile.get('password_hash') or '')
             if not password_hash:
-                messages.error(request, 'Set a new password before saving this founder profile.')
-                return redirect('/admin/profile/')
+                return invalid_profile('Set a new password before saving this founder profile.')
         credentials_changed = username != str(profile.get('username') or '') or bool(new_password)
 
+        request.session.pop('founder_profile_form', None)
         with transaction.atomic():
             execute(
                 """INSERT INTO admin_founder_profile
@@ -561,6 +572,9 @@ def founder_profile_view(request):
         messages.success(request, 'Founder profile updated. The new credentials apply to both admin sign-in screens.')
         return redirect('/admin/profile/')
 
+    form_values = request.session.pop('founder_profile_form', None)
+    if form_values:
+        profile = {**profile, **form_values}
     return render(request, 'founder_profile.html', {
         'profile': profile,
         'is_bootstrap_profile': stored_profile is None,
@@ -704,6 +718,7 @@ def post_detail(request, post_id):
 @require_http_methods(['POST'])
 def action(request, action):
     created_admin_id = None
+    action_error = ''
     try:
         with transaction.atomic():
             if action == 'admin-create':
@@ -958,13 +973,35 @@ def action(request, action):
         if action_id and action != 'user-hard-delete':
             success_message = f'{success_message} (ID {action_id})'
         messages.success(request, f'{success_message}.')
-    except IntegrityError:
+    except IntegrityError as error:
         if action == 'admin-create':
-            messages.error(request, 'An account with that email or phone already exists')
+            created_admin_id = None
+            action_error = 'An account with that email or phone already exists'
         else:
             messages.error(request, str(error))
     except Exception as error:
-        messages.error(request, str(error))
+        if action == 'admin-create':
+            created_admin_id = None
+            action_error = str(error)
+        else:
+            messages.error(request, str(error))
+    if action == 'admin-create' and created_admin_id is None:
+        form_values = {
+            key: request.POST.get(key, '').strip()
+            for key in ('firstName', 'lastName', 'email', 'phone', 'city')
+        }
+        try:
+            form_step = max(0, min(int(request.POST.get('formStep', '0')), 2))
+        except ValueError:
+            form_step = 0
+        error_text = action_error.lower()
+        if 'administrator password to confirm' in error_text:
+            form_step = 2
+        elif 'password' in error_text:
+            form_step = 1
+        elif action_error:
+            form_step = 0
+        return render(request, 'admin_wizard.html', admin_create_context(form_values, form_step, action_error))
     return_to = request.POST.get('return_to', '')
     if action in {'user-hard-delete', 'admin-delete'}:
         if action == 'admin-delete':

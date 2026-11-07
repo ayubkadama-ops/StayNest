@@ -1,9 +1,12 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ content_type }} #{{ content.id }} · Makazi Go Operations</title>
+  <link rel="stylesheet" href="{% static 'form-validation.css' %}">
+  <script type="module" src="{% static 'form-validation.js' %}"></script>
   <style>
     :root{--green:#2d5a3d;--ink:#173222;--muted:#6d7d72;--line:#dfe7df;--bg:#f5f7f5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,Segoe UI,sans-serif}.shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.side{padding:24px 16px;background:#fff;border-right:1px solid var(--line)}.brand{font-size:20px;font-weight:800;margin:0 10px 28px;color:var(--green)}.nav{display:grid;gap:4px}.nav a{padding:11px 12px;color:var(--muted);text-decoration:none;border-radius:6px}.nav a.active,.nav a:hover{color:var(--green);background:#eef5ef}.main{padding:28px;min-width:0}.head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.head h1{margin:0 0 5px;font-size:26px}.muted{color:var(--muted)}.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.fact{padding:12px;background:#f5f7f5;border-radius:6px;overflow-wrap:anywhere}.fact span{display:block;color:var(--muted);font-size:12px}.fact strong{display:block;margin-top:5px}.link{color:var(--green);font-weight:700}.media{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.media img,.media video{width:100%;aspect-ratio:4/3;object-fit:cover;background:#edf3ef;border-radius:6px}.media a{color:var(--green);overflow-wrap:anywhere}@media(max-width:760px){.shell{display:flex;flex-direction:column}.side{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 10px}.nav{display:flex;overflow-x:auto}.nav a{white-space:nowrap}.main{padding:16px}.head{align-items:flex-start;flex-direction:column}}
   </style>

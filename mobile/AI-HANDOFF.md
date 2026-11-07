@@ -2,6 +2,30 @@
 
 Read this file after `MOBILE-APP-ROADMAP.md` and `mobile/docs/feature-parity.md` whenever work resumes. The newest checkpoint is at the top. Check actual files and `git status` before relying on this note.
 
+## Checkpoint: Live web form validation and error retention
+Updated: 2026-11-07
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Scope: shared public-web and Django operations-console forms; no mobile UI changes.
+
+Goal:
+Show invalid input next to its field while keeping the user on the current form and retaining other entered values.
+
+Completed:
+- Activated shared validation for the public home/listing pages, Django marketplace pages, and standalone admin pages; dynamic forms are covered as they are inserted.
+- Required, type, length, range, pattern, custom, strong-password, password-confirmation, founder image URL, and admin IP/CIDR errors are displayed inline with accessible field associations.
+- Failed public async requests continue to show form messages without resetting entered fields.
+- Failed admin sign-in retains the username but never the password. Founder-profile errors retain non-password profile values through the redirect, while credentials are not stored. Failed administrator creation re-renders the wizard with non-password values and the relevant step restored.
+- Updated focused Django tests for retained form values and password clearing.
+
+Verification:
+- `npm run test:django` — 67 tests passed; Django system check clean.
+- `npm run build` — passed, with shared validation assets included.
+- Browser smoke checks confirmed an invalid dynamic form stays on the page, keeps other values, and shows an inline error; password mismatch clears after correction.
+- `node --check` for the validation module, `git diff --check`, and Django static asset discovery passed.
+
+Scope note:
+The global client validator handles HTML constraints and the custom rules tagged in templates; server-side errors in async marketplace forms remain inline. Passwords and file inputs are never persisted to restore form state. Other pre-existing worktree edits were left untouched.
+
 ## Checkpoint: Founder profile and administrator access
 Updated: 2026-11-07
 Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)

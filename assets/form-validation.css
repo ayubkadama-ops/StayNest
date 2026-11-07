@@ -1,0 +1,17 @@
+.field-validation-message {
+  display: block;
+  margin-top: 5px;
+  color: #a22;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.is-invalid {
+  border-color: #a22 !important;
+}
+
+.notice.error {
+  background: #fdecec;
+  color: #8d2626;
+}
