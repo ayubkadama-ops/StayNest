@@ -2,27 +2,30 @@
 
 Read this file after `MOBILE-APP-ROADMAP.md` and `mobile/docs/feature-parity.md` whenever work resumes. The newest checkpoint is at the top. Check actual files and `git status` before relying on this note.
 
-## Checkpoint: Admin access and Google signup
+## Checkpoint: Founder profile and administrator access
 Updated: 2026-11-07
 Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
 Scope: Django operations console and marketplace login, Express admin API authorization, and additive database schema; no mobile UI changes.
 
 Goal:
 Give the founder a wizard to create administrator accounts, manage each account's status and feature grants, safely delete an administrator, and enforce delegated grants at the API boundary without weakening founder authority.
-After Google-based tenant registration, require the user to sign in with the password they chose instead of signing them in automatically.
+Keep the founder-gate identity distinct from delegated administrator accounts, expose its profile securely, and let the founder delete the last assigned administrator without losing owner access. After Google-based tenant registration, require the user to sign in with the password they chose instead of signing them in automatically.
 
 Completed:
 - Added profile and feature-grant tables to `database/schema.sql` and the additive `database/admin-access-migration.sql`; registered the migration in Express startup.
 - New admins created by the Django console or Express API, and users newly assigned the administrator role, receive a restricted access profile with no grants. Existing admins without a profile retain their legacy full API access until the founder saves an access profile for them.
 - Added Express feature checks for overview, users, roles/access, agents, listings, posts, badges, bookings, verifications, audit, settings, and analytics endpoints. Grant checks are server-side; unknown features deny restricted admins. IP-rule lookup failures no longer silently allow administrator access.
 - Kept the founder-gate session as the only authority for creating/deleting admins, changing administrator roles, impersonation, and modifying another administrator's account security/status.
-- Replaced the inline create form with a three-step wizard and added administrator status/access listing, a per-admin access page with feature checkboxes, account status controls, session-revoking deletion, audit logging, and last-active-admin protection.
+- Replaced the inline create form with a three-step wizard and added administrator status/access listing, a per-admin access page with feature checkboxes, account status controls, session-revoking deletion, audit logging, and last-active-admin protection for deactivation/role removal.
 - Recorded prior-existing administrator behavior as legacy full access; the founder can convert one to explicit restricted permissions by saving its checkbox form.
 - Google tenant registration now redirects to `/login/?googleSignup=1`, where a login notice confirms the chosen password can be used. Agent registration retains its pending-approval flow.
+- The independent founder console identity is visible in the administrator list as protected, retains full access, and is not deletable as a user account. Its display name, username, email, phone, profile image URL, and password are editable from the founder profile page; username/password changes apply to Django and Express login, require the current password, and revoke existing founder API sessions.
+- Founder credentials are bootstrapped from the environment until the profile is first saved, then the bcrypt hash and profile data are stored in the shared database. The last database-backed administrator can be permanently deleted because the separate founder gate remains the recovery path.
+- Delegated administrator permissions are grouped into collapsed categories so the founder can expand only the feature sets they need to review.
 
 Verification:
 - `npm test` — 24 Node tests passed.
-- `npm run test:django` — 62 Django tests passed.
+- `npm run test:django` — 66 Django tests passed.
 - `npm run check:django` — passed.
 - `node --check server/index.js` and Python syntax compilation for the modified console code/tests — passed.
 

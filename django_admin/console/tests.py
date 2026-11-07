@@ -9,8 +9,9 @@ from django.test import SimpleTestCase
 class AdminConsoleAccessTests(SimpleTestCase):
     def authenticate_admin(self):
         with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'}):
-            with patch('console.views.bcrypt.checkpw', return_value=True):
-                return self.client.post('/admin/login/', {'username': 'founder', 'password': 'test-password'})
+            with patch('console.views.load_founder_profile', return_value=None):
+                with patch('console.views.bcrypt.checkpw', return_value=True):
+                    return self.client.post('/admin/login/', {'username': 'founder', 'password': 'test-password'})
 
     @patch('console.views.execute')
     def test_audit_serializes_metadata_as_valid_json(self, execute):
@@ -207,16 +208,131 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     def test_valid_admin_login_sets_console_session(self, checkpw):
-        response = self.client.post('/admin/login/', {'username': 'founder', 'password': 'test-password'})
+        with patch('console.views.load_founder_profile', return_value=None):
+            response = self.client.post('/admin/login/', {'username': 'founder', 'password': 'test-password'})
         self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
         self.assertTrue(self.client.session['admin_authenticated'])
+        self.assertEqual(self.client.session['admin_username'], 'founder')
         checkpw.assert_called_once_with(b'test-password', b'test-hash')
 
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     def test_admin_login_rejects_external_return_urls(self, checkpw):
-        response = self.client.post('/admin/login/?next=https://example.test/', {'username': 'founder', 'password': 'test-password'})
+        with patch('console.views.load_founder_profile', return_value=None):
+            response = self.client.post('/admin/login/?next=https://example.test/', {'username': 'founder', 'password': 'test-password'})
         self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
+
+    def test_database_founder_profile_takes_precedence_over_environment_credentials(self):
+        profile = {
+            'username': 'kado-admin',
+            'password_hash': 'database-hash',
+            'display_name': 'Kado Founder',
+            'email': 'kado@example.test',
+            'phone': '+255700000000',
+            'avatar_url': '/assets/founder.png',
+        }
+        with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'old-founder', 'ADMIN_GATE_PASSWORD_HASH': 'old-hash'}):
+            with patch('console.views.load_founder_profile', return_value=profile):
+                with patch('console.views.bcrypt.checkpw', return_value=True) as checkpw:
+                    response = self.client.post('/admin/login/', {
+                        'username': 'kado-admin',
+                        'password': 'new-password',
+                    })
+
+        self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
+        checkpw.assert_called_once_with(b'new-password', b'database-hash')
+        self.assertEqual(self.client.session['admin_name'], 'Kado Founder')
+        self.assertEqual(self.client.session['admin_username'], 'kado-admin')
+
+    @patch('console.views.load_founder_profile', return_value={
+        'username': 'kado-admin',
+        'password_hash': 'database-hash',
+        'display_name': 'Kado Founder',
+        'email': 'kado@example.test',
+        'phone': '+255700000000',
+        'avatar_url': 'https://cdn.example.test/founder.png',
+    })
+    def test_founder_profile_page_shows_editable_identity_and_security(self, load_profile):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/profile/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Founder profile')
+        self.assertContains(response, 'value="kado-admin"')
+        self.assertContains(response, 'value="Kado Founder"')
+        self.assertContains(response, 'name="current_password"')
+        self.assertContains(response, 'name="new_password"')
+        self.assertContains(response, 'name="avatar_url"')
+
+    @patch('console.views.invalidate_founder_api_sessions')
+    def test_founder_profile_updates_login_credentials_and_profile_fields(self, invalidate_sessions):
+        self.authenticate_admin()
+
+        with patch.dict(os.environ, {
+            'ADMIN_GATE_USERNAME': 'founder',
+            'ADMIN_GATE_PASSWORD_HASH': 'old-hash',
+        }):
+            with patch('console.views.load_founder_profile', return_value=None):
+                with patch('console.views.bcrypt.checkpw', return_value=True) as checkpw:
+                    with patch('console.views.bcrypt.gensalt', return_value=b'$2b$12$salt') as gensalt:
+                        with patch('console.views.bcrypt.hashpw', return_value=b'$2b$12$new-hash') as hashpw:
+                            with patch('console.views.execute') as execute:
+                                with patch('console.views.audit') as audit:
+                                    with patch('console.views.transaction.atomic', return_value=nullcontext()):
+                                        response = self.client.post('/admin/profile/', {
+                                            'display_name': 'Kado Founder',
+                                            'username': 'kado-admin',
+                                            'email': 'kado@example.test',
+                                            'phone': '+255 700 000 000',
+                                            'avatar_url': 'https://cdn.example.test/founder.png',
+                                            'current_password': 'old-password',
+                                            'new_password': 'NewStrongPass123!',
+                                            'confirm_password': 'NewStrongPass123!',
+                                        })
+
+        self.assertRedirects(response, '/admin/profile/', fetch_redirect_response=False)
+        checkpw.assert_called_once_with(b'old-password', b'old-hash')
+        gensalt.assert_called_once_with(rounds=12)
+        hashpw.assert_called_once_with(b'NewStrongPass123!', b'$2b$12$salt')
+        query, parameters = execute.call_args.args
+        self.assertIn('INSERT INTO admin_founder_profile', query)
+        self.assertEqual(parameters, [
+            'kado-admin',
+            '$2b$12$new-hash',
+            'Kado Founder',
+            'kado@example.test',
+            '+255 700 000 000',
+            'https://cdn.example.test/founder.png',
+        ])
+        self.assertEqual(self.client.session['admin_username'], 'kado-admin')
+        self.assertEqual(self.client.session['admin_name'], 'Kado Founder')
+        invalidate_sessions.assert_called_once_with()
+        audit.assert_called_once()
+
+    def test_founder_profile_requires_current_password_before_changes(self):
+        profile = {
+            'username': 'kado-admin',
+            'password_hash': 'database-hash',
+            'display_name': 'Kado Founder',
+            'email': '',
+            'phone': '',
+            'avatar_url': '',
+        }
+        self.authenticate_admin()
+
+        with patch('console.views.load_founder_profile', return_value=profile):
+            with patch('console.views.bcrypt.checkpw', return_value=False):
+                with patch('console.views.execute') as execute:
+                    response = self.client.post('/admin/profile/', {
+                        'display_name': 'Changed Name',
+                        'username': 'kado-admin',
+                        'current_password': 'wrong-password',
+                    })
+
+        self.assertRedirects(response, '/admin/profile/', fetch_redirect_response=False)
+        self.assertTrue(any('current founder password' in str(message).lower() for message in response.wsgi_request._messages))
+        execute.assert_not_called()
 
     def test_admin_action_redirects_without_admin_session(self):
         response = self.client.post('/admin/action/feature/', {'key': 'sample', 'enabled': '1'})
@@ -313,7 +429,6 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.rows', side_effect=[
         [{'id': 42}],
         [],
-        [],
         [{'child_table': 'user_profiles', 'child_column': 'user_id', 'parent_table': 'users',
           'parent_column': 'id', 'child_nullable': 'NO', 'delete_rule': 'NO ACTION'}],
         [{'column_name': 'user_id'}],
@@ -331,20 +446,21 @@ class AdminConsoleAccessTests(SimpleTestCase):
         audit.assert_called_once_with('user_permanently_deleted', 'user', 42)
 
     @patch('console.views.audit')
-    @patch('console.views.execute')
+    @patch('console.views.purge_user_account')
+    @patch('console.views.invalidate_api_sessions')
+    @patch('console.views.rows', return_value=[{'id': 1}])
     @patch('console.views.scalar', return_value=1)
-    @patch('console.views.rows', side_effect=[[{'id': 1}], [{'status': 'active'}]])
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_cannot_permanently_delete_the_last_active_admin(self, atomic, rows, scalar, execute, audit):
+    def test_admin_can_permanently_delete_the_last_active_admin(self, atomic, scalar, rows, invalidate_sessions, purge_user, audit):
         self.authenticate_admin()
 
         response = self.client.post('/admin/action/user-hard-delete/', {'id': '1', 'section': 'users'})
 
         self.assertRedirects(response, '/admin/?section=users', fetch_redirect_response=False)
-        messages = list(response.wsgi_request._messages)
-        self.assertTrue(any('last active administrator' in str(message).lower() for message in messages))
-        execute.assert_not_called()
-        audit.assert_not_called()
+        scalar.assert_not_called()
+        invalidate_sessions.assert_called_once_with(1)
+        purge_user.assert_called_once_with(1)
+        audit.assert_called_once_with('user_permanently_deleted', 'user', 1)
 
     @patch('console.views.audit')
     @patch('console.views.execute')
@@ -400,6 +516,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Administrator accounts')
         self.assertContains(response, '/admin/admins/create/')
+        self.assertContains(response, 'Founder Console')
+        self.assertContains(response, 'Founder profile')
+        self.assertContains(response, 'Protected')
         self.assertContains(response, 'Create administrator')
         self.assertContains(response, "keeps that person's current email address and password")
         self.assertContains(response, 'Remove agent')
@@ -432,6 +551,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin User')
         self.assertContains(response, 'Administrator feature access')
+        self.assertContains(response, 'Marketplace operations')
         self.assertContains(response, 'value="users" checked')
         self.assertContains(response, 'Permanently delete administrator')
         self.assertContains(response, 'Suspend account')
@@ -486,9 +606,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.purge_user_account')
     @patch('console.views.invalidate_api_sessions')
     @patch('console.views.rows', return_value=[{'status': 'active'}])
-    @patch('console.views.scalar', return_value=2)
+    @patch('console.views.scalar', return_value=1)
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_delete_revokes_sessions_and_audits_account_removal(
+    def test_admin_delete_can_remove_last_assigned_admin_without_removing_founder_gate(
         self, atomic, scalar, rows, invalidate_sessions, purge_user, audit
     ):
         self.authenticate_admin()
@@ -496,22 +616,30 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.post('/admin/action/admin-delete/', {'id': '15', 'section': 'access'})
 
         self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
+        self.assertTrue(self.client.session['admin_authenticated'])
+        scalar.assert_not_called()
         invalidate_sessions.assert_called_once_with(15)
         purge_user.assert_called_once_with(15)
         audit.assert_called_once_with('administrator_permanently_deleted', 'user', 15)
 
+    @patch('console.views.audit')
     @patch('console.views.purge_user_account')
-    @patch('console.views.rows', return_value=[{'status': 'active'}])
+    @patch('console.views.invalidate_api_sessions')
+    @patch('console.views.rows', return_value=[{'id': 15}])
     @patch('console.views.scalar', return_value=1)
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_delete_protects_the_last_active_administrator(self, atomic, scalar, rows, purge_user):
+    def test_user_hard_delete_can_remove_last_assigned_admin(
+        self, atomic, scalar, rows, invalidate_sessions, purge_user, audit
+    ):
         self.authenticate_admin()
 
-        response = self.client.post('/admin/action/admin-delete/', {'id': '15', 'section': 'access'})
+        response = self.client.post('/admin/action/user-hard-delete/', {'id': '15', 'section': 'users'})
 
-        self.assertRedirects(response, '/admin/?section=access', fetch_redirect_response=False)
-        self.assertTrue(any('last active administrator' in str(message) for message in response.wsgi_request._messages))
-        purge_user.assert_not_called()
+        self.assertRedirects(response, '/admin/?section=users', fetch_redirect_response=False)
+        scalar.assert_not_called()
+        invalidate_sessions.assert_called_once_with(15)
+        purge_user.assert_called_once_with(15)
+        audit.assert_called_once_with('user_permanently_deleted', 'user', 15)
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'user_status': 'pending', 'subaccount_id': 33, 'label': 'Bookings', 'subaccount_status': 'pending', 'name': 'Asha', 'main_agent': 'Neema'}])
     def test_agent_approval_page_renders_approve_and_reject_actions(self, rows):
@@ -558,6 +686,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         execute.assert_any_call('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [8])
         audit.assert_called_once()
 
+    @patch('console.views.load_founder_profile', return_value=None)
     @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     @patch('console.views.bcrypt.hashpw', return_value=b'$2b$12$hashed-password')
@@ -568,7 +697,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.rows', side_effect=[[], [{'id': 3}]])
     @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_admin_can_create_another_admin_with_signup_credentials(
-        self, atomic, rows, scalar, execute, audit, gensalt, hashpw, checkpw
+        self, atomic, rows, scalar, execute, audit, gensalt, hashpw, checkpw, founder_profile
     ):
         self.authenticate_admin()
 
@@ -606,12 +735,13 @@ class AdminConsoleAccessTests(SimpleTestCase):
         )
         audit.assert_called_once_with('administrator_created', 'user', 42, {'email': 'asha@example.test'})
 
+    @patch('console.views.load_founder_profile', return_value=None)
     @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     @patch('console.views.execute')
     @patch('console.views.rows')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_creation_rejects_weak_signup_password(self, atomic, rows, execute, checkpw):
+    def test_admin_creation_rejects_weak_signup_password(self, atomic, rows, execute, checkpw, founder_profile):
         self.authenticate_admin()
 
         response = self.client.post('/admin/action/admin-create/', {
@@ -631,12 +761,13 @@ class AdminConsoleAccessTests(SimpleTestCase):
         rows.assert_not_called()
         execute.assert_not_called()
 
+    @patch('console.views.load_founder_profile', return_value=None)
     @patch.dict(os.environ, {'ADMIN_GATE_PASSWORD_HASH': 'gate-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=False)
     @patch('console.views.execute')
     @patch('console.views.rows')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_creation_requires_console_password_confirmation(self, atomic, rows, execute, checkpw):
+    def test_admin_creation_requires_console_password_confirmation(self, atomic, rows, execute, checkpw, founder_profile):
         self.authenticate_admin()
 
         response = self.client.post('/admin/action/admin-create/', {

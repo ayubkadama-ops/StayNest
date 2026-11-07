@@ -72,6 +72,17 @@ CREATE TABLE admin_access_permissions (
   INDEX idx_admin_access_permission_key (permission_key)
 ) ENGINE=InnoDB;
 
+CREATE TABLE admin_founder_profile (
+  id TINYINT UNSIGNED PRIMARY KEY,
+  username VARCHAR(120) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  display_name VARCHAR(120) NOT NULL,
+  email VARCHAR(254) NULL,
+  phone VARCHAR(32) NULL,
+  avatar_url VARCHAR(2048) NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 CREATE TABLE agent_subaccounts (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   main_agent_user_id BIGINT UNSIGNED NOT NULL,

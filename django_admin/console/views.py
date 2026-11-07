@@ -6,6 +6,8 @@ from functools import wraps
 from datetime import timedelta
 
 import bcrypt
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.contrib import messages
 from django.db import IntegrityError, connection, transaction
 from django.http import Http404, HttpResponseForbidden
@@ -34,6 +36,12 @@ ADMIN_FEATURES = [
     ('settings', 'Settings and controls', 'Manage marketplace settings and announcements.'),
     ('analytics', 'Analytics', 'View marketplace analytics and insights.'),
 ]
+ADMIN_FEATURE_GROUPS = [
+    ('Dashboard', ('overview',)),
+    ('People and access', ('users', 'access')),
+    ('Marketplace operations', ('agents', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
+    ('Safety and platform', ('reports', 'audit', 'settings', 'analytics')),
+]
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -44,6 +52,26 @@ def rows(sql, params=()):
 def scalar(sql, params=()):
     result = rows(sql, params)
     return next(iter(result[0].values()), 0) if result else 0
+
+def load_founder_profile():
+    result = rows(
+        'SELECT username,password_hash,display_name,email,phone,avatar_url FROM admin_founder_profile WHERE id=%s',
+        [1],
+    )
+    return result[0] if result else None
+
+def environment_founder_profile():
+    return {
+        'username': os.getenv('ADMIN_GATE_USERNAME', ''),
+        'password_hash': os.getenv('ADMIN_GATE_PASSWORD_HASH', ''),
+        'display_name': os.getenv('ADMIN_GATE_USERNAME', '') or 'Founder administrator',
+        'email': '',
+        'phone': '',
+        'avatar_url': '',
+    }
+
+def founder_credentials():
+    return load_founder_profile() or environment_founder_profile()
 
 def execute(sql, params=()):
     with connection.cursor() as cursor:
@@ -74,6 +102,15 @@ def invalidate_api_sessions(user_id):
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
         if session_user_id == int(user_id):
+            execute('DELETE FROM web_sessions WHERE sid=%s', [row['sid']])
+
+def invalidate_founder_api_sessions():
+    for row in rows('SELECT sid,data FROM web_sessions'):
+        try:
+            session_data = json.loads(row['data'])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if session_data.get('adminGate') is True:
             execute('DELETE FROM web_sessions WHERE sid=%s', [row['sid']])
 
 def purge_user_account(user_id):
@@ -163,17 +200,21 @@ def login_view(request):
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').encode()
-        expected_username = os.getenv('ADMIN_GATE_USERNAME', '')
-        password_hash = os.getenv('ADMIN_GATE_PASSWORD_HASH', '').encode()
+        profile = founder_credentials()
+        expected_username = str(profile.get('username') or '')
+        password_hash = str(profile.get('password_hash') or '').encode()
         valid = username == expected_username and bool(password_hash)
         try:
             valid = valid and bcrypt.checkpw(password, password_hash)
-        except ValueError:
+        except (TypeError, ValueError):
             valid = False
         if valid:
             request.session.cycle_key()
             request.session['admin_authenticated'] = True
             request.session['admin_label'] = username
+            request.session['admin_username'] = username
+            request.session['admin_name'] = profile.get('display_name') or username
+            request.session['admin_avatar_url'] = profile.get('avatar_url') or ''
             next_url = request.GET.get('next', '')
             if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
                 next_url = '/admin/'
@@ -193,6 +234,8 @@ def dashboard(request):
     if section not in SECTIONS:
         section = 'overview'
     data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
+    data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
         if section == 'overview':
             data['stats'] = {
@@ -412,11 +455,115 @@ def admin_detail(request, user_id):
          'checked': is_legacy_full_access or key in assigned_permissions}
         for key, label, description in ADMIN_FEATURES
     ]
+    features_by_key = {feature['key']: feature for feature in features}
+    feature_groups = []
+    for label, keys in ADMIN_FEATURE_GROUPS:
+        grouped_features = [features_by_key[key] for key in keys]
+        feature_groups.append({
+            'label': label,
+            'features': grouped_features,
+            'selected_count': sum(feature['checked'] for feature in grouped_features),
+        })
     return render(request, 'admin_detail.html', {
         'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
         'user': user,
-        'features': features,
+        'feature_groups': feature_groups,
         'is_legacy_full_access': is_legacy_full_access,
+        'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
+    })
+
+@admin_required
+@never_cache
+@require_http_methods(['GET', 'POST'])
+def founder_profile_view(request):
+    stored_profile = load_founder_profile()
+    profile = stored_profile or environment_founder_profile()
+
+    if request.method == 'POST':
+        current_password = request.POST.get('current_password', '').encode()
+        password_hash = str(profile.get('password_hash') or '').encode()
+        try:
+            password_confirmed = bool(password_hash) and bcrypt.checkpw(current_password, password_hash)
+        except (TypeError, ValueError):
+            password_confirmed = False
+        if not password_confirmed:
+            messages.error(request, 'Enter your current founder password to update this profile.')
+            return redirect('/admin/profile/')
+
+        display_name = request.POST.get('display_name', '').strip()
+        username = request.POST.get('username', '').strip()
+        email = request.POST.get('email', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        avatar_url = request.POST.get('avatar_url', '').strip()
+        new_password = request.POST.get('new_password', '')
+        confirm_password = request.POST.get('confirm_password', '')
+
+        if not display_name or len(display_name) > 120:
+            messages.error(request, 'Enter a display name of 1 to 120 characters.')
+            return redirect('/admin/profile/')
+        if not re.fullmatch(r'[A-Za-z0-9._@+-]{3,120}', username):
+            messages.error(request, 'Use a username of 3 to 120 letters, numbers, or . _ @ + - characters.')
+            return redirect('/admin/profile/')
+        if email:
+            try:
+                validate_email(email)
+            except ValidationError:
+                messages.error(request, 'Enter a valid email address.')
+                return redirect('/admin/profile/')
+        if len(email) > 254:
+            messages.error(request, 'Email addresses must be 254 characters or fewer.')
+            return redirect('/admin/profile/')
+        if phone and (len(phone) > 32 or not re.fullmatch(r'\+?[0-9][0-9\s().-]{5,30}', phone)):
+            messages.error(request, 'Enter a valid phone number of 32 characters or fewer.')
+            return redirect('/admin/profile/')
+        parsed_avatar = urlparse(avatar_url)
+        local_avatar = avatar_url.startswith('/assets/') and '..' not in avatar_url.split('/')
+        secure_avatar = parsed_avatar.scheme == 'https' and bool(parsed_avatar.netloc)
+        if len(avatar_url) > 2048 or (avatar_url and not (local_avatar or secure_avatar)):
+            messages.error(request, 'Use a secure HTTPS profile image URL or a local /assets/ path.')
+            return redirect('/admin/profile/')
+        if new_password or confirm_password:
+            if new_password != confirm_password:
+                messages.error(request, 'The new passwords do not match.')
+                return redirect('/admin/profile/')
+            if not strong_password(new_password):
+                messages.error(request, 'Use a password of at least 12 characters with at least three character types.')
+                return redirect('/admin/profile/')
+            password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(rounds=12)).decode()
+        else:
+            password_hash = str(profile.get('password_hash') or '')
+            if not password_hash:
+                messages.error(request, 'Set a new password before saving this founder profile.')
+                return redirect('/admin/profile/')
+        credentials_changed = username != str(profile.get('username') or '') or bool(new_password)
+
+        with transaction.atomic():
+            execute(
+                """INSERT INTO admin_founder_profile
+                   (id,username,password_hash,display_name,email,phone,avatar_url)
+                   VALUES (1,%s,%s,%s,%s,%s,%s)
+                   ON DUPLICATE KEY UPDATE username=VALUES(username),password_hash=VALUES(password_hash),
+                     display_name=VALUES(display_name),email=VALUES(email),phone=VALUES(phone),avatar_url=VALUES(avatar_url)""",
+                [username, password_hash, display_name, email or None, phone or None, avatar_url or None],
+            )
+            audit('founder_profile_updated', 'founder_profile', 1, {
+                'username': username,
+                'profile_fields': ['display_name', 'email', 'phone', 'avatar_url'],
+                'password_changed': bool(new_password),
+            })
+            if credentials_changed:
+                invalidate_founder_api_sessions()
+        request.session.cycle_key()
+        request.session['admin_label'] = username
+        request.session['admin_username'] = username
+        request.session['admin_name'] = display_name
+        request.session['admin_avatar_url'] = avatar_url
+        messages.success(request, 'Founder profile updated. The new credentials apply to both admin sign-in screens.')
+        return redirect('/admin/profile/')
+
+    return render(request, 'founder_profile.html', {
+        'profile': profile,
+        'is_bootstrap_profile': stored_profile is None,
         'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
     })
 
@@ -568,7 +715,7 @@ def action(request, action):
                 password = request.POST.get('password', '')
                 confirmation_password = request.POST.get('confirmPassword', '')
                 gate_password = request.POST.get('confirmationPassword', '').encode()
-                gate_hash = os.getenv('ADMIN_GATE_PASSWORD_HASH', '').encode()
+                gate_hash = str(founder_credentials().get('password_hash') or '').encode()
                 try:
                     gate_confirmed = bool(gate_hash) and bcrypt.checkpw(gate_password, gate_hash)
                 except ValueError:
@@ -647,10 +794,6 @@ def action(request, action):
                 )
                 if not admin_rows:
                     raise ValueError('Administrator account no longer exists')
-                if admin_rows[0]['status'] == 'active' and scalar(
-                    "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'"
-                ) <= 1:
-                    raise ValueError('The last active administrator cannot be permanently deleted')
                 invalidate_api_sessions(user_id)
                 purge_user_account(user_id)
                 audit('administrator_permanently_deleted', 'user', user_id)
@@ -668,9 +811,6 @@ def action(request, action):
                 user_id = int(request.POST.get('id', '0'))
                 if user_id < 1: raise ValueError('Choose a valid user')
                 if not rows('SELECT id FROM users WHERE id=%s FOR UPDATE', [user_id]): raise ValueError('User account no longer exists')
-                admin_rows = rows("SELECT u.status FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name='administrator'", [user_id])
-                if admin_rows and admin_rows[0]['status'] == 'active' and scalar("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='administrator' AND u.status='active'") <= 1:
-                    raise ValueError('The last active administrator cannot be permanently deleted')
                 invalidate_api_sessions(user_id)
                 purge_user_account(user_id)
                 audit('user_permanently_deleted', 'user', user_id)

@@ -2444,17 +2444,22 @@ app.post('/api/admin/gate', adminGateLimiter, async (req, res, next) => {
     if (!(await adminIpAllowed(req.ip))) return res.status(403).json({ error: 'This administrator network is not allowed' });
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
-    const expectedUsername = String(process.env.ADMIN_GATE_USERNAME || '');
-    const passwordHash = String(process.env.ADMIN_GATE_PASSWORD_HASH || '');
+    const [[founderProfile]] = await pool.query('SELECT username,password_hash,display_name,email,phone,avatar_url FROM admin_founder_profile WHERE id=1');
+    const expectedUsername = String(founderProfile ? founderProfile.username || '' : process.env.ADMIN_GATE_USERNAME || '');
+    const passwordHash = String(founderProfile ? founderProfile.password_hash || '' : process.env.ADMIN_GATE_PASSWORD_HASH || '');
     if (!expectedUsername || !passwordHash || username.length > 120 || password.length > 200 || username !== expectedUsername || !(await bcrypt.compare(password, passwordHash))) {
       return res.status(401).json({ error: 'Invalid administrator credentials' });
     }
     await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
     req.session.adminGate = true;
+    const [firstName, ...lastNameParts] = String(founderProfile?.display_name || 'Kado Administrator').trim().split(/\s+/);
     req.session.user = {
       id: null,
-      firstName: 'Kado',
-      lastName: 'Administrator',
+      firstName: firstName || 'Founder',
+      lastName: lastNameParts.join(' ') || 'Administrator',
+      email: founderProfile?.email || null,
+      phone: founderProfile?.phone || null,
+      avatarUrl: founderProfile?.avatar_url || null,
       roles: ['administrator'],
       permissions: []
     };
@@ -2556,7 +2561,9 @@ app.post('/api/admin/admins', requireAuth, requireFounderAdminAccess, async (req
     const email = String(req.body.email || '').trim().toLowerCase();
     const firstName = String(req.body.firstName || '').trim().slice(0, 80);
     const lastName = String(req.body.lastName || '').trim().slice(0, 80);
-    if (!process.env.ADMIN_GATE_PASSWORD_HASH || !(await bcrypt.compare(confirmationPassword, process.env.ADMIN_GATE_PASSWORD_HASH))) return res.status(403).json({ error: 'Enter your administrator password to confirm this change' });
+    const [[founderProfile]] = await pool.query('SELECT password_hash FROM admin_founder_profile WHERE id=1');
+    const founderPasswordHash = founderProfile ? founderProfile.password_hash : process.env.ADMIN_GATE_PASSWORD_HASH;
+    if (!founderPasswordHash || !(await bcrypt.compare(confirmationPassword, founderPasswordHash))) return res.status(403).json({ error: 'Enter your administrator password to confirm this change' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !firstName || !lastName || !strongPassword(password)) return res.status(400).json({ error: 'Provide a valid name, email, and strong password' });
     await connection.beginTransaction();
     const [result] = await connection.execute('INSERT INTO users (email, password_hash, status, email_verified_at) VALUES (?, ?, "active", UTC_TIMESTAMP())', [email, await bcrypt.hash(password, 12)]);

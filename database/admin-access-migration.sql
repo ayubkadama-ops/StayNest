@@ -17,3 +17,14 @@ CREATE TABLE IF NOT EXISTS admin_access_permissions (
   CONSTRAINT fk_admin_access_permission_assigner FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_admin_access_permission_key (permission_key)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS admin_founder_profile (
+  id TINYINT UNSIGNED PRIMARY KEY,
+  username VARCHAR(120) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  display_name VARCHAR(120) NOT NULL,
+  email VARCHAR(254) NULL,
+  phone VARCHAR(32) NULL,
+  avatar_url VARCHAR(2048) NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

@@ -11,7 +11,7 @@
 </head>
 <body>
 <div class="shell">
-<aside class="side"><div class="brand">Makazi Go</div><nav class="nav" aria-label="Admin sections">{% for key,label in sections %}<a href="/admin/?section={{ key }}">{{ label }}</a>{% endfor %}</nav><form method="post" action="/admin/logout/">{% csrf_token %}<button class="signout" type="submit">Sign out</button></form></aside>
+<aside class="side"><div class="brand">Makazi Go</div><nav class="nav" aria-label="Admin sections">{% for key,label in sections %}<a href="/admin/?section={{ key }}">{{ label }}</a>{% endfor %}<a href="/admin/profile/">Founder profile</a></nav><form method="post" action="/admin/logout/">{% csrf_token %}<button class="signout" type="submit">Sign out</button></form></aside>
 <main class="main">
 <header class="head"><div><h1>Create administrator</h1><p>Create an account, then assign its feature access separately.</p></div><a class="button" href="/admin/?section=access">Back to roles and security</a></header>
 <section class="panel">
