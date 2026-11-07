@@ -24,7 +24,7 @@ VALUES ('tenant'), ('agent'), ('administrator');
 
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(120) NULL UNIQUE,
+  username VARCHAR(120) NULL,
   email VARCHAR(254) NULL UNIQUE,
   phone VARCHAR(32) NULL UNIQUE,
   password_hash VARCHAR(255) NULL,
@@ -38,6 +38,7 @@ CREATE TABLE users (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
   CONSTRAINT chk_user_contact CHECK (email IS NOT NULL OR phone IS NOT NULL),
+  UNIQUE KEY uq_users_username (username),
   INDEX idx_users_status (status),
   INDEX idx_users_created (created_at)
 ) ENGINE=InnoDB;
