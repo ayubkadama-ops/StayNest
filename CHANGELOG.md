@@ -23,6 +23,11 @@ commit history or release notes.
   still failed because TiDB rejected bound `LIMIT`/`OFFSET` parameters with
   `ER_WRONG_ARGUMENTS`. Discovery pagination now emits bounded integer
   literals after validating the page and limit.
+- Deployed the TiDB pagination fix in `f4b48b3`. Production discovery now
+  returns HTTP 200 for unfiltered, text-search, land, hotel, and commercial
+  requests. The current dataset has 2 total listings and 1 land listing; the
+  tested hotel, commercial, and text-search filters return empty results
+  without errors.
 - Validation: 68 Node tests, 89 Django tests, Django system checks, web
   production build, mobile TypeScript check, and `git diff --check` pass.
   The migration is unchanged in this follow-up; production backup and

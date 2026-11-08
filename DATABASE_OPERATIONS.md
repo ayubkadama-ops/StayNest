@@ -73,17 +73,20 @@ completed and recorded by an operator with access to the target database.
   at the user's explicit request (`f607484`, `50c0741`, `db3e05f`), despite
   the backup/staging gate not being satisfied. The public homepage now serves
   the new web bundle.
-- Read-only production checks returned `/api/ready` HTTP 200 and
-  `/api/listings/discover` HTTP 500 (request ID
-  `d0ad93a4-7eb0-4d69-947d-1ec389a3d4e3`). The supplied Render log shows
-  startup reached "server listening" after migrations, then reports
-  `ER_WRONG_ARGUMENTS: Incorrect arguments to LIMIT`. A follow-up code change
-  replaces bound pagination values with validated integer literals; it adds
-  no schema migration.
-- No provider backup or staging restore has been performed. The deployment
-  log confirms the service started, but the schema verification query and
-  backup/recovery exercise remain outstanding. The local database target did
-  not verify as production, so no database query was run.
+- The supplied Render log shows startup reached "server listening" after
+  migrations, then discovery failed with `ER_WRONG_ARGUMENTS: Incorrect
+  arguments to LIMIT`. Commit `f4b48b3` replaces bound pagination values with
+  validated integer literals; it adds no schema migration.
+- Production verification after that push: `/api/ready` returned HTTP 200,
+  and discovery returned HTTP 200 for unfiltered, text-search, land, hotel,
+  and commercial requests. The production dataset returned 2 total listings
+  and 1 land listing; empty categories/searches returned empty results, not
+  errors.
+- No provider backup or staging restore has been performed. Startup completed
+  and discovery reads the migrated listing fields, but the schema
+  verification query and backup/recovery exercise remain outstanding. The
+  local database target did not verify as production, so no database query
+  was run.
 - Do not deploy further schema changes until an authorized operator records
   a provider recovery point, makes a protected logical backup, restores it to
   isolated staging, and completes the migration and smoke tests above.
