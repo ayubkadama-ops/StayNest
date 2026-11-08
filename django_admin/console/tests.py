@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
 from unittest.mock import patch
@@ -814,6 +815,135 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'type="url"')
         self.assertContains(response, 'adminEmailTemplatesData')
         self.assertContains(response, 'Welcome')
+
+    @patch('console.views.rows', return_value=[{
+        'id': 8, 'plan_key': 'agency-growth', 'name': 'Agency Growth', 'audience': 'agencies',
+        'description': 'A future agency tier', 'price_amount': '45000.00', 'currency': 'TZS',
+        'billing_interval': 'monthly', 'features_json': {'featured_credits': 3},
+        'is_enabled': 0, 'updated_at': '2026-11-08',
+    }])
+    def test_monetization_page_exposes_internal_configurable_plan_catalog(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=monetization')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Agency Growth')
+        self.assertContains(response, '45000.00')
+        self.assertContains(response, 'featured_credits')
+        self.assertContains(response, 'no payment is collected')
+        self.assertContains(response, 'Enable for future catalog (still no checkout)')
+        self.assertNotContains(response, 'Subscribe now')
+        self.assertIn('FROM monetization_plans', rows.call_args.args[0])
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_save_configurable_plan_without_activating_checkout(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/monetization-plan/', {
+            'section': 'monetization', 'plan_key': 'professional-agent', 'name': 'Professional Agent',
+            'audience': 'agents', 'description': 'Future agent plan', 'price_amount': '12000.00',
+            'currency': 'tzs', 'billing_interval': 'monthly',
+            'features_json': '{"featured_credits":2,"analytics":true}', 'is_enabled': '1',
+        })
+
+        self.assertRedirects(response, '/admin/?section=monetization', fetch_redirect_response=False)
+        self.assertEqual(
+            ' '.join(execute.call_args.args[0].split()),
+            ' '.join("""INSERT INTO monetization_plans
+                        (plan_key,name,audience,description,price_amount,currency,billing_interval,
+                         features_json,is_enabled,updated_by)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""".split()),
+        )
+        self.assertEqual(execute.call_args.args[1], [
+            'professional-agent', 'Professional Agent', 'agents', 'Future agent plan',
+            Decimal('12000.00'), 'TZS', 'monthly', '{"featured_credits":2,"analytics":true}', True, None,
+        ])
+        audit.assert_called_once_with('monetization_plan_saved', 'monetization_plan', None, {
+            'planKey': 'professional-agent', 'audience': 'agents', 'currency': 'TZS',
+            'billingInterval': 'monthly', 'enabled': True,
+        })
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'id': 8}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_update_an_existing_monetization_plan(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/monetization-plan/', {
+            'section': 'monetization', 'id': '8', 'plan_key': 'agency-growth',
+            'name': 'Agency Growth', 'audience': 'agencies', 'description': 'Expanded reach',
+            'price_amount': '45000', 'currency': 'TZS', 'billing_interval': 'yearly',
+            'features_json': '{"featured_credits":5}',
+        })
+
+        self.assertRedirects(response, '/admin/?section=monetization', fetch_redirect_response=False)
+        self.assertIn('UPDATE monetization_plans SET', execute.call_args.args[0])
+        self.assertEqual(execute.call_args.args[1], [
+            'agency-growth', 'Agency Growth', 'agencies', 'Expanded reach', Decimal('45000'),
+            'TZS', 'yearly', '{"featured_credits":5}', False, None, 8,
+        ])
+        rows.assert_called_once_with('SELECT id FROM monetization_plans WHERE id=%s', [8])
+        audit.assert_called_once_with('monetization_plan_saved', 'monetization_plan', 8, {
+            'planKey': 'agency-growth', 'audience': 'agencies', 'currency': 'TZS',
+            'billingInterval': 'yearly', 'enabled': False,
+        })
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_rejects_non_object_plan_features(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/monetization-plan/', {
+            'section': 'monetization', 'plan_key': 'basic', 'name': 'Basic',
+            'audience': 'owners', 'description': 'Future owner plan', 'price_amount': '0',
+            'currency': 'TZS', 'billing_interval': 'monthly', 'features_json': '[]',
+        })
+
+        self.assertRedirects(response, '/admin/?section=monetization', fetch_redirect_response=False)
+        execute.assert_not_called()
+        audit.assert_not_called()
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_rejects_negative_exponential_and_overprecision_plan_prices(self, atomic, execute, audit):
+        self.authenticate_admin()
+        plan = {
+            'section': 'monetization', 'plan_key': 'basic', 'name': 'Basic',
+            'audience': 'owners', 'description': 'Future owner plan',
+            'currency': 'TZS', 'billing_interval': 'monthly', 'features_json': '{}',
+        }
+
+        for price in ('-1', '1e9', '1.234'):
+            with self.subTest(price=price):
+                response = self.client.post(
+                    '/admin/action/monetization-plan/',
+                    {**plan, 'price_amount': price},
+                )
+                self.assertRedirects(response, '/admin/?section=monetization', fetch_redirect_response=False)
+
+        execute.assert_not_called()
+        audit.assert_not_called()
+
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.admin_has_feature_access', return_value=False)
+    def test_delegated_admin_without_monetization_permission_cannot_save_plans(self, has_feature_access, scalar):
+        self.authenticate_admin()
+        session = self.client.session
+        session['admin_authenticated'] = True
+        session['admin_is_founder'] = False
+        session['admin_user_id'] = 42
+        session.save()
+
+        response = self.client.post('/admin/action/monetization-plan/', {})
+
+        self.assertEqual(response.status_code, 403)
+        has_feature_access.assert_called_once_with(response.wsgi_request, 'monetization')
 
     @patch('console.views.rows', side_effect=[
         [{'id': 12, 'email': 'agent@example.test', 'status': 'active', 'mfa_enabled': True, 'name': 'Asha Mrema'}],

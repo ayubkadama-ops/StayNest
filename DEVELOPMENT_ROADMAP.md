@@ -251,25 +251,45 @@ surgical and preserve current tenant bookings and agent approval behavior.
   OpenStreetMap without adding a provider SDK or API credential.
 - [x] Retain existing responsive image processing, lazy-loaded web listing
   images, paginated API requests, and mobile load-more behavior.
-- [ ] Run native Android device/emulator smoke tests and production-host
-  canonical/sitemap checks; broad cross-client workflow parity remains tracked
-  in `mobile/docs/feature-parity.md`.
+- [ ] Run native Android device/emulator smoke tests; no Android runtime is
+  installed in the current development environment. Broad cross-client
+  workflow parity remains tracked in `mobile/docs/feature-parity.md`.
 - **Stage status:** Core implementation and local web/API/Django/mobile type
-  checks are verified; deployment-domain and native Android runtime validation
-  remain open.
+  checks are verified. Production `staynest-fb9b.onrender.com` sitemap,
+  robots, and homepage canonical checks returned HTTP 200; Android runtime
+  validation remains open.
 - Acceptance: responsive/browser/native smoke tests and cross-client
   persistence checks for each completed slice.
 
 ### Stage 9 — Monetization and future modules
 
-- Design configurable subscription/featured-placement concepts only after
-  the property and account model stabilizes.
+- [x] Add an administrator-configurable plan catalog for agent, agency,
+  developer, and property-owner subscription/featured-placement concepts.
+  Prices, currency, interval, and benefits are stored as plan data rather
+  than hardcoded in application flows.
+- [x] Keep plan configuration internal and non-transactional: no public
+  purchase endpoint, subscription activation, checkout, or payment collection
+  is introduced.
 - Do not activate real payments, investment collection, pooled funds, or
   return-sharing until provider integration, reconciliation, legal review,
   and regulatory approvals are complete.
-- Keep future payments, agreements, property management, analytics, and
+- Keep other future payments, agreements, property management, analytics, and
   recommendations behind explicit interfaces; do not build speculative
   modules ahead of validated needs.
+- **Stage status:** Plan configuration is locally implemented and covered by
+  admin/migration tests. Payment-provider integration and all production
+  commercial/legal readiness checks remain explicitly out of scope.
+
+Stage 8/9 verification:
+
+- Production `https://staynest-fb9b.onrender.com/sitemap.xml`,
+  `/robots.txt`, and `/` returned HTTP 200. Sitemap XML parsed successfully
+  with absolute URLs; the homepage canonical uses the configured production
+  origin.
+- Stage 9 adds a non-public plan catalog configurable from the admin console;
+  it does not create subscription records or enable checkout/payment flows.
+- Android device/emulator smoke testing cannot be performed in this
+  environment because `adb` and the Android emulator are unavailable.
 
 ## Baseline verification
 

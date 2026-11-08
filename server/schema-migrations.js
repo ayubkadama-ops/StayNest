@@ -29,7 +29,8 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'agent-profile-columns-repair-migration.sql',
   'listing-category-details-migration.sql',
   'listing-category-details-repair-migration.sql',
-  'listing-duplicate-triage-migration.sql'
+  'listing-duplicate-triage-migration.sql',
+  'monetization-plans-migration.sql'
 ]);
 
 async function columnExists(pool, tableName, columnName) {

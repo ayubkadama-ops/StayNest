@@ -35,6 +35,11 @@ FROM information_schema.tables
 WHERE table_schema=DATABASE()
   AND table_name IN ('listing_verifications', 'listing_verification_events');
 
+SELECT 'monetization_plan_catalog' AS check_name, COUNT(*) AS present_count
+FROM information_schema.tables
+WHERE table_schema=DATABASE()
+  AND table_name='monetization_plans';
+
 SELECT 'agent_ecosystem' AS check_name, COUNT(*) AS present_count
 FROM information_schema.columns
 WHERE table_schema=DATABASE()
@@ -71,6 +76,7 @@ WHERE migration_name IN (
   'property-search-migration.sql',
   'property-verification-migration.sql'
   ,'listing-category-details-migration.sql'
+  ,'monetization-plans-migration.sql'
 )
 ORDER BY migration_name;
 
@@ -79,3 +85,4 @@ SHOW CREATE TABLE identity_verifications;
 SHOW CREATE TABLE identity_document_download_tokens;
 SHOW CREATE TABLE listing_verifications;
 SHOW CREATE TABLE listing_verification_events;
+SHOW CREATE TABLE monetization_plans;

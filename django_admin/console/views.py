@@ -6,6 +6,7 @@ import re
 import secrets
 from functools import wraps
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 import bcrypt
 from django.core.exceptions import ValidationError
@@ -20,7 +21,7 @@ from django.views.decorators.cache import never_cache
 from urllib.parse import urlencode, urlparse
 from django.views.decorators.http import require_http_methods
 
-SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
+SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
 SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
 ROLES = {'tenant', 'property_owner', 'agent', 'agency', 'developer', 'verification_officer', 'administrator'}
 ADMIN_FEATURES = [
@@ -38,12 +39,14 @@ ADMIN_FEATURES = [
     ('audit', 'Audit logs', 'View administrative activity logs.'),
     ('settings', 'Settings and controls', 'Manage marketplace settings and announcements.'),
     ('analytics', 'Analytics', 'View marketplace analytics and insights.'),
+    ('monetization', 'Monetization plans', 'Configure future subscriptions and featured-placement offers; payments remain disabled.'),
 ]
 ADMIN_FEATURE_GROUPS = [
     ('Dashboard', ('overview',)),
     ('People and access', ('users', 'access')),
     ('Marketplace operations', ('agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
     ('Safety and platform', ('reports', 'audit', 'settings', 'analytics')),
+    ('Business model', ('monetization',)),
 ]
 CONSOLE_SECTIONS = [
     ('overview', 'Founder dashboard'),
@@ -60,6 +63,7 @@ CONSOLE_SECTIONS = [
     ('audit', 'Audit and security'),
     ('settings', 'Settings and controls'),
     ('analytics', 'Analytics'),
+    ('monetization', 'Monetization plans'),
 ]
 ADMIN_SECTION_KEYS = {key for key, _ in CONSOLE_SECTIONS}
 ADMIN_ACTION_FEATURES = {
@@ -83,6 +87,7 @@ ADMIN_ACTION_FEATURES = {
     'ip-rule': 'settings',
     'ip-rule-delete': 'settings',
     'setting': 'settings',
+    'monetization-plan': 'monetization',
 }
 FOUNDER_ONLY_ACTIONS = {'admin-create', 'admin-access-save', 'admin-delete'}
 
@@ -575,6 +580,15 @@ def dashboard(request):
                 'Bookings created, last 30 days': scalar('SELECT COUNT(*) FROM bookings WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
                 'Messages sent, last 30 days': scalar('SELECT COUNT(*) FROM messages WHERE created_at>=UTC_DATE()-INTERVAL 30 DAY'),
             }
+        elif section == 'monetization':
+            data['monetization_plans'] = rows(
+                """SELECT id,plan_key,name,audience,description,price_amount,currency,billing_interval,
+                          features_json,is_enabled,updated_at
+                   FROM monetization_plans ORDER BY audience,price_amount,id LIMIT 200"""
+            )
+            for plan in data['monetization_plans']:
+                if not isinstance(plan.get('features_json'), str):
+                    plan['features_json'] = json.dumps(plan.get('features_json') or {}, ensure_ascii=False)
     except Exception as error:
         data['error'] = f'Admin data unavailable: {error}'
     user_links = []
@@ -1400,6 +1414,71 @@ def action(request, action):
                 if len(value) > 5000: raise ValueError('Setting value is too long')
                 if key.startswith('social_') and value and (urlparse(value).scheme != 'https' or not urlparse(value).netloc): raise ValueError('Social links must use a secure https URL')
                 execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})
+            elif action == 'monetization-plan':
+                plan_id_text = request.POST.get('id', '').strip()
+                plan_id = int(plan_id_text) if plan_id_text else 0
+                plan_key = request.POST.get('plan_key', '').strip().lower()
+                name = request.POST.get('name', '').strip()
+                audience = request.POST.get('audience', '').strip()
+                description = request.POST.get('description', '').strip()
+                price_text = request.POST.get('price_amount', '').strip()
+                currency = request.POST.get('currency', 'TZS').strip().upper()
+                billing_interval = request.POST.get('billing_interval', '').strip()
+                features_text = request.POST.get('features_json', '').strip()
+                if plan_id_text and plan_id < 1:
+                    raise ValueError('Choose a valid monetization plan')
+                if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,59}', plan_key):
+                    raise ValueError('Plan key must use 1–60 lowercase letters, numbers, hyphens, or underscores')
+                if not name or len(name) > 100:
+                    raise ValueError('Enter a plan name up to 100 characters')
+                if audience not in {'agents', 'agencies', 'developers', 'owners'}:
+                    raise ValueError('Choose a supported plan audience')
+                if not description or len(description) > 1000:
+                    raise ValueError('Enter a plan description up to 1,000 characters')
+                if not re.fullmatch(r'[A-Z]{3}', currency):
+                    raise ValueError('Currency must be a three-letter code such as TZS')
+                if billing_interval not in {'monthly', 'yearly', 'one_time'}:
+                    raise ValueError('Choose a supported billing interval')
+                if not re.fullmatch(r'(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?', price_text):
+                    raise ValueError('Enter a valid non-negative plan price')
+                try:
+                    price_amount = Decimal(price_text)
+                except (InvalidOperation, ValueError):
+                    raise ValueError('Enter a valid non-negative plan price')
+                if not features_text or len(features_text) > 5000:
+                    raise ValueError('Plan features must be a JSON object up to 5,000 characters')
+                try:
+                    features = json.loads(features_text)
+                except (TypeError, ValueError) as error:
+                    raise ValueError('Plan features must be valid JSON') from error
+                if not isinstance(features, dict):
+                    raise ValueError('Plan features must be a JSON object')
+                features_json = json.dumps(features, ensure_ascii=False, separators=(',', ':'))
+                is_enabled = request.POST.get('is_enabled') == '1'
+                updated_by = request.session.get('admin_user_id')
+                if plan_id:
+                    if not rows('SELECT id FROM monetization_plans WHERE id=%s', [plan_id]):
+                        raise ValueError('This monetization plan no longer exists')
+                    execute(
+                        """UPDATE monetization_plans SET plan_key=%s,name=%s,audience=%s,description=%s,
+                                  price_amount=%s,currency=%s,billing_interval=%s,features_json=%s,
+                                  is_enabled=%s,updated_by=%s WHERE id=%s""",
+                        [plan_key, name, audience, description, price_amount, currency, billing_interval,
+                         features_json, is_enabled, updated_by, plan_id],
+                    )
+                else:
+                    execute(
+                        """INSERT INTO monetization_plans
+                           (plan_key,name,audience,description,price_amount,currency,billing_interval,
+                            features_json,is_enabled,updated_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        [plan_key, name, audience, description, price_amount, currency, billing_interval,
+                         features_json, is_enabled, updated_by],
+                    )
+                audit('monetization_plan_saved', 'monetization_plan', plan_id or None, {
+                    'planKey': plan_key, 'audience': audience, 'currency': currency,
+                    'billingInterval': billing_interval, 'enabled': is_enabled,
+                })
             else:
                 raise ValueError('Unknown admin action')
         action_id = request.POST.get('id', '').strip()
@@ -1427,6 +1506,7 @@ def action(request, action):
             'ip-rule': 'Administrator IP rule added',
             'ip-rule-delete': 'Administrator IP rule deleted',
             'setting': f"Marketplace setting '{request.POST.get('key', '').replace('_', ' ')}' saved",
+            'monetization-plan': 'Monetization plan saved (checkout remains disabled)',
         }
         success_message = success_messages.get(action, 'Administrative action completed successfully.')
         if action == 'user-status':

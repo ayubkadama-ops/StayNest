@@ -5,6 +5,26 @@ commit history or release notes.
 
 ## Unreleased
 
+### Stages 8 and 9 validation and monetization plan configuration
+
+- Verified the configured Render homepage canonical, dynamic sitemap, and
+  robots sitemap reference over HTTPS (HTTP 200); sitemap XML parsed and
+  emitted absolute URLs.
+- Added an administrator-configurable, non-public plan catalog for future
+  agent, agency, developer, and property-owner subscriptions and
+  featured-placement concepts. Plans store administrator-defined prices,
+  currency, billing interval, and JSON benefits; admin feature permissions
+  control access and all writes are audited.
+- Plan configuration is not checkout: no subscription activation, purchase
+  endpoint, payment collection, investment collection, or return-sharing was
+  added. No example prices or prefilled commercial plans are seeded.
+- Validation: 64 Node tests, 88 Django tests, Django system checks, Vite
+  production build, mobile TypeScript check, and `git diff --check` pass.
+  Production sitemap-listed property pages returned HTTP 200 with matching
+  canonical URLs and structured data. TiDB migration execution remains
+  unverified; native Android execution is unavailable without `adb`/an
+  emulator.
+
 ### Admin document preview and listing review details
 
 - Identity-verification documents now open inline in a separate admin tab

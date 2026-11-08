@@ -40,6 +40,17 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('monetization-plans-migration.sql'));
+});
+
+test('monetization plan migration creates only an unseeded configurable catalog', async () => {
+  const pool = createMigrationPool();
+
+  await applySchemaMigrations(pool, 'database', ['monetization-plans-migration.sql']);
+
+  assert.ok(pool.statements.some(statement => statement.includes('CREATE TABLE IF NOT EXISTS monetization_plans')));
+  assert.ok(pool.statements.some(statement => statement.startsWith('INSERT INTO schema_migrations')));
+  assert.equal(pool.statements.some(statement => /INSERT INTO monetization_plans/i.test(statement)), false);
 });
 
 test('username column migration keeps its unique index separate for TiDB compatibility', async () => {
