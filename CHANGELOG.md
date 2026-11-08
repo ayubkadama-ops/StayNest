@@ -17,8 +17,11 @@ commit history or release notes.
   could not resolve `category_details` used as an `AFTER` position in the same
   statement. Added a sequential TiDB retry and an additive repair migration
   that safely completes missing columns.
-- Validation: 79 Django console/marketplace tests and 12 migration tests pass.
-  Render deployment and production migration verification are pending push.
+- Validation: 63 Node tests, 80 Django console/marketplace tests, Django
+  system checks, Python syntax checks, production build, and `git diff --check`
+  pass. Commit `1d5b62f` is deployed; Node `/api/ready` returns HTTP 200 with
+  database `ok`, and the Django health and updated admin login endpoints
+  return HTTP 200.
 
 ### Render TiDB agent-profile migration recovery
 

@@ -327,9 +327,12 @@ Stage 5/6 and Render migration-recovery verification:
   and adds an idempotent migration for partially applied/ledger-skipped
   databases. Django console login now supports active delegated administrators
   with username/email and password, with feature-level checks and Founder-only
-  controls retained. Latest local validation: 79 Django console/marketplace
-  tests, 12 migration tests, Python syntax checks, and `git diff --check`.
-  Confirm the new Render deployment and production TiDB migration after push.
+  controls retained. Latest local validation: 80 Django console/marketplace
+  tests, 63 Node tests, Django system checks, production build, Python syntax
+  checks, and `git diff --check`. Commit `1d5b62f` is deployed; Node readiness
+  reports HTTP 200/database `ok`, and the Django health and updated admin login
+  endpoints return HTTP 200. This confirms service startup completed; direct
+  access to Render deployment logs was unavailable.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
 
@@ -353,10 +356,12 @@ Stage 7 verification:
   Django, web build, and mobile type-check pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
   property migration, and live document review are not end-to-end verified.
-- Render migration repairs restored the readiness endpoint once, but a later
-  deploy failed on the `category_details` migration. The sequential migration
-  repair and delegated administrator login fix are pending push and must be
-  verified against the next Render deployment.
+- Render's latest logs showed startup stopping at `category_details`. The
+  sequential migration repair and delegated administrator login fix are
+  pushed as `1d5b62f`; the Node readiness endpoint now reports database `ok`,
+  while the Django health endpoint and updated username/email login form both
+  return HTTP 200. Direct production login using a real administrator account
+  was not attempted because no account credentials were provided.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.
