@@ -10,6 +10,7 @@
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
   <link rel="stylesheet" href="{% static 'form-validation.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/site.css' %}">
+  <link rel="stylesheet" href="{% static 'marketplace/discovery.css' %}">
   <link rel="stylesheet" href="{% static 'marketplace/navigation.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/home.css' %}">
     <link rel="stylesheet" href="{% static 'marketplace/auth.css' %}">
@@ -58,6 +59,7 @@
   <script src="{% static 'cloudinary-images.js' %}" defer></script>
   <script src="{% static 'marketplace/site.js' %}" defer></script>
   <script src="{% static 'marketplace/auth-wizard.js' %}" defer></script>
+  {% if page == 'properties' %}<script src="{% static 'marketplace/saved-searches.js' %}" defer></script>{% endif %}
   {% block vendor_scripts %}{% endblock %}
   {% block scripts %}{% endblock %}
   <script src="{% static 'marketplace/listing-wizard.js' %}" defer></script>

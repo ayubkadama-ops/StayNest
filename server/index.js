@@ -22,6 +22,7 @@ import { sendBrandedEmail } from './email.js';
 import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
+import { createDiscoveryPlan } from './discovery.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -1268,72 +1269,56 @@ app.get('/api/posts', async (req, res, next) => {
 
 app.get('/api/listings/discover', async (req, res, next) => {
   try {
-    const query = String(req.query.q || '').trim().slice(0, 100);
-    const location = String(req.query.location || '').trim().slice(0, 100);
-    const rentalMode = ['short_term', 'long_term'].includes(req.query.rentalMode) ? req.query.rentalMode : null;
-    const transactionType = req.query.transactionType ? String(req.query.transactionType).trim().toLowerCase() : null;
-    if (transactionType && !['sale', 'rent', 'stay', 'both'].includes(transactionType)) {
-      return res.status(400).json({ error: 'Choose a valid property journey' });
-    }
-    const propertyType = String(req.query.propertyType || '').trim().slice(0, 50);
-    const minPrice = Number(req.query.minPrice);
-    const maxPrice = Number(req.query.maxPrice);
-    const where = ['l.status="published"', 'l.deleted_at IS NULL'];
-    const params = [];
-    if (query) {
-      const like = `%${query}%`;
-      where.push('(l.title LIKE ? OR l.description LIKE ? OR l.city LIKE ? OR l.neighborhood LIKE ? OR pt.name LIKE ?)');
-      params.push(like, like, like, like, like);
-    }
-    if (location) {
-      const like = `%${location}%`;
-      where.push('(l.city LIKE ? OR l.neighborhood LIKE ? OR l.region LIKE ? OR l.address_line1 LIKE ?)');
-      params.push(like, like, like, like);
-    }
-    if (rentalMode) where.push('(l.rental_mode=? OR l.rental_mode="both")'), params.push(rentalMode);
-    if (transactionType) {
-      where.push(transactionType === 'rent' || transactionType === 'stay'
-        ? '(l.transaction_type=? OR l.transaction_type="both")'
-        : 'l.transaction_type=?');
-      params.push(transactionType);
-    }
-    if (propertyType) where.push('pt.name=?'), params.push(propertyType);
-    if (Number.isFinite(minPrice) && minPrice >= 0) {
-      where.push('(COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) >= ?)');
-      params.push(minPrice);
-    }
-    if (Number.isFinite(maxPrice) && maxPrice >= 0) {
-      where.push('(COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
-      params.push(maxPrice);
-    }
+    const plan = createDiscoveryPlan(req.query);
+    if (plan.error) return res.status(400).json({ error: plan.error });
+    const [[count]] = await pool.execute(
+      `SELECT COUNT(*) total
+       FROM listings l JOIN property_types pt ON pt.id=l.property_type_id
+       WHERE ${plan.whereSql}`,
+      plan.params
+    );
+    const total = Number(count.total) || 0;
+    const totalPages = Math.ceil(total / plan.limit);
+    const page = totalPages ? Math.min(plan.filters.page, totalPages) : 1;
+    const offset = (page - 1) * plan.limit;
+    plan.filters.page = page;
     const savedUserId = Number(req.session.user?.id) || 0;
-    const order = !req.query.sort || req.query.sort === 'new'
-      ? 'l.published_at DESC, l.created_at DESC'
-      : req.query.sort === 'price_low'
-        ? 'COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
-        : req.query.sort === 'popular'
-          ? 'l.average_rating DESC, l.review_count DESC, l.updated_at DESC'
-          : 'l.updated_at DESC, l.published_at DESC';
     const [listings] = await pool.execute(
       `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
+        l.district, l.ward, l.property_size propertySize, l.furnished,
+        l.transaction_type transactionType, l.sale_price salePrice,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
+        l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
+        l.floor_area floorArea, l.commercial_use commercialUse,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
         l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
+        EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved,
         up.first_name agentFirstName, up.last_name agentLastName, ap.agency_name agencyName,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
        FROM listings l
        JOIN property_types pt ON pt.id=l.property_type_id
-       LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        LEFT JOIN user_profiles up ON up.user_id=l.agent_user_id
-       WHERE ${where.join(' AND ')}
-       ORDER BY ${order}
-       LIMIT 40`,
-      [savedUserId, ...params]
+       LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
+       WHERE ${plan.whereSql}
+       ORDER BY ${plan.orderBy}
+       LIMIT ? OFFSET ?`,
+       [savedUserId, ...plan.params, ...plan.orderParams, plan.limit, offset]
     );
-    res.json({ listings, filters: { query, location, rentalMode, propertyType, transactionType, minPrice: Number.isFinite(minPrice) ? minPrice : null, maxPrice: Number.isFinite(maxPrice) ? maxPrice : null } });
+    res.json({
+      listings,
+      filters: plan.filters,
+      pagination: {
+        page,
+        limit: plan.limit,
+        total,
+        totalPages,
+        hasPrevious: page > 1 && totalPages > 0,
+        hasNext: page < totalPages
+      }
+    });
   } catch (error) { next(error); }
 });
 
@@ -1964,17 +1949,27 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
     const maxGuests = Math.max(1, Math.min(Number(req.body.maxGuests) || 1, 999));
+    const neighborhood = String(req.body.neighborhood || '').trim().slice(0, 120) || null;
+    const district = String(req.body.district || '').trim().slice(0, 100) || null;
+    const ward = String(req.body.ward || '').trim().slice(0, 100) || null;
+    const region = String(req.body.region || '').trim().slice(0, 100) || null;
+    const propertySizeInput = String(req.body.propertySize || '').trim();
+    const propertySize = propertySizeInput ? Number(propertySizeInput) : null;
+    const furnished = String(req.body.furnished || '').trim() || null;
     const amenities = String(req.body.amenities || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 20);
     const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
     const document = req.files?.document?.[0], media = req.files?.media || [];
     if (!title || !description || !city || !addressLine1) return res.status(400).json({ error: 'Title, description, address, and city are required' });
     if (journey.error) return res.status(400).json({ error: journey.error });
+    if (propertySize !== null && (!Number.isFinite(propertySize) || propertySize <= 0)) return res.status(400).json({ error: 'Enter a valid property size in square metres' });
+    if (furnished && !['furnished', 'unfurnished', 'partially_furnished'].includes(furnished)) return res.status(400).json({ error: 'Choose a valid furnishing option' });
+    if (['land', 'commercial'].includes(journey.propertyType) && (propertySize !== null || furnished)) return res.status(400).json({ error: 'Use the category-specific land or commercial area fields for this property' });
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return res.status(400).json({ error: 'Choose the listing location on the OpenStreetMap preview' });
     if (!document) return res.status(400).json({ error: 'Agent registration document is required before publishing a property' });
     if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
     if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
-    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (journey.transactionType !== 'stay' && journey.transactionType !== 'both' && bookingMode !== 'request') return res.status(400).json({ error: 'Only short stays can use instant booking' });
+    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
     savePhase = 'lookup_property_type';
@@ -2021,16 +2016,17 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         title, slug, description, status, booking_mode, rental_mode, transaction_type,
         currency, sale_price, nightly_price, monthly_price, yearly_price,
         plot_size, plot_size_unit, land_use, title_status, floor_area, commercial_use,
-        bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code,
-        latitude, longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        bedrooms, beds, bathrooms, max_guests, address_line1, neighborhood,
+        district, ward, city, region, property_size, furnished, country_code, latitude, longitude
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null,
         title, slug, description, bookingMode, journey.rentalMode, journey.transactionType,
         journey.prices.salePrice, journey.prices.nightlyPrice, journey.prices.monthlyPrice, journey.prices.yearlyPrice,
         journey.plotSize, journey.plotSizeUnit, journey.landUse, journey.titleStatus,
         journey.floorArea, journey.commercialUse, bedrooms, beds, bathrooms, maxGuests,
-        city, addressLine1, countryCode, latitude, longitude
+        addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
+        countryCode, latitude, longitude
       ]
     );
     savePhase = 'insert_identity_verification';
@@ -2224,13 +2220,14 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
   try {
     const [[listing]] = await pool.query(
       `SELECT l.id, l.title, l.description, l.neighborhood, l.city, l.region,
+        l.district, l.ward, l.property_size propertySize, l.furnished,
         l.approximate_latitude, l.approximate_longitude, l.latitude, l.longitude,
         l.currency, l.transaction_type transactionType, l.sale_price salePrice,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
-        l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
         l.floor_area floorArea, l.commercial_use commercialUse,
+        l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
@@ -2341,9 +2338,19 @@ app.delete('/api/account', requireAuth, async (req, res, next) => {
 
 app.post('/api/search-alerts', requireAuth, async (req, res, next) => {
   try {
-    const { name, filters, frequency = 'daily' } = req.body;
-    if (!name || !filters || !['instant', 'daily', 'weekly'].includes(frequency)) return res.status(400).json({ error: 'Alert name, filters, and valid frequency are required' });
-    const [result] = await pool.execute('INSERT INTO search_alerts (user_id, name, filters, frequency) VALUES (?, ?, ?, ?)', [req.session.user.id, name, JSON.stringify(filters), frequency]);
+    const body = req.body || {};
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const filters = body.filters;
+    const frequency = body.frequency || 'daily';
+    if (!name || name.length > 120 || !filters || typeof filters !== 'object' || Array.isArray(filters)
+      || !['instant', 'daily', 'weekly'].includes(frequency)) {
+      return res.status(400).json({ error: 'Enter a search name up to 120 characters, filters, and a valid frequency' });
+    }
+    const serializedFilters = JSON.stringify(filters);
+    if (Buffer.byteLength(serializedFilters) > 8192) {
+      return res.status(400).json({ error: 'Search filters are too large to save' });
+    }
+    const [result] = await pool.execute('INSERT INTO search_alerts (user_id, name, filters, frequency) VALUES (?, ?, ?, ?)', [req.session.user.id, name, serializedFilters, frequency]);
     res.status(201).json({ id: result.insertId });
   } catch (error) { next(error); }
 });

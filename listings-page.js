@@ -7,6 +7,8 @@ const grid = document.querySelector('#allListingsGrid');
 const detail = document.querySelector('#listingDetailPage');
 const filters = document.querySelector('#listingFilters');
 const resultNote = document.querySelector('#listingsResultNote');
+const pagination = document.querySelector('#listingsPagination');
+const pageStatus = document.querySelector('#listingsPageStatus');
 const inlineDetail = document.querySelector('#listingInlineDetail');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const imageUrl = value => { const source = /^(https?:\/\/|\/)/i.test(String(value || '')) ? String(value) : '/assets/ezgif-frame-018.jpg'; return window.cloudinaryAssetUrl?.(source) || source; };
@@ -75,6 +77,7 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
   searchController?.abort();
   const controller = new AbortController();
   searchController = controller;
+  if (event) filters.elements.page.value = '1';
   const values = new FormData(filters);
   const query = new URLSearchParams([...values.entries()].map(([name, value]) => [name, String(value).trim()]).filter(([, value]) => value));
   updateCategoryHeading();
@@ -84,7 +87,18 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     const result = await api(`/api/listings/discover?${query}`, { signal: controller.signal });
     if (controller.signal.aborted) return;
     const listings = Array.isArray(result.listings) ? result.listings : [];
-    resultNote.textContent = `${listings.length} listing${listings.length === 1 ? '' : 's'} available`;
+    const page = result.pagination || { page: Number(filters.elements.page.value) || 1, total: listings.length, totalPages: 0, hasPrevious: false, hasNext: false };
+    filters.elements.page.value = String(page.page);
+    const currentUrl = new URL(location.href);
+    if (currentUrl.searchParams.has('page') && Number(currentUrl.searchParams.get('page')) !== page.page) {
+      currentUrl.searchParams.set('page', String(page.page));
+      history.replaceState({ filters: currentUrl.searchParams.toString() }, '', `${currentUrl.pathname}${currentUrl.search}`);
+    }
+    resultNote.textContent = `${Number(page.total).toLocaleString()} propert${page.total === 1 ? 'y' : 'ies'} found`;
+    pagination.hidden = page.totalPages < 2;
+    pageStatus.textContent = `Page ${page.page} of ${page.totalPages}`;
+    document.querySelector('#listingsPrevious').disabled = !page.hasPrevious;
+    document.querySelector('#listingsNext').disabled = !page.hasNext;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', event => {
       if (event.target.closest('[data-agent-link],[data-save-listing],[data-share-listing],[data-compare-listing]')) return;
@@ -133,6 +147,7 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
   } catch (error) {
     if (error.name === 'AbortError') return;
     resultNote.textContent = '';
+    pagination.hidden = true;
     grid.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p>`;
   }
 }
@@ -173,10 +188,20 @@ function showListingResults({ historyMode = 'none' } = {}) {
 }
 function syncFiltersFromUrl() {
   const params = new URLSearchParams(location.search);
-  for (const name of ['q', 'propertyType', 'transactionType', 'rentalMode', 'sort']) {
+  for (const name of [
+    'q', 'location', 'region', 'district', 'ward', 'neighborhood', 'propertyType',
+    'transactionType', 'rentalMode', 'pricePeriod', 'currency', 'minPrice', 'maxPrice',
+    'minBedrooms', 'maxBedrooms', 'minBathrooms', 'minSize', 'maxSize', 'furnished',
+    'availableFrom', 'availableTo', 'verificationStatus', 'sort', 'page'
+  ]) {
     const control = filters.elements.namedItem(name);
     if (!control) continue;
-    const value = params.has(name) ? params.get(name) : name === 'sort' ? 'new' : '';
+    const values = params.getAll(name);
+    if (control instanceof HTMLSelectElement && control.multiple) {
+      for (const option of control.options) option.selected = values.includes(option.value);
+      continue;
+    }
+    const value = values[0] ?? (name === 'sort' ? 'new' : name === 'page' ? '1' : '');
     if (control instanceof HTMLSelectElement && ![...control.options].some(option => option.value === value)) continue;
     control.value = value;
   }
@@ -222,11 +247,70 @@ function wireDetail(listing) {
 }
 filters.addEventListener('submit', event => loadListings(event, { historyMode: 'push' }));
 filters.elements.q.addEventListener('input', () => {
+  filters.elements.page.value = '1';
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => void loadListings(null), 280);
 });
-filters.querySelectorAll('select').forEach(select => select.addEventListener('change', () => void loadListings(null)));
+filters.querySelectorAll('select').forEach(select => select.addEventListener('change', () => {
+  filters.elements.page.value = '1';
+  void loadListings(null);
+}));
+document.querySelector('#listingsPrevious').addEventListener('click', () => {
+  filters.elements.page.value = String(Math.max(1, Number(filters.elements.page.value) - 1));
+  void loadListings(null, { historyMode: 'push' });
+});
+document.querySelector('#listingsNext').addEventListener('click', () => {
+  filters.elements.page.value = String(Number(filters.elements.page.value) + 1);
+  void loadListings(null, { historyMode: 'push' });
+});
 syncFiltersFromUrl();
 window.addEventListener('popstate', () => { syncFiltersFromUrl(); const listingId = new URLSearchParams(location.search).get('listing'); if (listingId) location.replace(listingDetailUrl(listingId)); else showListingResults(); });
 const initialListing = new URLSearchParams(location.search).get('listing');
 if (initialListing) location.replace(listingDetailUrl(initialListing)); else void loadListings();
+
+document.querySelector('#saveListingSearch').addEventListener('click', async event => {
+  const message = document.querySelector('#saveListingSearchMessage');
+  const button = event.currentTarget;
+  const savedFilters = {};
+  for (const [key, rawValue] of new FormData(filters)) {
+    const value = String(rawValue).trim();
+    if (!value || key === 'page' || (key === 'sort' && value === 'new')) continue;
+    if (key in savedFilters) {
+      savedFilters[key] = Array.isArray(savedFilters[key]) ? [...savedFilters[key], value] : [savedFilters[key], value];
+    } else {
+      savedFilters[key] = value;
+    }
+  }
+  if (!Object.keys(savedFilters).length) {
+    message.textContent = 'Choose at least one search filter before saving.';
+    return;
+  }
+
+  const nameParts = ['q', 'location', 'district', 'neighborhood', 'propertyType', 'transactionType']
+    .map(key => savedFilters[key])
+    .filter(value => typeof value === 'string');
+  const name = window.prompt('Name this search', nameParts.join(' · ') || 'My property search');
+  if (name === null) return;
+  if (!name.trim()) {
+    message.textContent = 'Enter a name for this search.';
+    return;
+  }
+
+  button.disabled = true;
+  message.textContent = '';
+  try {
+    const csrf = await api('/api/auth/csrf');
+    await api('/api/search-alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf.token },
+      body: JSON.stringify({ name: name.trim(), filters: savedFilters, frequency: 'daily' }),
+    });
+    message.textContent = 'Search saved.';
+  } catch (error) {
+    message.textContent = error.message === 'Authentication required'
+      ? 'Sign in to save this search.'
+      : error.message;
+  } finally {
+    button.disabled = false;
+  }
+});

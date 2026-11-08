@@ -64,6 +64,10 @@
   categoryHelp.dataset.categoryHelp = '';
   categoriesPanel.append(categoryHelp);
   move(locationPanel, ['city', 'addressLine1']);
+  const areaFields = document.createElement('div');
+  areaFields.className = 'listing-wizard-field-grid';
+  areaFields.innerHTML = '<label>Region<input name="region" maxlength="100" autocomplete="address-level1"></label><label>District<input name="district" maxlength="100"></label><label>Ward<input name="ward" maxlength="100"></label><label>Neighborhood<input name="neighborhood" maxlength="120"></label>';
+  locationPanel.append(areaFields);
   if (geoFields) locationPanel.append(geoFields);
   move(detailsPanel, ['title', 'description']);
 
@@ -89,7 +93,11 @@
   commercialFields.dataset.commercialFields = '';
   commercialFields.hidden = true;
   commercialFields.innerHTML = '<label>Floor area (m²)<input name="floorArea" type="number" min="1" step="0.01" placeholder="e.g. 120" data-category-detail></label><label>Commercial use<select name="commercialUse" data-category-detail><option value="">Choose use</option><option value="office">Office</option><option value="retail">Retail or shop</option><option value="hospitality">Hospitality</option><option value="warehouse">Warehouse or industrial</option><option value="mixed_use">Mixed use</option><option value="other">Other</option></select></label>';
-  detailsPanel.append(stayFields, landFields, commercialFields);
+  const generalPropertyFields = document.createElement('div');
+  generalPropertyFields.className = 'listing-wizard-field-grid';
+  generalPropertyFields.dataset.generalPropertyFields = '';
+  generalPropertyFields.innerHTML = '<label>Property area (m²)<input name="propertySize" type="number" min="1" step="0.01" placeholder="e.g. 95"></label><label>Furnishing<select name="furnished"><option value="">Not specified</option><option value="furnished">Furnished</option><option value="partially_furnished">Partially furnished</option><option value="unfurnished">Unfurnished</option></select></label>';
+  detailsPanel.append(stayFields, landFields, commercialFields, generalPropertyFields);
 
   const priceFields = document.createElement('div');
   priceFields.className = 'listing-wizard-field-grid';
@@ -202,6 +210,11 @@
     apartmentBedsLabel.hidden = !isApartment;
     landFields.hidden = !isLand;
     commercialFields.hidden = !isCommercial;
+    generalPropertyFields.hidden = isLand || isCommercial;
+    if (generalPropertyFields.hidden) {
+      field('propertySize').value = '';
+      field('furnished').value = '';
+    }
     field('rentalMode').value = field('transactionType').value === 'stay' ? 'short_term' : 'long_term';
     field('bookingMode').value = field('transactionType').value === 'stay' ? field('bookingMode').value || 'request' : 'request';
     field('privacyType').value = isLeaseCategory ? '' : field('privacyType').value || 'entire_place';
@@ -228,7 +241,7 @@
     const transactionLabel = field('transactionType').selectedOptions[0]?.textContent || 'Choose a journey';
     addItem('Property type', categoryLabel);
     addItem('Journey', transactionLabel);
-    addItem('Location', [field('addressLine1').value, field('city').value].filter(Boolean).join(', '));
+    addItem('Location', [field('addressLine1').value, field('neighborhood').value, field('ward').value, field('district').value, field('city').value, field('region').value].filter(Boolean).join(', '));
     addItem('Title', field('title').value);
     if (category.value === 'land_plot') {
       addItem('Plot size', `${field('plotSize').value || 'Not provided'} ${field('plotSizeUnit').selectedOptions[0]?.textContent || ''}`.trim());
@@ -242,6 +255,8 @@
       addItem('Capacity', `${field('bedrooms').value} bedrooms · ${field('bathrooms').value} bathrooms · ${field('maxGuests').value} guests`);
       if (category.value === 'apartment' || category.value === 'serviced_apartment') addItem('Beds', field('beds').value);
       addItem('Privacy', field('privacyType').selectedOptions[0]?.textContent);
+      addItem('Property area', field('propertySize').value && `${field('propertySize').value} m²`);
+      addItem('Furnishing', field('furnished').selectedOptions[0]?.textContent);
     }
     addItem('Pricing', [field('salePrice').value && `TZS ${field('salePrice').value} sale`, field('nightlyPrice').value && `TZS ${field('nightlyPrice').value} nightly`, field('monthlyPrice').value && `TZS ${field('monthlyPrice').value} monthly`, field('yearlyPrice').value && `TZS ${field('yearlyPrice').value} yearly`].filter(Boolean).join(' · '));
     addItem('Amenities and features', amenitiesField.value);

@@ -1,5 +1,6 @@
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse, resolve
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 
@@ -71,6 +72,46 @@ class MarketplaceRoutingTests(SimpleTestCase):
             self.assertContains(response, f'makazi-category-{category}.webp')
 
     @patch('marketplace.views._api_json')
+    def test_property_discovery_forwards_filters_and_preserves_them_in_pagination(self, api_json):
+        api_json.return_value = {
+            'listings': [{'id': 42, 'title': 'Mikocheni apartment', 'city': 'Dar es Salaam'}],
+            'pagination': {
+                'page': 2,
+                'limit': 24,
+                'total': 50,
+                'totalPages': 3,
+                'hasPrevious': True,
+                'hasNext': True,
+            },
+        }
+
+        response = self.client.get(
+            '/properties/?q=apartment&district=Kinondoni&minBedrooms=3&amenities=Parking&amenities=Wi-Fi&page=2'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        upstream_query = parse_qs(urlsplit(api_json.call_args.args[1]).query)
+        self.assertEqual(upstream_query['q'], ['apartment'])
+        self.assertEqual(upstream_query['district'], ['Kinondoni'])
+        self.assertEqual(upstream_query['minBedrooms'], ['3'])
+        self.assertEqual(upstream_query['amenities'], ['Parking', 'Wi-Fi'])
+        self.assertEqual(upstream_query['page'], ['2'])
+        self.assertContains(response, '50 properties found')
+        self.assertContains(response, 'Page 2 of 3')
+        self.assertContains(response, 'More filters')
+        self.assertContains(response, 'data-save-search')
+        self.assertContains(response, 'href="?q=apartment&amp;district=Kinondoni&amp;minBedrooms=3&amp;amenities=Parking&amp;amenities=Wi-Fi&amp;page=3"')
+
+    @patch('marketplace.views._api_json', return_value={'error': 'Choose a price period for this range.'})
+    def test_property_discovery_shows_filter_errors_without_dropping_input(self, api_json):
+        response = self.client.get('/properties/?minPrice=2000000&maxPrice=1000000')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Choose a price period for this range.')
+        self.assertContains(response, 'name="minPrice" type="number" min="0" value="2000000"')
+        self.assertContains(response, 'name="maxPrice" type="number" min="0" value="1000000"')
+
+    @patch('marketplace.views._api_json')
     def test_stay_detail_uses_booking_flow(self, api_json):
         api_json.return_value = {'listing': {'id': 17, 'title': 'City apartment', 'propertyType': 'apartment', 'currency': 'TZS', 'nightlyPrice': 70000}, 'media': []}
         response = self.client.get('/properties/17/')
@@ -91,6 +132,10 @@ class MarketplaceRoutingTests(SimpleTestCase):
                 'beds': 2,
                 'bathrooms': 1,
                 'privacyType': 'entire_place',
+                'district': 'Kinondoni',
+                'ward': 'Mikocheni',
+                'propertySize': 95,
+                'furnished': 'partially_furnished',
                 'latitude': -6.8,
                 'longitude': 39.2,
             },
@@ -99,6 +144,9 @@ class MarketplaceRoutingTests(SimpleTestCase):
         response = self.client.get('/properties/19/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Apartment · 2 beds · Entire place · 1 bathroom')
+        self.assertContains(response, 'Kinondoni')
+        self.assertContains(response, 'Mikocheni')
+        self.assertContains(response, '95.00 m² · Partially furnished')
         self.assertContains(response, 'https://www.openstreetmap.org/?mlat=-6.8&amp;mlon=39.2#map=17/-6.8/39.2')
 
     @patch('marketplace.views._api_json')

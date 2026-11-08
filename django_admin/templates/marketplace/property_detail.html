@@ -15,7 +15,7 @@
     <article class="detail-copy">
       <p class="eyebrow">{{ listing.propertyType|default:'Property'|title }}{% if listing.verifiedAgent %} · Verified agent{% endif %}</p>
       <h1>{{ listing.title }}</h1>
-      <p class="detail-location">{{ listing.neighborhood }}{% if listing.neighborhood and listing.city %}, {% endif %}{{ listing.city }}{% if listing.region %}, {{ listing.region }}{% endif %}</p>
+      <p class="detail-location">{{ listing.neighborhood }}{% if listing.neighborhood and listing.city %}, {% endif %}{{ listing.city }}{% if listing.region %}, {{ listing.region }}{% endif %}{% if listing.district %} · {{ listing.district }}{% endif %}{% if listing.ward %}, {{ listing.ward }}{% endif %}</p>
       {% if listing.latitude and listing.longitude %}<p><a class="text-link" href="https://www.openstreetmap.org/?mlat={{ listing.latitude }}&amp;mlon={{ listing.longitude }}#map=17/{{ listing.latitude }}/{{ listing.longitude }}" target="_blank" rel="noopener noreferrer">View pinned location</a></p>{% endif %}
       {% if listing.propertyType == 'house' %}
         <p class="detail-facts">Home · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms · Up to {{ listing.maxGuests|default:0 }} guests</p>
@@ -30,6 +30,7 @@
       {% else %}
         <p class="detail-facts">{{ listing.structureType|default:listing.propertyType|title }} · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms</p>
       {% endif %}
+      {% if listing.propertySize or listing.furnished %}<p class="detail-facts">{% if listing.propertySize %}{{ listing.propertySize|floatformat:2 }} m²{% endif %}{% if listing.propertySize and listing.furnished %} · {% endif %}{% if listing.furnished == 'partially_furnished' %}Partially furnished{% elif listing.furnished == 'furnished' %}Furnished{% elif listing.furnished == 'unfurnished' %}Unfurnished{% endif %}</p>{% endif %}
       <p>{{ listing.description }}</p>
       {% if listing.amenityList %}<section class="detail-features"><h2>Features and amenities</h2><ul>{% for item in listing.amenityList %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
     </article>

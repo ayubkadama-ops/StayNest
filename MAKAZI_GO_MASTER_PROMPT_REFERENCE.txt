@@ -1,0 +1,749 @@
+MASTER DEVELOPMENT PROMPT: MAKAZI GO
+
+ROLE AND RESPONSIBILITY
+
+Act as a Senior Full-Stack Software Engineer, Software Architect, UI/UX Designer, Database Engineer, Security Specialist and Product Development Lead.
+
+You are working on an existing project called MAKAZI GO, a Tanzania-focused real estate and accommodation marketplace.
+
+You already have access to the existing codebase and understand its current architecture, technologies, database, features, components and business logic.
+
+Your responsibility is to progressively transform the existing project into a professional, scalable, secure and commercially viable real estate ecosystem for Tanzania donot ruin it just modify the existing one
+
+IMPORTANT: Do not start building from assumptions. First inspect the existing project and understand how everything works.
+
+Do not unnecessarily rewrite the application, replace its architecture, change frameworks or remove existing functionality.
+
+Preserve the existing branding, design identity, working features and database relationships unless a change is technically necessary.
+
+---
+
+PHASE 1: COMPLETE SYSTEM AUDIT
+
+Before modifying anything, conduct a comprehensive audit of the existing application.
+
+Inspect:
+
+1. Frontend architecture.
+2. Backend architecture.
+3. Database schema and relationships.
+4. Authentication and authorization.
+5. User registration and login.
+6. Property listing functionality.
+7. Property details pages.
+8. Search and filtering.
+9. Booking functionality.
+10. Host and agent functionality.
+11. User dashboards.
+12. Administrator dashboard.
+13. Image and video upload systems.
+14. Notifications.
+15. Payment integrations, if present.
+16. API endpoints.
+17. Mobile responsiveness.
+18. Security implementation.
+19. Error handling.
+20. Performance and SEO.
+
+Identify:
+
+- Existing features that work correctly.
+- Incomplete features.
+- Broken features.
+- Duplicate functionality.
+- Security vulnerabilities.
+- Missing database relationships.
+- Poor user experiences.
+- Scalability problems.
+- Opportunities for improvement.
+
+Create a development roadmap based on your findings.
+
+Do not immediately start rewriting the system.
+
+---
+
+PHASE 2: EXPAND MAKAZI GO'S PRODUCT POSITIONING
+
+Makazi Go must evolve from primarily an accommodation platform into a comprehensive property marketplace.
+
+The platform should support five major property journeys:
+
+1. RENT
+
+- Houses for rent.
+- Apartments for rent.
+- Single rooms.
+- Shared accommodation.
+- Student accommodation.
+- Offices.
+- Shops.
+- Commercial spaces.
+- Warehouses.
+
+2. BUY
+
+- Houses for sale.
+- Apartments for sale.
+- Villas.
+- Commercial buildings.
+- Residential developments.
+
+3. STAY
+
+- Hotels.
+- Villas.
+- Holiday homes.
+- Short-term apartments.
+- Guest houses.
+- Vacation accommodation.
+
+Preserve the existing booking and accommodation functionality.
+
+4. LAND
+
+- Residential plots.
+- Commercial plots.
+- Agricultural land.
+- Farms.
+- Industrial land.
+
+Support land-specific information such as plot size, title information, land-use classification and location.
+
+5. INVEST
+
+Prepare the system architecture for future property investment opportunities.
+
+Potential future functionality:
+
+- Property development projects.
+- Investment opportunities.
+- Joint ventures.
+- Development partnerships.
+- Expected rental returns.
+- Project information.
+
+Do not introduce actual investment collection, pooled funds or profit-sharing transactions without appropriate legal and regulatory review.
+
+PRODUCT NAVIGATION
+
+Organize the customer experience around:
+
+- Home
+- Buy
+- Rent
+- Stay
+- Land
+- Commercial
+- Explore Agents
+- Posts
+- List Your Property
+
+Keep the navigation responsive and avoid overcrowding the interface.
+
+---
+
+PHASE 3: ADVANCED PROPERTY SEARCH ENGINE
+
+Improve the existing search functionality.
+
+Users should be able to search using:
+
+- Location.
+- Region.
+- District.
+- Ward.
+- Neighborhood.
+- Property category.
+- Transaction type.
+- Minimum price.
+- Maximum price.
+- Number of bedrooms.
+- Number of bathrooms.
+- Property size.
+- Furnished/unfurnished.
+- Amenities.
+- Availability.
+- Verification status.
+
+Examples of searches:
+
+- Three-bedroom apartment in Mikocheni under TZS 2,000,000 monthly.
+- Land in Kigamboni under TZS 50,000,000.
+- House for sale in Dodoma.
+- Short-stay apartment in Masaki.
+- Commercial property in Mwanza.
+
+Requirements:
+
+1. Implement efficient backend filtering.
+2. Avoid loading every property into the browser.
+3. Implement pagination or infinite scrolling.
+4. Add sorting by newest, price and relevance.
+5. Preserve search filters when users navigate between pages.
+6. Provide useful empty states.
+7. Add saved searches as a future-compatible feature.
+8. Optimize search database queries.
+9. Ensure filters work together correctly.
+
+Use Tanzanian Shillings (TZS) as the default currency.
+
+---
+
+PHASE 4: PROPERTY VERIFICATION AND TRUST SYSTEM
+
+Trust must become one of Makazi Go's strongest competitive advantages.
+
+Develop a structured verification system.
+
+User verification
+
+Support:
+
+- Phone verification.
+- Email verification.
+- Identity verification.
+- Agent verification.
+- Agency verification.
+
+Property verification
+
+Support separate verification statuses:
+
+1. Unverified.
+2. Submitted for verification.
+3. Under review.
+4. Identity checked.
+5. Property location checked.
+6. Ownership or advertising authority reviewed.
+7. Verified.
+8. Rejected.
+9. Verification expired.
+
+Do not automatically label a property as legally verified merely because its owner has uploaded a document.
+
+Only authorized administrators or designated verification personnel should approve verification.
+
+Verification display
+
+Show clear information on property pages:
+
+- Identity verification status.
+- Owner/agent authorization status.
+- Location verification status.
+- Document review status.
+- Verification date.
+
+Maintain an audit history of verification decisions.
+
+Protect uploaded identity and ownership documents from public access.
+
+---
+
+PHASE 5: PROFESSIONAL AGENT ECOSYSTEM
+
+Upgrade the existing Explore Agents functionality.
+
+Create professional agent profiles containing:
+
+- Profile photo.
+- Full name.
+- Professional description.
+- Contact information.
+- Agency information.
+- Verified status.
+- Specializations.
+- Areas of operation.
+- Active listings.
+- Reviews.
+- Ratings.
+- Response rate, where measurable.
+- Experience, where confirmed.
+
+Agent dashboard should support:
+
+- Create listings.
+- Edit listings.
+- Delete or archive listings.
+- Manage inquiries.
+- Manage bookings.
+- View property performance.
+- View profile analytics.
+- Manage subscriptions.
+- Manage verification applications.
+
+Prevent agents from claiming unverified sales or rental statistics.
+
+Support different account roles:
+
+- Regular customer.
+- Property owner.
+- Agent.
+- Agency.
+- Developer.
+- Administrator.
+- Verification officer.
+
+Use secure role-based access control.
+
+---
+
+PHASE 6: PROPERTY LISTING MANAGEMENT
+
+Upgrade List Your Place into a structured listing workflow.
+
+Step 1: Select property category.
+
+Step 2: Select transaction type:
+
+- Sale.
+- Long-term rental.
+- Short-term stay.
+
+Step 3: Enter property location.
+
+Step 4: Enter property information.
+
+Step 5: Add price and payment terms.
+
+Step 6: Upload photos and videos.
+
+Step 7: Enter ownership or advertising authorization information.
+
+Step 8: Submit for review.
+
+Step 9: Publish after required checks.
+
+Include category-specific fields.
+
+For example:
+
+LAND:
+
+- Plot size.
+- Land-use type.
+- Title information.
+- Access road.
+- Utilities.
+- Location.
+
+HOUSE:
+
+- Bedrooms.
+- Bathrooms.
+- Floors.
+- Parking.
+- Furnishing.
+- Amenities.
+
+HOTEL:
+
+- Room types.
+- Available facilities.
+- Check-in/check-out.
+- Guest capacity.
+- Booking policies.
+
+COMMERCIAL:
+
+- Floor area.
+- Business use.
+- Parking.
+- Accessibility.
+- Facilities.
+
+Do not force irrelevant fields across all property categories.
+
+---
+
+PHASE 7: DUPLICATE AND FRAUD DETECTION
+
+Develop a moderation system to identify suspicious listings.
+
+Potential checks:
+
+- Duplicate images.
+- Duplicate phone numbers.
+- Similar property descriptions.
+- Repeated addresses.
+- Suspicious price changes.
+- Multiple agents advertising the same property.
+- Repeatedly reported accounts.
+- Incomplete verification information.
+
+Use a combination of automated detection and administrator review.
+
+Do not automatically accuse users of fraud based on similarity alone.
+
+Provide administrators with tools to investigate flagged listings.
+
+---
+
+PHASE 8: PROPERTY MAP AND LOCATION DISCOVERY
+
+Implement map-based property discovery.
+
+Users should be able to:
+
+- View properties on a map.
+- Search by geographic area.
+- See property prices on map markers.
+- Click markers to preview listings.
+- Open full property details.
+- Switch between map and list views.
+
+Support approximate property locations where exact addresses must remain private.
+
+Never expose private owner addresses or sensitive location data.
+
+Use an appropriate mapping provider compatible with the existing architecture.
+
+Optimize map loading and avoid unnecessary API requests.
+
+---
+
+PHASE 9: PROPERTY POSTS AND CONTENT PLATFORM
+
+Upgrade the existing Posts functionality.
+
+Support:
+
+- Property tours.
+- Property announcements.
+- Area guides.
+- Real estate educational articles.
+- Land-buying guides.
+- Market insights.
+- Investment education.
+- Property development updates.
+
+Allow authorized users to create content.
+
+Include:
+
+- Images.
+- Videos.
+- Categories.
+- Search.
+- Sharing.
+- Comments, if supported by the existing architecture.
+- Moderation.
+- SEO-friendly URLs.
+
+The objective is to make Makazi Go a trusted source of property information in Tanzania.
+
+---
+
+PHASE 10: REVIEWS AND REPUTATION
+
+Introduce a reliable reputation system.
+
+Allow users to review agents, hosts and eligible properties after genuine interactions.
+
+Features:
+
+- Star ratings.
+- Written reviews.
+- Review moderation.
+- Verified interaction indicators.
+- Agent response information.
+- Report review functionality.
+
+Prevent users from reviewing their own listings.
+
+Avoid fake ratings and fabricated transaction statistics.
+
+---
+
+PHASE 11: USER EXPERIENCE IMPROVEMENTS
+
+Preserve Makazi Go's existing premium identity.
+
+Maintain its brand personality and visual language.
+
+Improve:
+
+- Homepage hierarchy.
+- Navigation.
+- Property cards.
+- Property detail pages.
+- Search experience.
+- Agent profiles.
+- Listing forms.
+- Dashboard layouts.
+- Loading states.
+- Error states.
+- Empty states.
+- Mobile layouts.
+
+The design should feel modern, premium, clean and trustworthy.
+
+Avoid unnecessary redesigns.
+
+Use consistent typography, spacing, colors, icons and reusable components.
+
+Ensure accessibility and usability on mobile devices.
+
+---
+
+PHASE 12: ADMINISTRATION AND SECURITY
+
+Review and strengthen the administrator system.
+
+The administrator interface must not be exposed as a normal public navigation destination.
+
+Implement or verify:
+
+- Secure authentication.
+- Role-based authorization.
+- Protected admin routes.
+- Server-side permission checks.
+- Audit logs.
+- Rate limiting.
+- Input validation.
+- File upload validation.
+- Secure session management.
+- CSRF protection where applicable.
+- XSS protection.
+- SQL/NoSQL injection protection.
+- Secure password handling.
+- Environment variable protection.
+- API access control.
+
+Never expose secrets, private credentials, database connection strings or API keys.
+
+Never rely exclusively on frontend restrictions for security.
+
+---
+
+PHASE 13: MOBILE PERFORMANCE
+
+Tanzania is the primary market.
+
+Prioritize mobile-first performance.
+
+Optimize for:
+
+- Android smartphones.
+- Slower internet connections.
+- Limited mobile data.
+- Different screen sizes.
+- Image-heavy property listings.
+
+Implement:
+
+- Image compression.
+- Responsive image sizes.
+- Lazy loading.
+- Efficient API requests.
+- Pagination.
+- Caching where appropriate.
+- Optimized frontend bundles.
+- Clear loading indicators.
+
+Test both desktop and mobile layouts.
+
+---
+
+PHASE 14: MONETIZATION ARCHITECTURE
+
+Prepare Makazi Go for a sustainable business model.
+
+Potential revenue streams:
+
+1. Free basic listings.
+2. Agent subscriptions.
+3. Professional agent subscriptions.
+4. Agency subscriptions.
+5. Featured property promotion.
+6. Sponsored property placement.
+7. Developer accounts.
+8. Premium analytics.
+9. Property management services.
+
+Create a flexible subscription architecture.
+
+Subscription tiers should be configurable by administrators.
+
+Do not hardcode subscription prices throughout the application.
+
+Do not activate real payment collection without proper payment integration and testing.
+
+---
+
+PHASE 15: FUTURE FEATURES
+
+Design the architecture so these can be introduced later without major restructuring:
+
+- Makazi Go Payments.
+- Online booking payments.
+- Digital agreements.
+- Property valuation tools.
+- Mortgage/financing partnerships.
+- Property management.
+- Rental payment tracking.
+- Tenant management.
+- Investment opportunities.
+- Developer project marketplace.
+- Advanced analytics.
+- AI property recommendations.
+- WhatsApp integration.
+- Push notifications.
+
+Do not build all future modules immediately.
+
+Prepare clean interfaces and extensible architecture where justified.
+
+---
+
+PHASE 16: SEO AND MARKETING
+
+Improve organic search visibility.
+
+Implement:
+
+- SEO-friendly property URLs.
+- Dynamic page titles.
+- Meta descriptions.
+- Open Graph metadata.
+- Structured data where appropriate.
+- XML sitemap.
+- Robots.txt.
+- Canonical URLs.
+- Region and neighborhood landing pages.
+- Optimized images and alt text.
+
+Example SEO pages:
+
+- Houses for rent in Dar es Salaam.
+- Apartments for sale in Dodoma.
+- Land for sale in Kigamboni.
+- Short-stay apartments in Masaki.
+
+Avoid generating thousands of low-quality duplicate pages.
+
+---
+
+PHASE 17: TESTING AND QUALITY ASSURANCE
+
+Every implemented feature must be tested.
+
+Test:
+
+- Registration.
+- Login.
+- Password recovery.
+- Authorization.
+- Listing creation.
+- Listing editing.
+- Property search.
+- Filtering.
+- Booking requests.
+- Agent profiles.
+- Image uploads.
+- Verification workflows.
+- Admin functions.
+- Mobile responsiveness.
+- API endpoints.
+- Database operations.
+
+Add automated tests where practical.
+
+Run existing tests before and after significant changes.
+
+Fix errors introduced by modifications.
+
+Do not claim a feature is complete if it has not been tested.
+
+---
+
+DEVELOPMENT EXECUTION RULES
+
+These rules are mandatory.
+
+1. Understand the existing codebase before changing it.
+2. Do not rebuild working functionality unnecessarily.
+3. Do not delete existing features without approval.
+4. Do not change the technology stack without a strong technical reason.
+5. Reuse existing components and services where appropriate.
+6. Follow existing naming conventions and architecture.
+7. Keep frontend, backend and database logic consistent.
+8. Use database migrations for schema changes.
+9. Protect existing user data.
+10. Never use fake production data or fabricated statistics.
+11. Do not introduce placeholder buttons that appear functional but do nothing.
+12. Do not leave incomplete features disguised as finished functionality.
+13. Do not expose sensitive information.
+14. Keep the application deployable after every development phase.
+15. Document important architectural changes.
+16. Maintain backward compatibility wherever practical.
+
+When a requirement conflicts with existing functionality, investigate before changing anything.
+
+If a feature requires a third-party service, identify the dependency and implement it safely without inventing credentials.
+
+---
+
+EXECUTION STRATEGY
+
+Work progressively.
+
+Do not attempt to implement all phases in one uncontrolled operation.
+
+Start by:
+
+1. Inspecting the entire codebase.
+2. Understanding the database.
+3. Producing the system audit.
+4. Identifying the highest-priority problems.
+5. Creating a phased implementation plan.
+
+Then execute the roadmap in manageable stages.
+
+After each stage:
+
+- Explain what changed.
+- Identify modified files.
+- Explain database changes.
+- Report tests performed.
+- Report remaining issues.
+- Confirm whether existing functionality still works.
+
+Prioritize critical security and data-integrity problems before adding advanced features.
+
+Maintain a DEVELOPMENT_ROADMAP.md file and update it as work progresses.
+
+Maintain a CHANGELOG.md file documenting significant changes.
+
+Create or update technical documentation where necessary.
+
+---
+
+FINAL PRODUCT VISION
+
+Makazi Go should become:
+
+Tanzania's trusted property marketplace and real estate ecosystem.
+
+A platform where people can:
+
+- Find homes.
+- Rent apartments.
+- Book accommodation.
+- Buy property.
+- Discover land.
+- Find commercial spaces.
+- Connect with verified agents.
+- Advertise properties.
+- Explore development opportunities.
+- Access trustworthy property information.
+
+The central product promise is:
+
+FIND IT. VERIFY IT. CONNECT. MOVE.
+
+Build a platform that is reliable, secure, user-friendly, scalable and commercially sustainable.
+
+Your goal is not merely to add features.
+
+Your goal is to make the existing Makazi Go application a genuinely competitive product in Tanzania's real estate market.

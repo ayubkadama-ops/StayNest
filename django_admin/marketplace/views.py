@@ -22,6 +22,10 @@ HOME_CATEGORIES = (
     {'value': 'hotel', 'label': 'Hotels', 'caption': 'Investment in hospitality', 'image': '/assets/makazi-category-hotel.webp'},
     {'value': 'commercial', 'label': 'Commercial', 'caption': 'Space for business', 'image': '/assets/makazi-category-commercial.webp'},
 )
+DISCOVERY_AMENITIES = (
+    'Parking', 'Wi-Fi', 'Swimming pool', 'Air conditioning', 'Security',
+    'Garden', 'Water connection', 'Electricity nearby',
+)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -41,7 +45,13 @@ def _api_json(request, path):
     try:
         with urlopen(Request(_upstream_url(path), headers=headers), timeout=8) as response:
             return json.loads(response.read().decode('utf-8'))
-    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
+    except HTTPError as error:
+        try:
+            payload = json.loads(error.read().decode('utf-8'))
+        except (ValueError, OSError):
+            return {'error': 'The search request could not be completed.'}
+        return payload if isinstance(payload, dict) else {'error': 'The search request could not be completed.'}
+    except (URLError, TimeoutError, ValueError, OSError):
         return {}
 
 
@@ -80,13 +90,35 @@ def home(request):
 
 
 def properties(request):
-    filters = {
-        key: request.GET.get(key, '').strip()
-        for key in ('q', 'location', 'propertyType', 'transactionType', 'rentalMode', 'sort')
-    }
-    query = urlencode({key: value for key, value in filters.items() if value})
+    filter_keys = (
+        'q', 'location', 'region', 'district', 'ward', 'neighborhood',
+        'propertyType', 'transactionType', 'rentalMode', 'pricePeriod', 'currency',
+        'minPrice', 'maxPrice', 'minBedrooms', 'maxBedrooms', 'minBathrooms',
+        'minSize', 'maxSize', 'furnished', 'availableFrom', 'availableTo',
+        'verificationStatus', 'sort', 'page',
+    )
+    filters = {key: request.GET.get(key, '').strip() for key in filter_keys}
+    filters['amenities'] = request.GET.getlist('amenities')
+    query_pairs = [(key, value) for key, value in filters.items() if value]
+    query_pairs = [(key, value) for key, value in query_pairs if key != 'amenities']
+    query_pairs.extend(('amenities', value) for value in filters['amenities'])
+    query = urlencode(query_pairs)
     result = _api_json(request, f'api/listings/discover?{query}')
-    return _render(request, 'properties', listings=[_listing_view_model(listing) for listing in result.get('listings', [])], filters=filters)
+    pagination = result.get('pagination') or {'page': 1, 'total': len(result.get('listings', [])), 'totalPages': 0, 'hasPrevious': False, 'hasNext': False}
+    base_query = [(key, value) for key, value in query_pairs if key != 'page']
+    previous_query = urlencode([*base_query, ('page', pagination['page'] - 1)]) if pagination.get('hasPrevious') else ''
+    next_query = urlencode([*base_query, ('page', pagination['page'] + 1)]) if pagination.get('hasNext') else ''
+    return _render(
+        request,
+        'properties',
+        listings=[_listing_view_model(listing) for listing in result.get('listings', [])],
+        filters=filters,
+        search_error=result.get('error'),
+        pagination=pagination,
+        previous_query=previous_query,
+        next_query=next_query,
+        amenity_options=DISCOVERY_AMENITIES,
+    )
 
 
 def property_detail(request, listing_id):

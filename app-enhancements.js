@@ -94,6 +94,23 @@ function addListingJourneyFields(form) {
     ['serviced_apartment', 'Serviced apartment'],
   ]);
   category.required = true;
+  const region = addField('Region', 'region');
+  region.maxLength = 100;
+  const district = addField('District', 'district');
+  district.maxLength = 100;
+  const ward = addField('Ward', 'ward');
+  ward.maxLength = 100;
+  const neighborhood = addField('Neighborhood', 'neighborhood');
+  neighborhood.maxLength = 120;
+  const propertySize = addField('Property area (m²)', 'propertySize', 'number');
+  propertySize.min = '1';
+  propertySize.step = '0.01';
+  const furnished = addField('Furnishing', 'furnished', 'select', [
+    ['', 'Not specified'],
+    ['furnished', 'Furnished'],
+    ['partially_furnished', 'Partially furnished'],
+    ['unfurnished', 'Unfurnished'],
+  ]);
   const salePrice = addField('Sale price (TZS)', 'salePrice', 'number');
   salePrice.min = '1';
   salePrice.step = '0.01';
@@ -163,6 +180,9 @@ function addListingJourneyFields(form) {
     }
     for (const control of [landSize, landSizeUnit, landUse, titleStatus]) setFieldVisible(control, land);
     for (const control of [floorArea, commercialUse]) setFieldVisible(control, commercial);
+    for (const control of [propertySize, furnished]) {
+      setFieldVisible(control, !land && !commercial);
+    }
     categoryNote.hidden = !land;
   };
   journey.addEventListener('change', updateFields);

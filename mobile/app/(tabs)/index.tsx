@@ -17,9 +17,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/components/AuthProvider';
 import { Text, View } from '@/components/Themed';
 import {
+  createSearchAlert,
   discoverListings,
   resolveMediaUrl,
   type DiscoveryFilters,
+  type DiscoveryResult,
   type ListingSummary,
 } from '@/constants/marketplaceApi';
 
@@ -39,6 +41,24 @@ const initialFilters: DiscoveryFilters = {
   transactionType: '',
   rentalMode: '',
   sort: 'new',
+  region: '',
+  district: '',
+  ward: '',
+  neighborhood: '',
+  pricePeriod: '',
+  currency: 'TZS',
+  minPrice: '',
+  maxPrice: '',
+  minBedrooms: '',
+  maxBedrooms: '',
+  minBathrooms: '',
+  minSize: '',
+  maxSize: '',
+  furnished: '',
+  verificationStatus: '',
+  amenities: [],
+  availableFrom: '',
+  availableTo: '',
 };
 
 export default function ExploreScreen() {
@@ -46,25 +66,44 @@ export default function ExploreScreen() {
   const { user } = useAuth();
   const listRef = useRef<FlatList<ListingSummary> | null>(null);
   const resultsOffset = useRef(0);
+  const discoveryRequestRef = useRef(0);
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);
   const [refreshKey, setRefreshKey] = useState(0);
   const [listings, setListings] = useState<ListingSummary[]>([]);
+  const [pagination, setPagination] = useState<DiscoveryResult['pagination']>({
+    page: 1,
+    limit: 24,
+    total: 0,
+    totalPages: 0,
+    hasPrevious: false,
+    hasNext: false,
+  });
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveSearchMessage, setSaveSearchMessage] = useState('');
+  const [savingSearch, setSavingSearch] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [typePickerOpen, setTypePickerOpen] = useState(false);
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     let active = true;
+    discoveryRequestRef.current += 1;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
 
     void discoverListings(filters)
       .then((results) => {
-        if (active) setListings(results);
+        if (active) {
+          setListings(results.listings);
+          setPagination(results.pagination);
+        }
       })
       .catch((requestError: unknown) => {
         if (!active) return;
@@ -92,6 +131,17 @@ export default function ExploreScreen() {
   };
   const applyFilters = () => {
     setFilters({ ...draft });
+    setSaveSearchMessage('');
+    setListings([]);
+    setPagination({
+      page: 1,
+      limit: 24,
+      total: 0,
+      totalPages: 0,
+      hasPrevious: false,
+      hasNext: false,
+    });
+    setRefreshKey((key) => key + 1);
     setTypePickerOpen(false);
     setMenuOpen(false);
     scrollToResults();
@@ -100,6 +150,17 @@ export default function ExploreScreen() {
     const nextFilters = { ...draft, propertyType };
     setDraft(nextFilters);
     setFilters(nextFilters);
+    setSaveSearchMessage('');
+    setListings([]);
+    setPagination({
+      page: 1,
+      limit: 24,
+      total: 0,
+      totalPages: 0,
+      hasPrevious: false,
+      hasNext: false,
+    });
+    setRefreshKey((key) => key + 1);
     setTypePickerOpen(false);
     setMenuOpen(false);
     scrollToResults();
@@ -107,6 +168,68 @@ export default function ExploreScreen() {
   const refreshListings = () => {
     setRefreshing(true);
     setRefreshKey((key) => key + 1);
+  };
+  const saveCurrentSearch = async () => {
+    const activeFilters = Object.entries(filters).filter(([key, value]) => (
+      !['sort', 'currency'].includes(key)
+      && (Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim().length > 0)
+    ));
+    if (!activeFilters.length) {
+      setSaveSearchMessage('Apply at least one filter before saving.');
+      return;
+    }
+
+    const category = propertyCategories.find((item) => item.value === filters.propertyType)?.label;
+    const journey = filters.transactionType === 'sale' ? 'Buy'
+      : filters.transactionType === 'rent' ? 'Rent'
+        : filters.transactionType === 'stay' ? 'Stay' : '';
+    const name = [
+      filters.location,
+      filters.district,
+      filters.neighborhood,
+      category,
+      journey,
+    ].filter(Boolean).join(' · ') || 'My property search';
+    setSavingSearch(true);
+    setSaveSearchMessage('');
+    try {
+      await createSearchAlert(name, filters);
+      setSaveSearchMessage('Search saved.');
+    } catch (requestError: unknown) {
+      const message = requestError instanceof Error ? requestError.message : 'This search could not be saved.';
+      setSaveSearchMessage(/auth|sign in/i.test(message) ? 'Sign in to save this search.' : message);
+    } finally {
+      setSavingSearch(false);
+    }
+  };
+  const loadMoreListings = () => {
+    if (!pagination.hasNext || loadingMoreRef.current) return;
+    const requestId = discoveryRequestRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setError(null);
+    void discoverListings(filters, pagination.page + 1)
+      .then((results) => {
+        if (requestId !== discoveryRequestRef.current) return;
+        setListings((current) => {
+          const knownIds = new Set(current.map((listing) => listing.id));
+          return [...current, ...results.listings.filter((listing) => !knownIds.has(listing.id))];
+        });
+        setPagination(results.pagination);
+      })
+      .catch((requestError: unknown) => {
+        if (requestId !== discoveryRequestRef.current) return;
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'More listings could not be loaded. Please try again.',
+        );
+      })
+      .finally(() => {
+        if (requestId !== discoveryRequestRef.current) return;
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      });
   };
   const selectedCategory = propertyCategories.find(
     (category) => category.value === draft.propertyType,
@@ -199,6 +322,17 @@ export default function ExploreScreen() {
           </Pressable>
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ disabled: savingSearch }}
+            disabled={savingSearch}
+            onPress={() => void saveCurrentSearch()}
+            style={({ pressed }) => [styles.saveSearchButton, pressed && styles.pressed]}>
+            <Text style={styles.saveSearchButtonText}>{savingSearch ? 'Saving search…' : 'Save this search'}</Text>
+          </Pressable>
+          {saveSearchMessage ? (
+            <Text accessibilityRole="alert" style={styles.saveSearchMessage}>{saveSearchMessage}</Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
             accessibilityState={{ expanded: showFilters }}
             onPress={() => setShowFilters((visible) => !visible)}
             style={styles.moreFiltersButton}>
@@ -222,6 +356,30 @@ export default function ExploreScreen() {
                   value={draft.q}
                 />
               </View>
+              <SearchField
+                label="Region"
+                value={draft.region ?? ''}
+                onChangeText={(region) => setDraft((current) => ({ ...current, region }))}
+                placeholder="Region"
+              />
+              <SearchField
+                label="District"
+                value={draft.district ?? ''}
+                onChangeText={(district) => setDraft((current) => ({ ...current, district }))}
+                placeholder="District"
+              />
+              <SearchField
+                label="Ward"
+                value={draft.ward ?? ''}
+                onChangeText={(ward) => setDraft((current) => ({ ...current, ward }))}
+                placeholder="Ward"
+              />
+              <SearchField
+                label="Neighborhood"
+                value={draft.neighborhood ?? ''}
+                onChangeText={(neighborhood) => setDraft((current) => ({ ...current, neighborhood }))}
+                placeholder="Neighborhood"
+              />
               <Text style={styles.fieldLabel}>Property journey</Text>
               <View style={styles.chipRow}>
                 <FilterChip
@@ -232,19 +390,158 @@ export default function ExploreScreen() {
                 <FilterChip
                   label="Buy"
                   selected={draft.transactionType === 'sale'}
-                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'sale' }))}
+                  onPress={() => setDraft((current) => ({
+                    ...current,
+                    transactionType: 'sale',
+                    pricePeriod: 'sale',
+                  }))}
                 />
                 <FilterChip
                   label="Rent"
                   selected={draft.transactionType === 'rent'}
-                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'rent' }))}
+                  onPress={() => setDraft((current) => ({
+                    ...current,
+                    transactionType: 'rent',
+                    pricePeriod: current.pricePeriod === 'yearly' ? 'yearly' : 'monthly',
+                  }))}
                 />
                 <FilterChip
                   label="Stay"
                   selected={draft.transactionType === 'stay'}
-                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'stay' }))}
+                  onPress={() => setDraft((current) => ({
+                    ...current,
+                    transactionType: 'stay',
+                    pricePeriod: 'nightly',
+                  }))}
                 />
               </View>
+              <Text style={[styles.fieldLabel, styles.sortLabel]}>Price period</Text>
+              <View style={styles.chipRow}>
+                {([
+                  ['sale', 'Sale'],
+                  ['nightly', 'Per night'],
+                  ['monthly', 'Per month'],
+                  ['yearly', 'Per year'],
+                ] as const).map(([pricePeriod, label]) => (
+                  <FilterChip
+                    key={pricePeriod}
+                    label={label}
+                    selected={draft.pricePeriod === pricePeriod}
+                    onPress={() => setDraft((current) => ({ ...current, pricePeriod }))}
+                  />
+                ))}
+              </View>
+              <SearchField
+                label="Minimum price (TZS)"
+                value={draft.minPrice ?? ''}
+                onChangeText={(minPrice) => setDraft((current) => ({ ...current, minPrice }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Maximum price (TZS)"
+                value={draft.maxPrice ?? ''}
+                onChangeText={(maxPrice) => setDraft((current) => ({ ...current, maxPrice }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Minimum bedrooms"
+                value={draft.minBedrooms ?? ''}
+                onChangeText={(minBedrooms) => setDraft((current) => ({ ...current, minBedrooms }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Maximum bedrooms"
+                value={draft.maxBedrooms ?? ''}
+                onChangeText={(maxBedrooms) => setDraft((current) => ({ ...current, maxBedrooms }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Minimum bathrooms"
+                value={draft.minBathrooms ?? ''}
+                onChangeText={(minBathrooms) => setDraft((current) => ({ ...current, minBathrooms }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Minimum area (m²)"
+                value={draft.minSize ?? ''}
+                onChangeText={(minSize) => setDraft((current) => ({ ...current, minSize }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <SearchField
+                label="Maximum area (m²)"
+                value={draft.maxSize ?? ''}
+                onChangeText={(maxSize) => setDraft((current) => ({ ...current, maxSize }))}
+                placeholder="Any"
+                keyboardType="numeric"
+              />
+              <Text style={[styles.fieldLabel, styles.sortLabel]}>Furnishing</Text>
+              <View style={styles.chipRow}>
+                {([
+                  ['', 'Any'],
+                  ['furnished', 'Furnished'],
+                  ['partially_furnished', 'Partly furnished'],
+                  ['unfurnished', 'Unfurnished'],
+                ] as const).map(([furnished, label]) => (
+                  <FilterChip
+                    key={furnished || 'any-furnishing'}
+                    label={label}
+                    selected={(draft.furnished ?? '') === furnished}
+                    onPress={() => setDraft((current) => ({ ...current, furnished }))}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.fieldLabel, styles.sortLabel]}>Agent verification</Text>
+              <View style={styles.chipRow}>
+                {([
+                  ['', 'Any'],
+                  ['verified', 'Verified'],
+                  ['unverified', 'Not verified'],
+                ] as const).map(([verificationStatus, label]) => (
+                  <FilterChip
+                    key={verificationStatus || 'any-verification'}
+                    label={label}
+                    selected={(draft.verificationStatus ?? '') === verificationStatus}
+                    onPress={() => setDraft((current) => ({ ...current, verificationStatus }))}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.fieldLabel, styles.sortLabel]}>Amenities (all selected)</Text>
+              <View style={styles.chipRow}>
+                {['Parking', 'Wi-Fi', 'Swimming pool', 'Security'].map((amenity) => (
+                  <FilterChip
+                    key={amenity}
+                    label={amenity}
+                    selected={(draft.amenities ?? []).includes(amenity)}
+                    onPress={() => setDraft((current) => {
+                      const selected = current.amenities ?? [];
+                      return {
+                        ...current,
+                        amenities: selected.includes(amenity)
+                          ? selected.filter((item) => item !== amenity)
+                          : [...selected, amenity],
+                      };
+                    })}
+                  />
+                ))}
+              </View>
+              <SearchField
+                label="Available from (YYYY-MM-DD)"
+                value={draft.availableFrom ?? ''}
+                onChangeText={(availableFrom) => setDraft((current) => ({ ...current, availableFrom }))}
+                placeholder="YYYY-MM-DD"
+              />
+              <SearchField
+                label="Available until (YYYY-MM-DD)"
+                value={draft.availableTo ?? ''}
+                onChangeText={(availableTo) => setDraft((current) => ({ ...current, availableTo }))}
+                placeholder="YYYY-MM-DD"
+              />
               <Text style={[styles.fieldLabel, styles.sortLabel]}>Sort</Text>
               <View style={styles.chipRow}>
                 <FilterChip
@@ -260,7 +557,31 @@ export default function ExploreScreen() {
                 <FilterChip
                   label="Price: low to high"
                   selected={draft.sort === 'price_low'}
-                  onPress={() => setDraft((current) => ({ ...current, sort: 'price_low' }))}
+                  onPress={() => setDraft((current) => ({
+                    ...current,
+                    sort: 'price_low',
+                    pricePeriod: current.pricePeriod || (
+                      current.transactionType === 'sale' ? 'sale'
+                        : current.transactionType === 'stay' ? 'nightly' : 'monthly'
+                    ),
+                  }))}
+                />
+                <FilterChip
+                  label="Price: high to low"
+                  selected={draft.sort === 'price_high'}
+                  onPress={() => setDraft((current) => ({
+                    ...current,
+                    sort: 'price_high',
+                    pricePeriod: current.pricePeriod || (
+                      current.transactionType === 'sale' ? 'sale'
+                        : current.transactionType === 'stay' ? 'nightly' : 'monthly'
+                    ),
+                  }))}
+                />
+                <FilterChip
+                  label="Most relevant"
+                  selected={draft.sort === 'relevance'}
+                  onPress={() => setDraft((current) => ({ ...current, sort: 'relevance' }))}
                 />
               </View>
             </View>
@@ -320,7 +641,7 @@ export default function ExploreScreen() {
         </View>
         <View style={styles.resultMeta}>
           {!loading && !error ? (
-            <Text style={styles.resultCount}>{listings.length} properties found</Text>
+            <Text style={styles.resultCount}>{pagination.total} properties found</Text>
           ) : null}
           {filters.propertyType ? (
             <Pressable onPress={() => chooseCategory('')}>
@@ -433,11 +754,29 @@ export default function ExploreScreen() {
           ) : undefined
         }
         ListFooterComponent={
-          <HomeFooter
-            onAccount={() => router.push('/(tabs)/account')}
-            onBrowse={scrollToResults}
-          />
+          <View>
+            {pagination.hasNext ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: loadingMore }}
+                disabled={loadingMore}
+                onPress={loadMoreListings}
+                style={({ pressed }) => [styles.loadMoreButton, pressed && styles.pressed]}>
+                {loadingMore ? (
+                  <ActivityIndicator color="#087f5b" />
+                ) : (
+                  <Text style={styles.loadMoreText}>Load more properties</Text>
+                )}
+              </Pressable>
+            ) : null}
+            <HomeFooter
+              onAccount={() => router.push('/(tabs)/account')}
+              onBrowse={scrollToResults}
+            />
+          </View>
         }
+        onEndReached={loadMoreListings}
+        onEndReachedThreshold={0.45}
         refreshControl={
           <RefreshControl
             onRefresh={refreshListings}
@@ -448,6 +787,35 @@ export default function ExploreScreen() {
         renderItem={({ item }) => <ListingCard listing={item} />}
       />
     </SafeAreaView>
+  );
+}
+
+function SearchField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType = 'default',
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  keyboardType?: 'default' | 'numeric';
+}) {
+  return (
+    <View style={styles.formField}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        keyboardType={keyboardType}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#52655a"
+        style={styles.input}
+        value={value}
+      />
+    </View>
   );
 }
 
@@ -882,6 +1250,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  saveSearchButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#b7cec2',
+    borderRadius: 4,
+  },
+  saveSearchButtonText: {
+    color: '#087f5b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  saveSearchMessage: {
+    color: '#52655a',
+    fontSize: 12,
+    textAlign: 'center',
+  },
   moreFiltersButton: {
     alignSelf: 'center',
     paddingHorizontal: 10,
@@ -1037,6 +1423,21 @@ const styles = StyleSheet.create({
   resultCount: {
     color: '#61736c',
     fontSize: 13,
+  },
+  loadMoreButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#b7cec2',
+    borderRadius: 4,
+  },
+  loadMoreText: {
+    color: '#087f5b',
+    fontSize: 14,
+    fontWeight: '700',
   },
   clearFilter: {
     color: '#087f5b',

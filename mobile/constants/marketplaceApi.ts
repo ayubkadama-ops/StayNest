@@ -1,6 +1,6 @@
 export type RentalMode = '' | 'short_term' | 'long_term';
 export type ListingTransaction = '' | 'sale' | 'rent' | 'stay';
-export type ListingSort = 'new' | 'price_low' | 'popular';
+export type ListingSort = 'new' | 'price_low' | 'price_high' | 'popular' | 'relevance';
 
 export type DiscoveryFilters = {
   q: string;
@@ -9,6 +9,24 @@ export type DiscoveryFilters = {
   transactionType: ListingTransaction;
   rentalMode: RentalMode;
   sort: ListingSort;
+  region?: string;
+  district?: string;
+  ward?: string;
+  neighborhood?: string;
+  pricePeriod?: '' | 'sale' | 'nightly' | 'monthly' | 'yearly';
+  currency?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  minBedrooms?: string;
+  maxBedrooms?: string;
+  minBathrooms?: string;
+  minSize?: string;
+  maxSize?: string;
+  furnished?: '' | 'furnished' | 'partially_furnished' | 'unfurnished';
+  verificationStatus?: '' | 'verified' | 'unverified';
+  amenities?: string[];
+  availableFrom?: string;
+  availableTo?: string;
 };
 
 export type ListingSummary = {
@@ -18,6 +36,11 @@ export type ListingSummary = {
   city: string | null;
   neighborhood: string | null;
   region: string | null;
+  district: string | null;
+  ward: string | null;
+  propertySize: number | null;
+  furnished: string | null;
+  verifiedAgent: boolean | null;
   currency: string | null;
   transactionType: string | null;
   salePrice: number | null;
@@ -75,6 +98,18 @@ export type ListingDetails = {
   media: ListingMedia[];
   reviews: ListingReview[];
   similar: ListingSummary[];
+};
+
+export type DiscoveryResult = {
+  listings: ListingSummary[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasPrevious: boolean;
+    hasNext: boolean;
+  };
 };
 
 export type SessionUser = {
@@ -369,6 +404,11 @@ function parseListing(value: unknown): ListingSummary {
     city: nullableString(value.city, 'city'),
     neighborhood: nullableString(value.neighborhood, 'neighborhood'),
     region: nullableString(value.region, 'region'),
+    district: nullableString(value.district, 'district'),
+    ward: nullableString(value.ward, 'ward'),
+    propertySize: nullableNumber(value.propertySize, 'property size'),
+    furnished: nullableString(value.furnished, 'furnishing'),
+    verifiedAgent: nullableBoolean(value.verifiedAgent, 'agent verification'),
     currency: nullableString(value.currency, 'currency'),
     transactionType: nullableString(value.transactionType, 'transaction type'),
     salePrice: nullableNumber(value.salePrice, 'sale price'),
@@ -927,22 +967,58 @@ export async function getAdminUsers(
   });
 }
 
-export async function discoverListings(filters: DiscoveryFilters): Promise<ListingSummary[]> {
+export async function discoverListings(filters: DiscoveryFilters, page = 1): Promise<DiscoveryResult> {
   const params = new URLSearchParams();
-  const query = filters.q.trim();
-  const location = filters.location.trim();
-  if (query) params.set('q', query);
-  if (location) params.set('location', location);
-  if (filters.propertyType) params.set('propertyType', filters.propertyType);
-  if (filters.transactionType) params.set('transactionType', filters.transactionType);
-  if (filters.rentalMode) params.set('rentalMode', filters.rentalMode);
+  for (const [key, value] of Object.entries({ ...filters, page })) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => params.append(key, item));
+    } else if (typeof value === 'string' && value.trim()) {
+      params.set(key, value.trim());
+    } else if (typeof value === 'number') {
+      params.set(key, String(value));
+    }
+  }
   params.set('sort', filters.sort);
 
   const payload = await getJson(`/api/listings/discover?${params.toString()}`);
-  if (!isRecord(payload) || !Array.isArray(payload.listings)) {
+  if (!isRecord(payload) || !Array.isArray(payload.listings) || !isRecord(payload.pagination)) {
     throw new Error('The server returned an invalid listings response.');
   }
-  return payload.listings.map(parseListing);
+  const { pagination } = payload;
+  const pageValue = nullableNumber(pagination.page, 'results page');
+  const limit = nullableNumber(pagination.limit, 'results page size');
+  const total = nullableNumber(pagination.total, 'results count');
+  const totalPages = nullableNumber(pagination.totalPages, 'results page count');
+  const hasPrevious = nullableBoolean(pagination.hasPrevious, 'previous page state');
+  const hasNext = nullableBoolean(pagination.hasNext, 'next page state');
+  if (
+    pageValue === null || limit === null || total === null || totalPages === null
+    || hasPrevious === null || hasNext === null
+    || !Number.isInteger(pageValue) || !Number.isInteger(limit)
+    || !Number.isInteger(total) || !Number.isInteger(totalPages)
+  ) {
+    throw new Error('The server returned invalid listings pagination.');
+  }
+  return {
+    listings: payload.listings.map(parseListing),
+    pagination: { page: pageValue, limit, total, totalPages, hasPrevious, hasNext },
+  };
+}
+
+export async function createSearchAlert(name: string, filters: DiscoveryFilters): Promise<void> {
+  const savedFilters: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(filters)) {
+    if (Array.isArray(value)) {
+      if (value.length) savedFilters[key] = value;
+    } else if (typeof value === 'string' && value.trim() && !(key === 'sort' && value === 'new')) {
+      savedFilters[key] = value.trim();
+    }
+  }
+  await postJson('/api/search-alerts', {
+    name: name.trim(),
+    filters: savedFilters,
+    frequency: 'daily',
+  }, true);
 }
 
 export async function getListingDetails(id: string): Promise<ListingDetails> {

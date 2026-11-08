@@ -5,6 +5,24 @@ commit history or release notes.
 
 ## Unreleased
 
+### Search and discovery
+
+- Added validated, parameterized discovery filters for location breakdown,
+  category and journey, price period/currency, bedrooms, bathrooms, size,
+  furnishing, amenities, availability, and agent verification.
+- Replaced the unpaginated listing response with deterministic bounded pages,
+  count metadata, and price/relevance sorting.
+- Added full filter and page navigation to the static and Django web surfaces;
+  mobile now supports structured filters and load-more paging.
+- Added save-current-search actions to public web and mobile discovery using
+  the existing search-alert storage/API, with request validation and size
+  limits.
+- Exposed district, ward, property size, and furnishing on listing details.
+- Added focused API-plan and Django search tests, including preserving entered
+  filters when validation errors are returned.
+- Production TiDB/MySQL migration execution, query-plan measurement, and
+  backup/restore verification remain outstanding; no live database was used.
+
 ### Property journeys
 
 - Added Buy, Rent, and Stay transaction types while retaining legacy combined
@@ -45,6 +63,11 @@ commit history or release notes.
 
 - Added `DEVELOPMENT_ROADMAP.md` with a repository-grounded Phase 1 system
   audit, prioritized risks, staged delivery plan, and current test baseline.
+- Saved the supplied Makazi Go master development prompt verbatim as
+  `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`.
+- Added `DATABASE_OPERATIONS.md` and a read-only
+  `database/verify-stage-migrations.sql` for controlled backup/recovery and
+  post-migration schema verification.
 - Added an additive schema migration for private-document encryption
   versions and single-use review tokens. Apply and verify it against the
   deployed TiDB/MySQL engine before rollout.
@@ -53,11 +76,11 @@ commit history or release notes.
 
 ### Verification
 
-- `npm test` — 34 tests passed.
-- `npm run test:django` — 69 tests passed; Django system checks clean.
+- `npm test` — 41 tests passed.
+- `npm run test:django` — 71 tests passed; Django system checks clean.
 - JavaScript and Python syntax checks — passed.
 - `npm run build` — passed.
-- `npm run typecheck` from `mobile/` — passed.
+- `npm run typecheck --prefix mobile` — passed.
 - `git diff --check` — passed.
-- Live TiDB/S3 compatibility was not tested because no production credentials
-  or services were used.
+- Live TiDB/S3 compatibility and query plans were not tested because no
+  production database or storage services were available.

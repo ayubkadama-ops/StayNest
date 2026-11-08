@@ -36,11 +36,51 @@
       <label>Search<input name="q" placeholder="City, neighborhood, or property"></label>
       <label>Property type<select name="propertyType"><option value="">All properties</option><option value="house">Homes</option><option value="apartment">Apartments</option><option value="land">Land</option><option value="hotel">Hotels</option><option value="commercial">Commercial</option></select></label>
       <label>Journey<select name="transactionType"><option value="">Any journey</option><option value="sale">Buy</option><option value="rent">Rent</option><option value="stay">Stay</option></select></label>
-      <label>Sort<select name="sort"><option value="new">Newest</option><option value="popular">Most loved</option><option value="price_low">Price: low to high</option></select></label>
+      <label>Sort<select name="sort"><option value="new">Newest</option><option value="relevance">Most relevant</option><option value="popular">Most reviewed</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></label>
+      <input type="hidden" name="page" value="1">
       <button class="primary" type="submit">Search properties</button>
+      <details class="listings-advanced-filters">
+        <summary>More filters</summary>
+        <div class="listings-advanced-grid">
+          <label>Region<input name="region" maxlength="100" placeholder="e.g. Dar es Salaam"></label>
+          <label>District<input name="district" maxlength="100" placeholder="e.g. Kinondoni"></label>
+          <label>Ward<input name="ward" maxlength="100" placeholder="e.g. Mikocheni"></label>
+          <label>Neighborhood<input name="neighborhood" maxlength="120" placeholder="Area or neighborhood"></label>
+          <label>Price period<select name="pricePeriod"><option value="">Choose if filtering price</option><option value="sale">Sale price</option><option value="nightly">Per night</option><option value="monthly">Per month</option><option value="yearly">Per year</option></select></label>
+          <label>Currency<select name="currency"><option value="">Default to TZS for price filters</option><option value="TZS">TZS</option><option value="USD">USD</option></select></label>
+          <label>Minimum price<input name="minPrice" type="number" min="0" step="1" inputmode="numeric"></label>
+          <label>Maximum price<input name="maxPrice" type="number" min="0" step="1" inputmode="numeric"></label>
+          <label>Minimum bedrooms<input name="minBedrooms" type="number" min="0" max="99" step="1"></label>
+          <label>Maximum bedrooms<input name="maxBedrooms" type="number" min="0" max="99" step="1"></label>
+          <label>Minimum bathrooms<input name="minBathrooms" type="number" min="0" max="99" step="0.5"></label>
+          <label>Minimum area (m²)<input name="minSize" type="number" min="0" step="1"></label>
+          <label>Maximum area (m²)<input name="maxSize" type="number" min="0" step="1"></label>
+          <label>Furnishing<select name="furnished"><option value="">Any</option><option value="furnished">Furnished</option><option value="partially_furnished">Partially furnished</option><option value="unfurnished">Unfurnished</option></select></label>
+          <label>Agent verification<select name="verificationStatus"><option value="">Any status</option><option value="verified">Verified agent</option><option value="unverified">Not verified</option></select></label>
+          <label>Available from<input name="availableFrom" type="date"></label>
+          <label>Available until<input name="availableTo" type="date"></label>
+          <label class="listings-amenities-filter">Amenities (all selected)
+            <select name="amenities" multiple size="4">
+              <option value="Parking">Parking</option><option value="Wi-Fi">Wi-Fi</option>
+              <option value="Swimming pool">Swimming pool</option><option value="Air conditioning">Air conditioning</option>
+              <option value="Security">Security</option><option value="Garden">Garden</option>
+              <option value="Water connection">Water connection</option><option value="Electricity nearby">Electricity nearby</option>
+            </select>
+          </label>
+        </div>
+      </details>
     </form>
-    <p class="listings-result-note" id="listingsResultNote" role="status"></p>
+    <div class="listings-result-meta">
+      <p class="listings-result-note" id="listingsResultNote" role="status"></p>
+      <button class="outline-btn" type="button" id="saveListingSearch">Save this search</button>
+    </div>
+    <p class="listings-search-message" id="saveListingSearchMessage" role="status" aria-live="polite"></p>
     <section class="all-listings-grid" id="allListingsGrid" aria-live="polite"></section>
+    <nav class="listings-pagination" id="listingsPagination" aria-label="Listing pages" hidden>
+      <button class="outline-btn" type="button" id="listingsPrevious">Previous</button>
+      <span id="listingsPageStatus"></span>
+      <button class="outline-btn" type="button" id="listingsNext">Next</button>
+    </nav>
     <section id="listingInlineDetail" hidden aria-live="polite"></section>
   </main>
   <div class="toast" id="listingToast" role="status" aria-live="polite" hidden></div>

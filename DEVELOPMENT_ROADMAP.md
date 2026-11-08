@@ -54,7 +54,7 @@ provide additional but not exhaustive evidence.
 | Registration and login | **Present** | Tenant and agent registration flows and the recent homepage username-login fix exist. Agent applications are approval-gated. Test suites cover selected auth/console behaviors but do not constitute a complete cross-client authentication test. |
 | Property listings | **Partial** | Agents can create a listing and upload media; admins can moderate listing status. Public details include amenities, agent attribution, reviews, similar listings, and approximate public coordinates. The inspected API has create/list/media endpoints but no corresponding agent listing edit/archive/delete endpoints. |
 | Property details | **Present for current listing model** | Numeric listing URLs and API detail responses support accommodation/property fields and structured sale, land, and commercial data. Advertiser-reported title information is explicitly not legal verification. |
-| Search and filtering | **Partial** | `/api/listings/discover` supports text, location, property type, rental mode, min/max price, and sorting, but caps results at 40 without a page/cursor. The search implementation uses wildcard `LIKE` despite a full-text index. It does not yet expose the requested district/ward, bedroom/bathroom, size, furnishing, amenity, availability, and verification filters. Price comparisons use a single coalesced amount across nightly/monthly/yearly values, so unit and currency semantics need correction before expanding price filters. |
+| Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` now uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
 | Booking functionality | **Present for request-based stays/viewings** | Booking requests validate dates, apply transaction/idempotency logic, and use booking date locks. Preserve this path for stay bookings while separating it from purchase/rental inquiries and future payments. |
 | Host and agent functionality | **Partial** | Agent profiles, follows, badges, sub-agents, booking handling, and listing creation exist. Agency/business records are not yet a full marketplace organization model; agent reviews, verified performance, listing lifecycle management, and richer analytics need scoped implementation. |
 | User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view currently requests agent bookings twice, duplicating a backend call. |
@@ -65,8 +65,8 @@ provide additional but not exhaustive evidence.
 | API endpoints | **Present, large surface** | Express exposes public discovery plus account, agent, booking, upload, admin, moderation, messaging, and notification routes. Continue contract tests for authentication, permissions, validation, side effects, and error responses; mobile parity inventory is in `mobile/docs/feature-parity.md`. |
 | Mobile responsiveness | **Present, needs workflow verification** | Responsive web styling and an Expo client are in place. The mobile app currently covers a subset of web capability; the parity ledger explicitly records many incomplete workflows. Test real narrow viewports and native Android before calling a journey complete. |
 | Security | **Controls present; corrective review required** | Parameterized SQL is widely used; Express configures Helmet, CSRF, rate limits, secure HTTP-only cookies in production, session expiry, and upload signature checks. The audit found incorrect admin IP CIDR matching and a predictable Django signing-key fallback; both are corrected. New identity documents are encrypted at rest by the application and exposed only through audited one-time review grants. Also review the CSP's inline-script allowance and verify production secrets/configuration fail closed. |
-| Error handling | **Mixed** | Express has a central error handler and request IDs. Django's `_api_json` helper catches upstream/network/JSON errors and returns `{}`, which can make a failed API call appear as an empty success state. Replace success-shaped fallbacks with explicit loading/error states as those views are improved. |
-| Performance and scalability | **Mixed** | Image processing and database indexes exist. The unpaginated 40-listing discovery cap, wildcard searches, correlated listing subqueries, and session revocation's full-table session scan may become expensive as data grows. Measure query plans and workload before adding indexes or caching. |
+| Error handling | **Mixed** | Express has a central error handler and request IDs. Django preserves API validation errors on discovery and search pages; upstream network/JSON failures elsewhere can still appear as empty results and should be replaced with explicit error states as those views are improved. |
+| Performance and scalability | **Mixed** | Image processing and database indexes exist. Discovery now uses bounded pages, but wildcard location matches, correlated listing subqueries, and session revocation's full-table session scan may become expensive as data grows. Measure query plans and workload before adding indexes or caching. |
 | SEO | **Partial** | `robots.txt` and a static sitemap exist. The current sitemap lists only `/` and `/posts.html`; property detail routes are numeric and there is no evidence of dynamic listing metadata/structured data or regional landing pages. Build crawlable pages only when canonical URLs and useful unique content are available. |
 
 ### Priority issues
@@ -82,8 +82,9 @@ provide additional but not exhaustive evidence.
 3. **Product model:** Stage 2 now distinguishes sale, long-term rent, and
    short-stay journeys; defaults new user/listing currency to TZS; and adds
    structured land/commercial facts without converting existing amounts.
-4. **Discovery:** implement consistent currency/price-period semantics,
-   requested filters, stable pagination, and query-plan-based optimization.
+4. **Discovery:** filter semantics, stable bounded pagination, and cross-client
+   controls are implemented and covered locally; measure query plans and verify
+   production-engine behavior before rollout.
 5. **Trust:** establish separate user/agent/property verification states,
    private evidence review, audit history, and accurate public verification
    labels.
@@ -110,8 +111,10 @@ surgical and preserve current tenant bookings and agent approval behavior.
   single-use admin download grant with non-cacheable attachment headers.
 - [x] Add migration checksum/version tracking and focused tests for first
   application, repeat application, checksum mismatch, and migration failure.
+- [x] Document backup, recovery, migration, and schema-verification steps in
+  `DATABASE_OPERATIONS.md`, with a read-only SQL verification script.
 - [ ] Verify TiDB/MySQL DDL behavior and migration bootstrap on a production-
-  compatible database; document backup and recovery procedures.
+  compatible database, and execute a controlled backup/restore exercise.
 - **Stage status:** Implementation verified locally; production-engine and
   operational recovery validation remain open.
 - Acceptance: security tests pass; no secret fallback is accepted in
@@ -138,12 +141,23 @@ surgical and preserve current tenant bookings and agent approval behavior.
 
 ### Stage 3 — Search, pagination, and discovery
 
-- Implement combined location/category/transaction/price-period/bed/bath/
-  size/furnishing/amenity/availability/verification filters.
-- Add stable bounded pagination and sorting, preserve filters in URLs, and
-  update web/mobile clients to load pages rather than all results.
-- Use query plans and representative data before selecting indexes or
-  replacing the current full-text/search strategy.
+- [x] Implement combined location/category/transaction/price-period/bed/bath/
+  size/furnishing/amenity/availability/verification filters using parameterized
+  SQL and period/currency-aware price columns.
+- [x] Add deterministic bounded pagination and sorting; preserve query filters
+  in browser history and Django page links; add mobile load-more behavior.
+- [x] Reuse the existing search-alert model/API to save the applied filter
+  state from public web and mobile discovery, with bounded input validation.
+- [x] Add structured district/ward/size/furnishing listing details to API
+  responses and public detail views.
+- [x] Add focused discovery/filter, pagination, and Django form-state tests;
+  verify the web production build and mobile type-check.
+- [ ] Run `EXPLAIN` and representative latency/cardinality checks against a
+  controlled TiDB/MySQL dataset; confirm full-text and migration behavior on
+  the deployed engine before rollout.
+- **Stage status:** Discovery implementation is locally verified. Database
+  query-plan and production-engine verification remain open; the application
+  has not been tested against live production data.
 - Acceptance: filter-combination tests, pagination boundary tests, correct
   TZS and price-period behavior, and measured query bounds.
 
@@ -224,12 +238,23 @@ Stage 2 verification on the current working tree:
   multi-column ALTER behavior and dropping named CHECK constraints. No live
   TiDB database was available, so deployed DDL remains unverified.
 
+Stage 3 verification on the current working tree:
+
+- `npm test` — **41 passed**
+- `npm run test:django` — **71 passed**; Django system checks clean
+- `npm run build` — **passed**
+- `npm run typecheck --prefix mobile` — **passed**
+- `git diff --check` and targeted JavaScript syntax checks — **passed**
+- TiDB/MySQL `EXPLAIN`, migration execution, backup restore, and live API
+  behavior — **not run**; a controlled database environment is still needed.
+
 ## Current handoff for the next development session
 
-- Stage 1 and Stage 2 code are implemented and local Node, Django, syntax,
-  and web build checks pass. No database or object-storage credentials were
-  used, so TiDB DDL, S3 reads, and live document review are not end-to-end
-  verified.
+- Stage 1 and Stage 2 code plus Stage 3 search are implemented. The saved
+  master prompt reference is `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Node,
+  Django, web build, and mobile type-check pass locally. No database or
+  object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
+  and live document review are not end-to-end verified.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.
@@ -239,10 +264,9 @@ Stage 2 verification on the current working tree:
 - Django issues two-minute SHA-256-hashed review grants; Express consumes
   each grant once and never returns storage keys. Confirm `MARKETPLACE_URL`
   points to the Express API host in deployment.
-- Next: verify migration bootstrap and private storage against TiDB/S3 in a
-  controlled environment and document database backup/restore steps before
-  production rollout. Stage 2 is implemented; Stage 3 search/pagination is
-  the next product-development stage. Preserve unrelated worktree changes.
+- Next: verify migration bootstrap, Stage 3 query plans, and private storage
+  against TiDB/S3 in a controlled environment; execute a backup/restore test
+  before production rollout. Preserve unrelated worktree changes.
 
 ## Working rules for future stages
 

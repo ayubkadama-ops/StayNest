@@ -12,7 +12,55 @@
 <section class="how-band" id="how"><p class="eyebrow">A clear path forward</p><h2>Search. Compare. Connect.</h2><div class="steps"><article><span>01</span><h3>Choose what fits</h3><p>Filter by property type, place, and rental term.</p></article><article><span>02</span><h3>Review the details</h3><p>Check pricing, media, and the responsible local agent.</p></article><article><span>03</span><h3>Make an informed request</h3><p>Request a stay or contact the agent about property terms.</p></article></div></section>
 {% elif page == 'properties' %}
 <section class="page-heading"><p class="eyebrow">Makazi Go properties</p><h1>Find a place that fits your plans.</h1><p>Search live listings from approved agents across Tanzania.</p></section>
-<section class="content-section"><form class="filter-bar" action="/properties/" method="get"><label>Search<input name="q" value="{{ filters.q }}" placeholder="City, neighborhood, or property"></label><label>Type<select name="propertyType"><option value="">All properties</option>{% for value,label in property_types %}<option value="{{ value }}" {% if filters.propertyType == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label>Journey<select name="transactionType"><option value="">Any journey</option><option value="sale" {% if filters.transactionType == 'sale' %}selected{% endif %}>Buy</option><option value="rent" {% if filters.transactionType == 'rent' %}selected{% endif %}>Rent</option><option value="stay" {% if filters.transactionType == 'stay' %}selected{% endif %}>Stay</option></select></label><label>Rental term<select name="rentalMode"><option value="">Any term</option><option value="short_term" {% if filters.rentalMode == 'short_term' %}selected{% endif %}>Short stay</option><option value="long_term" {% if filters.rentalMode == 'long_term' %}selected{% endif %}>Long term</option></select></label><label>Sort<select name="sort"><option value="new">Newest</option><option value="popular" {% if filters.sort == 'popular' %}selected{% endif %}>Most reviewed</option><option value="price_low" {% if filters.sort == 'price_low' %}selected{% endif %}>Price: low to high</option></select></label><button class="button primary" type="submit">Apply filters</button></form><p class="result-count">{{ listings|length }} properties found</p>{% include 'marketplace/listing_grid.html' with listings=listings %}</section>
+<section class="content-section">
+  <form class="filter-bar" action="/properties/" method="get">
+    <label>Search<input name="q" value="{{ filters.q }}" placeholder="City, neighborhood, or property"></label>
+    <label>Location<input name="location" value="{{ filters.location }}" placeholder="City or area"></label>
+    <label>Type<select name="propertyType"><option value="">All properties</option>{% for value,label in property_types %}<option value="{{ value }}" {% if filters.propertyType == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Journey<select name="transactionType"><option value="">Any journey</option><option value="sale" {% if filters.transactionType == 'sale' %}selected{% endif %}>Buy</option><option value="rent" {% if filters.transactionType == 'rent' %}selected{% endif %}>Rent</option><option value="stay" {% if filters.transactionType == 'stay' %}selected{% endif %}>Stay</option></select></label>
+    <label>Rental term<select name="rentalMode"><option value="">Any term</option><option value="short_term" {% if filters.rentalMode == 'short_term' %}selected{% endif %}>Short stay</option><option value="long_term" {% if filters.rentalMode == 'long_term' %}selected{% endif %}>Long term</option></select></label>
+    <label>Sort<select name="sort"><option value="new">Newest</option><option value="relevance" {% if filters.sort == 'relevance' %}selected{% endif %}>Most relevant</option><option value="popular" {% if filters.sort == 'popular' %}selected{% endif %}>Most reviewed</option><option value="price_low" {% if filters.sort == 'price_low' %}selected{% endif %}>Price: low to high</option><option value="price_high" {% if filters.sort == 'price_high' %}selected{% endif %}>Price: high to low</option></select></label>
+    <input type="hidden" name="page" value="1">
+    <details class="filter-advanced">
+      <summary>More filters</summary>
+      <div class="filter-advanced-grid">
+        <label>Region<input name="region" value="{{ filters.region }}" maxlength="100"></label>
+        <label>District<input name="district" value="{{ filters.district }}" maxlength="100"></label>
+        <label>Ward<input name="ward" value="{{ filters.ward }}" maxlength="100"></label>
+        <label>Neighborhood<input name="neighborhood" value="{{ filters.neighborhood }}" maxlength="120"></label>
+        <label>Price period<select name="pricePeriod"><option value="">Select period</option><option value="sale" {% if filters.pricePeriod == 'sale' %}selected{% endif %}>Sale</option><option value="nightly" {% if filters.pricePeriod == 'nightly' %}selected{% endif %}>Per night</option><option value="monthly" {% if filters.pricePeriod == 'monthly' %}selected{% endif %}>Per month</option><option value="yearly" {% if filters.pricePeriod == 'yearly' %}selected{% endif %}>Per year</option></select></label>
+        <label>Currency<select name="currency"><option value="">Default to TZS</option><option value="TZS" {% if filters.currency == 'TZS' %}selected{% endif %}>TZS</option><option value="USD" {% if filters.currency == 'USD' %}selected{% endif %}>USD</option></select></label>
+        <label>Minimum price<input name="minPrice" type="number" min="0" value="{{ filters.minPrice }}"></label>
+        <label>Maximum price<input name="maxPrice" type="number" min="0" value="{{ filters.maxPrice }}"></label>
+        <label>Minimum bedrooms<input name="minBedrooms" type="number" min="0" value="{{ filters.minBedrooms }}"></label>
+        <label>Maximum bedrooms<input name="maxBedrooms" type="number" min="0" value="{{ filters.maxBedrooms }}"></label>
+        <label>Minimum bathrooms<input name="minBathrooms" type="number" min="0" step="0.5" value="{{ filters.minBathrooms }}"></label>
+        <label>Minimum area (m²)<input name="minSize" type="number" min="0" value="{{ filters.minSize }}"></label>
+        <label>Maximum area (m²)<input name="maxSize" type="number" min="0" value="{{ filters.maxSize }}"></label>
+        <label>Furnishing<select name="furnished"><option value="">Any</option><option value="furnished" {% if filters.furnished == 'furnished' %}selected{% endif %}>Furnished</option><option value="partially_furnished" {% if filters.furnished == 'partially_furnished' %}selected{% endif %}>Partially furnished</option><option value="unfurnished" {% if filters.furnished == 'unfurnished' %}selected{% endif %}>Unfurnished</option></select></label>
+        <label>Agent verification<select name="verificationStatus"><option value="">Any status</option><option value="verified" {% if filters.verificationStatus == 'verified' %}selected{% endif %}>Verified agent</option><option value="unverified" {% if filters.verificationStatus == 'unverified' %}selected{% endif %}>Not verified</option></select></label>
+        <label>Available from<input name="availableFrom" type="date" value="{{ filters.availableFrom }}"></label>
+        <label>Available until<input name="availableTo" type="date" value="{{ filters.availableTo }}"></label>
+        <label>Amenities (all selected)<select name="amenities" multiple size="4">{% for value in amenity_options %}<option value="{{ value }}" {% if value in filters.amenities %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      </div>
+    </details>
+    <button class="button primary" type="submit">Apply filters</button>
+  </form>
+  {% if search_error %}<p class="form-message" role="alert">{{ search_error }}</p>{% endif %}
+  <div class="discovery-results-meta">
+    <p class="result-count">{{ pagination.total }} properties found</p>
+    <button class="button" type="button" data-save-search>Save this search</button>
+  </div>
+  <p class="form-message" data-save-search-status aria-live="polite"></p>
+  {% include 'marketplace/listing_grid.html' with listings=listings %}
+  {% if pagination.totalPages > 1 %}
+  <nav class="filter-pagination" aria-label="Listing pages">
+    {% if previous_query %}<a class="button" href="?{{ previous_query }}">Previous</a>{% else %}<span></span>{% endif %}
+    <span>Page {{ pagination.page }} of {{ pagination.totalPages }}</span>
+    {% if next_query %}<a class="button" href="?{{ next_query }}">Next</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+</section>
 {% elif page == 'agents' %}
 <section class="page-heading"><p class="eyebrow">Local property professionals</p><h1>Meet the agents who know the area.</h1><p>Connect directly with verified agents for availability, viewings, and property terms.</p></section>
 <section class="content-section"><div class="agent-grid">{% for agent in agents %}<article class="agent-card">{% if agent.profileImageUrl %}<img class="agent-avatar" src="{{ agent.profileImageUrl }}" alt="{{ agent.firstName }} {{ agent.lastName }}">{% else %}<div class="agent-avatar placeholder" aria-hidden="true">{{ agent.firstName|first }}{{ agent.lastName|first }}</div>{% endif %}<div><h2>{{ agent.firstName }} {{ agent.lastName }}</h2><p>{{ agent.city|default:'Tanzania' }}{% if agent.agencyName %} · {{ agent.agencyName }}{% endif %}</p><p>{{ agent.listings }} published properties</p></div><a class="button" href="/agents/{{ agent.id }}/">View agent</a></article>{% empty %}<p class="empty-state">No approved agents are available yet.</p>{% endfor %}</div></section>
