@@ -138,7 +138,9 @@ surgical and preserve current tenant bookings and agent approval behavior.
   in one ALTER statement.
 - **Stage status:** Implementation and local tests/builds are verified.
   Render exposed a same-column TiDB ALTER limitation; a tested fallback is
-  ready for a clean redeploy. Backup/recovery procedures remain unverified.
+  pushed in `ec22d4a`. The public health endpoint returned HTTP 200 afterward,
+  but deployment-specific logs are needed to confirm the new release completed
+  migration. Backup/recovery procedures remain unverified.
 - Acceptance: legacy listings still render; existing stays remain bookable;
   invalid combinations are rejected server-side.
 
@@ -302,10 +304,11 @@ Stage 5/6 and Render migration-recovery verification:
   `git diff --check` — **passed**.
 - Render's latest failed deploy built successfully but exited during DB
   migration with `Unsupported operate same column 'transaction_type'`,
-  followed by a no-open-ports timeout. A tested fallback now separates the
-  column change and index creation. The previous live release returned HTTP
-  200 from its health endpoint; the pushed fix still needs a successful Render
-  deploy and health check to verify production migration recovery.
+  followed by a no-open-ports timeout. Commit `ec22d4a` separates the column
+  change and index creation. The public health endpoint returned HTTP 200
+  after the push, but the available response does not identify its deployed
+  commit and Render runtime logs were unavailable; production migration
+  recovery is therefore not confirmed.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
 
@@ -317,6 +320,9 @@ Stage 5/6 and Render migration-recovery verification:
   Django, web build, and mobile type-check pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
   property migration, and live document review are not end-to-end verified.
+- Render startup repair is pushed as `ec22d4a`; `/api/health` returned HTTP
+  200 afterward, but verify the Render deployment's commit and migration logs
+  before considering production recovery confirmed.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.

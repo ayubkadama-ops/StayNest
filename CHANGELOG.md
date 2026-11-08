@@ -87,8 +87,10 @@ commit history or release notes.
   'transaction_type'` error when the migration modified and indexed that
   column in one ALTER. The migration runner now retries those as separate
   operations without changing the historical migration checksum. The new
-  agent-profile index is also created separately. A clean Render redeploy is
-  still required to confirm recovery.
+  agent-profile index is also created separately. The fix was pushed in
+  `ec22d4a`; the public health endpoint returned HTTP 200 afterward, but
+  deployment-specific runtime logs were unavailable, so migration completion
+  on the new release remains unconfirmed.
 
 ### Security
 
