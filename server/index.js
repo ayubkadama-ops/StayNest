@@ -22,7 +22,7 @@ import { sendBrandedEmail } from './email.js';
 import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
-import { createDiscoveryPlan } from './discovery.js';
+import { buildDiscoveryPaginationSql, createDiscoveryPlan } from './discovery.js';
 import { buildRobotsTxt, buildSitemapXml, renderCanonicalPageHtml, renderListingSeoHtml } from './seo.js';
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
@@ -1303,7 +1303,7 @@ app.get('/api/listings/discover', async (req, res, next) => {
     const total = Number(count.total) || 0;
     const totalPages = Math.ceil(total / plan.limit);
     const page = totalPages ? Math.min(plan.filters.page, totalPages) : 1;
-    const offset = (page - 1) * plan.limit;
+    const paginationSql = buildDiscoveryPaginationSql(plan.limit, page);
     plan.filters.page = page;
     const savedUserId = Number(req.session.user?.id) || 0;
     const [listingRows] = await pool.execute(
@@ -1331,8 +1331,8 @@ app.get('/api/listings/discover', async (req, res, next) => {
        LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        WHERE ${plan.whereSql}
        ORDER BY ${plan.orderBy}
-       LIMIT ? OFFSET ?`,
-       [savedUserId, ...plan.params, ...plan.orderParams, plan.limit, offset]
+       ${paginationSql}`,
+       [savedUserId, ...plan.params, ...plan.orderParams]
     );
     const listings = listingRows.map(withPublicListingCoordinates);
     res.json({

@@ -19,10 +19,14 @@ commit history or release notes.
 - Admin user details now prefer the account avatar and fall back to the agent
   profile image; relative marketplace media URLs resolve against the
   configured marketplace host.
-- Validation: 67 Node tests, 89 Django tests, Django system checks, web
+- Render logs confirmed the service completed startup migrations; discovery
+  still failed because TiDB rejected bound `LIMIT`/`OFFSET` parameters with
+  `ER_WRONG_ARGUMENTS`. Discovery pagination now emits bounded integer
+  literals after validating the page and limit.
+- Validation: 68 Node tests, 89 Django tests, Django system checks, web
   production build, mobile TypeScript check, and `git diff --check` pass.
-  Production TiDB migration execution remains subject to the database
-  backup/staging runbook.
+  The migration is unchanged in this follow-up; production backup and
+  staging-restore verification remain outstanding.
 
 ### Stages 8 and 9 validation and monetization plan configuration
 

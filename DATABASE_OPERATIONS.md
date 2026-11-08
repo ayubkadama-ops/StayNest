@@ -75,11 +75,15 @@ completed and recorded by an operator with access to the target database.
   the new web bundle.
 - Read-only production checks returned `/api/ready` HTTP 200 and
   `/api/listings/discover` HTTP 500 (request ID
-  `d0ad93a4-7eb0-4d69-947d-1ec389a3d4e3`). The production schema and migration
-  result are not verified; Render runtime logs require an authenticated
-  dashboard session, and the local database target did not verify as
-  production, so no database query was run.
-- Do not make further production schema changes or redeploy until an
-  authorized operator records a provider recovery point, makes a protected
-  logical backup, restores it to isolated staging, and completes the
-  migration and smoke tests above.
+  `d0ad93a4-7eb0-4d69-947d-1ec389a3d4e3`). The supplied Render log shows
+  startup reached "server listening" after migrations, then reports
+  `ER_WRONG_ARGUMENTS: Incorrect arguments to LIMIT`. A follow-up code change
+  replaces bound pagination values with validated integer literals; it adds
+  no schema migration.
+- No provider backup or staging restore has been performed. The deployment
+  log confirms the service started, but the schema verification query and
+  backup/recovery exercise remain outstanding. The local database target did
+  not verify as production, so no database query was run.
+- Do not deploy further schema changes until an authorized operator records
+  a provider recovery point, makes a protected logical backup, restores it to
+  isolated staging, and completes the migration and smoke tests above.

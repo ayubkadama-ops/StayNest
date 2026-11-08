@@ -2,6 +2,8 @@ import { isValidDate } from './validation.js';
 
 const TRANSACTION_TYPES = new Set(['sale', 'rent', 'stay', 'both']);
 const PROPERTY_TYPES = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay']);
+const MAX_DISCOVERY_PAGE = 10000;
+const MAX_DISCOVERY_LIMIT = 60;
 const SEARCH_COLUMNS = Object.freeze([
   'l.title',
   'l.description',
@@ -54,7 +56,7 @@ function selectedAmenities(value) {
   return [...new Set(values.map(item => boundedText(String(item), 80)).filter(Boolean))].slice(0, 5);
 }
 
-export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } = {}) {
+export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = MAX_DISCOVERY_LIMIT } = {}) {
   const filters = {
     query: boundedText(input.q, 100),
     location: boundedText(input.location, 100),
@@ -171,7 +173,7 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } 
     || !Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
     return { error: 'Choose a valid results page and page size' };
   }
-  filters.page = Math.min(requestedPage, 10000);
+  filters.page = Math.min(requestedPage, MAX_DISCOVERY_PAGE);
   filters.limit = Math.min(requestedLimit, maxLimit);
 
   const where = ['l.status="published"', 'l.deleted_at IS NULL'];
@@ -311,4 +313,12 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } 
     limit: filters.limit,
     offset: (filters.page - 1) * filters.limit
   };
+}
+
+export function buildDiscoveryPaginationSql(limit, page) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_DISCOVERY_LIMIT
+    || !Number.isSafeInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) {
+    throw new RangeError('Discovery pagination must use bounded integers');
+  }
+  return `LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
 }

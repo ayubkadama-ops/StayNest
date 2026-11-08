@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDiscoveryPlan } from '../server/discovery.js';
+import { buildDiscoveryPaginationSql, createDiscoveryPlan } from '../server/discovery.js';
 
 test('discovery builds combined geographic, journey, room, size, and furnishing filters', () => {
   const plan = createDiscoveryPlan({
@@ -106,4 +106,12 @@ test('pagination, relevance, and sorting are bounded and deterministic', () => {
   assert.match(createDiscoveryPlan({ sort: 'price_low', pricePeriod: 'monthly' }).orderBy, /l\.monthly_price ASC, l\.id DESC/);
   assert.match(createDiscoveryPlan({ sort: 'price_high', pricePeriod: 'sale' }).orderBy, /l\.sale_price DESC, l\.id DESC/);
   assert.match(createDiscoveryPlan({ sort: 'unknown' }).error, /sort order/);
+});
+
+test('pagination SQL uses bounded integer literals for TiDB LIMIT syntax', () => {
+  assert.equal(buildDiscoveryPaginationSql(60, 10000), 'LIMIT 60 OFFSET 599940');
+  assert.equal(buildDiscoveryPaginationSql(24, 2), 'LIMIT 24 OFFSET 24');
+  assert.throws(() => buildDiscoveryPaginationSql('24', 2), /bounded integers/);
+  assert.throws(() => buildDiscoveryPaginationSql(61, 1), /bounded integers/);
+  assert.throws(() => buildDiscoveryPaginationSql(24, 10001), /bounded integers/);
 });
