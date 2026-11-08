@@ -17,7 +17,7 @@
     <div class="brand">Makazi Go</div>
     <nav class="nav" aria-label="Admin sections">
       {% for key,label in sections %}<a href="/admin/?section={{ key }}">{{ label }}</a>{% endfor %}
-      <a href="/admin/profile/">Founder profile</a>
+      {% if is_founder %}<a href="/admin/profile/">Founder profile</a>{% endif %}
     </nav>
   </aside>
   <main class="main">

@@ -38,6 +38,7 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-ecosystem-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-profile-columns-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
 });
 
@@ -161,6 +162,73 @@ test('agent-profile repair migration completes partially applied columns and reu
   assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN service_areas JSON NULL'));
   assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN business_id BIGINT UNSIGNED NULL'));
   assert.equal(statements.some(sql => sql.includes('CREATE INDEX idx_agent_profiles_business')), false);
+  assert.ok(statements.some(sql => sql.startsWith('INSERT INTO schema_migrations')));
+});
+
+test('TiDB retries category-detail columns sequentially after dependent-column failure', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      if (/ALTER TABLE listings\s+ADD COLUMN category_details/i.test(sql)
+        && /ADD COLUMN advertising_authorization/i.test(sql)) {
+        const error = new Error("Unknown column 'category_details' in 'listings'");
+        error.code = 'ER_BAD_FIELD_ERROR';
+        throw error;
+      }
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) return [[], []];
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+  const migration = `ALTER TABLE listings
+    ADD COLUMN category_details JSON NULL AFTER commercial_use,
+    ADD COLUMN advertising_authorization ENUM('owner','authorized_agent','agency','other') NULL AFTER category_details,
+    ADD COLUMN authorization_notes VARCHAR(500) NULL AFTER advertising_authorization,
+    ADD COLUMN authorization_attested_at DATETIME NULL AFTER authorization_notes;`;
+
+  await applySchemaMigrations(pool, '.', ['listing-category-details.sql'], async () => migration);
+
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN category_details JSON NULL AFTER commercial_use'));
+  assert.ok(statements.includes("ALTER TABLE listings ADD COLUMN advertising_authorization ENUM('owner','authorized_agent','agency','other') NULL AFTER category_details"));
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN authorization_notes VARCHAR(500) NULL AFTER advertising_authorization'));
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN authorization_attested_at DATETIME NULL AFTER authorization_notes'));
+});
+
+test('category-detail repair migration safely skips columns already present in TiDB', async () => {
+  const statements = [];
+  const existingColumns = new Set(['category_details', 'authorization_notes']);
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql, values = []) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      if (/^ALTER TABLE listings ADD COLUMN/.test(sql)) {
+        const [, columnName] = sql.match(/ADD COLUMN (\w+)/i);
+        if (existingColumns.has(columnName)) {
+          const error = new Error('Duplicate column');
+          error.code = 'ER_DUP_FIELDNAME';
+          throw error;
+        }
+      }
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+        return existingColumns.has(values[1]) ? [[{ COLUMN_NAME: values[1] }], []] : [[], []];
+      }
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+
+  await applySchemaMigrations(pool, 'database', ['listing-category-details-repair-migration.sql']);
+
+  assert.ok(statements.includes("ALTER TABLE listings ADD COLUMN advertising_authorization ENUM('owner','authorized_agent','agency','other') NULL"));
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN authorization_attested_at DATETIME NULL'));
   assert.ok(statements.some(sql => sql.startsWith('INSERT INTO schema_migrations')));
 });
 

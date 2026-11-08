@@ -343,6 +343,121 @@ class AdminConsoleAccessTests(SimpleTestCase):
         checkpw.assert_called_once_with(b'test-password', b'test-hash')
 
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.load_founder_profile', return_value=None)
+    def test_created_admin_can_sign_in_with_username_and_password(
+        self, founder_profile, rows, execute, scalar
+    ):
+        from console.views import bcrypt
+
+        rows.side_effect = [
+            [{
+                'id': 42,
+                'username': 'asha.admin',
+                'email': 'asha@example.test',
+                'password_hash': bcrypt.hashpw(
+                    b'StrongPass123!',
+                    bcrypt.gensalt(rounds=4),
+                ).decode(),
+                'email_verified_at': '2026-11-01',
+                'mfa_enabled': False,
+                'display_name': 'Asha Mrema',
+            }],
+            [{'user_id': 42}],
+            [],
+        ]
+
+        response = self.client.post('/admin/login/', {
+            'username': 'ASHA.ADMIN',
+            'password': 'StrongPass123!',
+        })
+
+        self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
+        self.assertTrue(self.client.session['admin_authenticated'])
+        self.assertFalse(self.client.session['admin_is_founder'])
+        self.assertEqual(self.client.session['admin_user_id'], 42)
+        self.assertEqual(self.client.session['admin_username'], 'asha.admin')
+        execute.assert_called_once_with('UPDATE users SET last_login_at=UTC_TIMESTAMP() WHERE id=%s', [42])
+
+        dashboard = self.client.get('/admin/')
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertContains(dashboard, 'Your administrator account is active')
+        self.assertNotContains(dashboard, 'Founder profile')
+
+    @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.load_founder_profile', return_value=None)
+    def test_delegated_admin_cannot_assign_an_administrator_role(
+        self, founder_profile, checkpw, rows, execute, scalar
+    ):
+        rows.side_effect = [
+            [{
+                'id': 42,
+                'username': 'asha.admin',
+                'email': 'asha@example.test',
+                'password_hash': 'created-account-hash',
+                'email_verified_at': '2026-11-01',
+                'mfa_enabled': False,
+                'display_name': 'Asha Mrema',
+            }],
+            [{'user_id': 42}],
+            [{'permission_key': 'access'}],
+        ]
+        self.client.post('/admin/login/', {
+            'username': 'asha.admin',
+            'password': 'StrongPass123!',
+        })
+
+        response = self.client.post('/admin/action/user-role/', {
+            'id': '77',
+            'role': 'administrator',
+            'operation': 'assign',
+        })
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.load_founder_profile', return_value=None)
+    def test_delegated_admin_cannot_run_unassigned_feature_action(
+        self, founder_profile, checkpw, rows, execute, scalar
+    ):
+        rows.side_effect = [
+            [{
+                'id': 42,
+                'username': 'asha.admin',
+                'email': 'asha@example.test',
+                'password_hash': 'created-account-hash',
+                'email_verified_at': '2026-11-01',
+                'mfa_enabled': False,
+                'display_name': 'Asha Mrema',
+            }],
+            [{'user_id': 42}],
+            [],
+        ]
+        self.client.post('/admin/login/', {
+            'username': 'asha.admin',
+            'password': 'StrongPass123!',
+        })
+
+        response = self.client.post('/admin/action/listing-status/', {
+            'id': '77',
+            'status': 'published',
+        })
+
+        self.assertEqual(response.status_code, 403)
+        execute.assert_called_once_with('UPDATE users SET last_login_at=UTC_TIMESTAMP() WHERE id=%s', [42])
+
+    @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
     def test_admin_login_rejects_external_return_urls(self, checkpw):
         with patch('console.views.load_founder_profile', return_value=None):

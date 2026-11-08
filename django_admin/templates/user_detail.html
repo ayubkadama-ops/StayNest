@@ -26,7 +26,7 @@
     <div class="brand"><img src="/assets/makazi-go-icon.png" alt="">Makazi Go</div>
     <nav class="nav" aria-label="Admin sections">
       {% for key,label in sections %}<a href="/admin/?section={{ key }}">{{ label }}</a>{% endfor %}
-      <a href="/admin/profile/">Founder profile</a>
+      {% if is_founder %}<a href="/admin/profile/">Founder profile</a>{% endif %}
     </nav>
     <form method="post" action="/admin/logout/">{% csrf_token %}<button class="signout" type="submit">Sign out</button></form>
   </aside>

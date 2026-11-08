@@ -28,6 +28,7 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'agent-ecosystem-migration.sql',
   'agent-profile-columns-repair-migration.sql',
   'listing-category-details-migration.sql',
+  'listing-category-details-repair-migration.sql',
   'listing-duplicate-triage-migration.sql'
 ]);
 
@@ -78,6 +79,22 @@ async function applyLegacyStatement(pool, statement) {
         'ALTER TABLE agent_profiles ADD COLUMN specializations JSON NULL AFTER agency_name',
         'ALTER TABLE agent_profiles ADD COLUMN service_areas JSON NULL AFTER specializations',
         'ALTER TABLE agent_profiles ADD COLUMN business_id BIGINT UNSIGNED NULL AFTER service_areas'
+      ]) {
+        const [, tableName, columnName] = column.match(/^ALTER TABLE (\w+) ADD COLUMN (\w+)/i) || [];
+        await addColumnIfMissing(pool, tableName, columnName, column);
+      }
+      return;
+    }
+    if (/unknown column ['`]?category_details['`]? in ['`]?listings/i.test(error.message || '')
+      && /ALTER TABLE listings\s+ADD COLUMN category_details\b/i.test(statement)
+      && /\bADD COLUMN advertising_authorization\b/i.test(statement)
+      && /\bADD COLUMN authorization_notes\b/i.test(statement)
+      && /\bADD COLUMN authorization_attested_at\b/i.test(statement)) {
+      for (const column of [
+        'ALTER TABLE listings ADD COLUMN category_details JSON NULL AFTER commercial_use',
+        "ALTER TABLE listings ADD COLUMN advertising_authorization ENUM('owner','authorized_agent','agency','other') NULL AFTER category_details",
+        'ALTER TABLE listings ADD COLUMN authorization_notes VARCHAR(500) NULL AFTER advertising_authorization',
+        'ALTER TABLE listings ADD COLUMN authorization_attested_at DATETIME NULL AFTER authorization_notes'
       ]) {
         const [, tableName, columnName] = column.match(/^ALTER TABLE (\w+) ADD COLUMN (\w+)/i) || [];
         await addColumnIfMissing(pool, tableName, columnName, column);

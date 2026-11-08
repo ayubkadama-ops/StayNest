@@ -27,8 +27,9 @@
 		{% for message in messages %}<p class="error">{{ message }}</p>{% endfor %}
 		<form method="post">
 			{% csrf_token %}
-			<label>Username<input name="username" autocomplete="username" value="{{ username|default:'' }}" required></label>
+			<label>Username or email<input name="username" autocomplete="username" value="{{ username|default:'' }}" required></label>
 			<label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+			<p>Administrators can use the username or email and password set for their account. The Founder Console remains available with its protected credentials.</p>
 			<button>Open admin console</button>
 		</form>
 	</main>

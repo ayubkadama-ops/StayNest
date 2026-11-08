@@ -5,6 +5,21 @@ commit history or release notes.
 
 ## Unreleased
 
+### Delegated administrator sign-in and TiDB listing migration recovery
+
+- The Django operations console previously authenticated only the protected
+  Founder Console profile, so accounts created or assigned the administrator
+  role were rejected even when their account username and password were valid.
+  Added active administrator-account sign-in by username or email, revalidated
+  role/status on each console request, and enforced delegated feature grants
+  without exposing Founder-only account controls.
+- Render startup then failed on the combined `listings` ALTER because TiDB
+  could not resolve `category_details` used as an `AFTER` position in the same
+  statement. Added a sequential TiDB retry and an additive repair migration
+  that safely completes missing columns.
+- Validation: 79 Django console/marketplace tests and 12 migration tests pass.
+  Render deployment and production migration verification are pending push.
+
 ### Render TiDB agent-profile migration recovery
 
 - Render startup moved past the transaction-type migration but then failed

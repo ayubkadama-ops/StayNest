@@ -45,6 +45,46 @@ ADMIN_FEATURE_GROUPS = [
     ('Marketplace operations', ('agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
     ('Safety and platform', ('reports', 'audit', 'settings', 'analytics')),
 ]
+CONSOLE_SECTIONS = [
+    ('overview', 'Founder dashboard'),
+    ('users', 'People and access'),
+    ('access', 'Roles and security'),
+    ('agents', 'Agent approvals'),
+    ('businesses', 'Organizations'),
+    ('listings', 'Listings moderation'),
+    ('posts', 'Posts moderation'),
+    ('badges', 'Agent badges'),
+    ('bookings', 'Reservations'),
+    ('verifications', 'Identity checks'),
+    ('reports', 'Safety reports'),
+    ('audit', 'Audit and security'),
+    ('settings', 'Settings and controls'),
+    ('analytics', 'Analytics'),
+]
+ADMIN_SECTION_KEYS = {key for key, _ in CONSOLE_SECTIONS}
+ADMIN_ACTION_FEATURES = {
+    'user-status': 'users',
+    'user-hard-delete': 'users',
+    'mfa-reset': 'users',
+    'user-role': 'access',
+    'agent-status': 'agents',
+    'business-status': 'businesses',
+    'badge': 'badges',
+    'report-status': 'reports',
+    'listing-duplicate-decision': 'listings',
+    'listing-status': 'listings',
+    'listing-verification': 'listings',
+    'post-status': 'posts',
+    'booking-status': 'bookings',
+    'verification-status': 'verifications',
+    'verification-document': 'verifications',
+    'feature': 'settings',
+    'email-template': 'settings',
+    'ip-rule': 'settings',
+    'ip-rule-delete': 'settings',
+    'setting': 'settings',
+}
+FOUNDER_ONLY_ACTIONS = {'admin-create', 'admin-access-save', 'admin-delete'}
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -75,6 +115,46 @@ def environment_founder_profile():
 
 def founder_credentials():
     return load_founder_profile() or environment_founder_profile()
+
+def is_founder_session(request):
+    return request.session.get('admin_is_founder') is True or not request.session.get('admin_user_id')
+
+def admin_feature_permissions(request):
+    if is_founder_session(request):
+        return ADMIN_SECTION_KEYS
+    user_id = request.session.get('admin_user_id')
+    if not user_id:
+        return set()
+    if not rows('SELECT user_id FROM admin_access_profiles WHERE user_id=%s', [user_id]):
+        return ADMIN_SECTION_KEYS
+    return {
+        row['permission_key']
+        for row in rows(
+            'SELECT permission_key FROM admin_access_permissions WHERE user_id=%s',
+            [user_id],
+        )
+    }
+
+def admin_has_feature_access(request, feature):
+    return is_founder_session(request) or feature in admin_feature_permissions(request)
+
+def founder_required(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not is_founder_session(request):
+            return HttpResponseForbidden('Founder administrator access required.')
+        return view(request, *args, **kwargs)
+    return wrapped
+
+def feature_required(feature):
+    def decorate(view):
+        @wraps(view)
+        def wrapped(request, *args, **kwargs):
+            if not admin_has_feature_access(request, feature):
+                return HttpResponseForbidden('You do not have access to this administrator feature.')
+            return view(request, *args, **kwargs)
+        return wrapped
+    return decorate
 
 def execute(sql, params=()):
     with connection.cursor() as cursor:
@@ -194,6 +274,16 @@ def admin_required(view):
     def wrapped(request, *args, **kwargs):
         if not request.session.get('admin_authenticated'):
             return redirect(f'/admin/login/?next={request.path}')
+        user_id = request.session.get('admin_user_id')
+        if user_id and not scalar(
+            """SELECT COUNT(*) FROM users u
+               JOIN user_roles ur ON ur.user_id=u.id
+               JOIN roles r ON r.id=ur.role_id
+               WHERE u.id=%s AND u.status='active' AND r.name='administrator'""",
+            [user_id],
+        ):
+            request.session.flush()
+            return redirect(f'/admin/login/?next={request.path}')
         return view(request, *args, **kwargs)
     return wrapped
 
@@ -203,27 +293,80 @@ def login_view(request):
     username = ''
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
-        password = request.POST.get('password', '').encode()
+        password_text = request.POST.get('password', '')
+        password = password_text.encode()
         profile = founder_credentials()
         expected_username = str(profile.get('username') or '')
+        expected_email = str(profile.get('email') or '')
         password_hash = str(profile.get('password_hash') or '').encode()
-        valid = username == expected_username and bool(password_hash)
-        try:
-            valid = valid and bcrypt.checkpw(password, password_hash)
-        except (TypeError, ValueError):
-            valid = False
-        if valid:
+        founder_identifier = username.casefold() in {
+            expected_username.casefold(),
+            expected_email.casefold(),
+        } - {''}
+        founder_valid = False
+        if founder_identifier and password_hash and len(password_text) <= 200:
+            try:
+                founder_valid = bcrypt.checkpw(password, password_hash)
+            except (TypeError, ValueError):
+                founder_valid = False
+        if founder_valid:
             request.session.cycle_key()
             request.session['admin_authenticated'] = True
+            request.session['admin_is_founder'] = True
+            request.session.pop('admin_user_id', None)
             request.session['admin_label'] = username
-            request.session['admin_username'] = username
-            request.session['admin_name'] = profile.get('display_name') or username
+            request.session['admin_username'] = expected_username
+            request.session['admin_name'] = profile.get('display_name') or expected_username
             request.session['admin_avatar_url'] = profile.get('avatar_url') or ''
             next_url = request.GET.get('next', '')
             if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
                 next_url = '/admin/'
             return redirect(next_url)
-        messages.error(request, 'Invalid administrator credentials.')
+
+        if not founder_identifier:
+            account_rows = rows(
+                """SELECT u.id,u.username,u.email,u.password_hash,u.email_verified_at,u.mfa_enabled,
+                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) display_name
+                   FROM users u
+                   JOIN user_roles ur ON ur.user_id=u.id
+                   JOIN roles r ON r.id=ur.role_id
+                   LEFT JOIN user_profiles p ON p.user_id=u.id
+                   WHERE (LOWER(u.username)=LOWER(%s) OR LOWER(u.email)=LOWER(%s))
+                     AND u.status='active' AND r.name='administrator'
+                   ORDER BY CASE WHEN LOWER(u.username)=LOWER(%s) THEN 0 ELSE 1 END
+                   LIMIT 1""",
+                [username, username, username],
+            )
+            account = account_rows[0] if account_rows else None
+            try:
+                account_valid = bool(account and account.get('password_hash') and len(password_text) <= 200) and bcrypt.checkpw(
+                    password,
+                    str(account['password_hash']).encode(),
+                )
+            except (TypeError, ValueError):
+                account_valid = False
+            if account_valid and not account.get('email_verified_at'):
+                messages.error(request, 'Verify the email address on this administrator account before signing in.')
+            elif account_valid and account.get('mfa_enabled'):
+                messages.error(request, 'This administrator account requires multi-factor authentication. Contact the Founder Console for assistance.')
+            elif account_valid:
+                request.session.cycle_key()
+                request.session['admin_authenticated'] = True
+                request.session['admin_is_founder'] = False
+                request.session['admin_user_id'] = account['id']
+                request.session.pop('admin_label', None)
+                request.session.pop('admin_avatar_url', None)
+                request.session['admin_username'] = account.get('username') or username
+                request.session['admin_name'] = account.get('display_name') or account.get('username') or username
+                execute('UPDATE users SET last_login_at=UTC_TIMESTAMP() WHERE id=%s', [account['id']])
+                next_url = request.GET.get('next', '')
+                if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+                    next_url = '/admin/'
+                return redirect(next_url)
+            else:
+                messages.error(request, 'Invalid administrator credentials.')
+        else:
+            messages.error(request, 'Invalid administrator credentials.')
     return render(request, 'login.html', {'username': username})
 
 @require_http_methods(['POST'])
@@ -234,10 +377,19 @@ def logout_view(request):
 @admin_required
 @never_cache
 def dashboard(request):
+    is_founder = is_founder_session(request)
+    permissions = admin_feature_permissions(request)
+    available_sections = [item for item in CONSOLE_SECTIONS if item[0] in permissions]
+    if not available_sections:
+        return render(request, 'admin_no_access.html', {
+            'admin_name': request.session.get('admin_name') or request.session.get('admin_username') or 'Administrator',
+        })
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('businesses', 'Organizations'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    if section not in permissions:
+        return redirect(f'/admin/?section={available_sections[0][0]}')
+    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -251,28 +403,32 @@ def dashboard(request):
                 'Pending bookings': scalar("SELECT COUNT(*) FROM bookings WHERE status='pending'"),
                 'Audit events today': scalar('SELECT COUNT(*) FROM audit_logs WHERE created_at>=UTC_DATE()'),
             }
-            data['rows'] = rows("SELECT u.id,u.email,u.status,u.created_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.status IN ('pending','suspended') ORDER BY u.created_at DESC LIMIT 20")
+            account_filter = '' if is_founder else "AND NOT EXISTS (SELECT 1 FROM user_roles admin_ur JOIN roles admin_r ON admin_r.id=admin_ur.role_id WHERE admin_ur.user_id=u.id AND admin_r.name='administrator')"
+            data['rows'] = rows(f"SELECT u.id,u.email,u.status,u.created_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.status IN ('pending','suspended') {account_filter} ORDER BY u.created_at DESC LIMIT 20")
         elif section == 'users':
-            data['rows'] = rows("SELECT u.id,u.email,u.phone,u.status,u.last_login_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,COALESCE(GROUP_CONCAT(DISTINCT r.name SEPARATOR ', '),'') roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id,u.email,u.phone,u.status,u.last_login_at,p.display_name,p.first_name,p.last_name ORDER BY u.created_at DESC LIMIT 200")
+            account_filter = '' if is_founder else "WHERE NOT EXISTS (SELECT 1 FROM user_roles admin_ur JOIN roles admin_r ON admin_r.id=admin_ur.role_id WHERE admin_ur.user_id=u.id AND admin_r.name='administrator')"
+            data['rows'] = rows(f"SELECT u.id,u.email,u.phone,u.status,u.last_login_at,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,COALESCE(GROUP_CONCAT(DISTINCT r.name SEPARATOR ', '),'') roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id {account_filter} GROUP BY u.id,u.email,u.phone,u.status,u.last_login_at,p.display_name,p.first_name,p.last_name ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'access':
-            data['access_rows'] = rows("SELECT u.id,u.email,u.status,u.mfa_enabled,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY u.created_at DESC LIMIT 200")
+            account_filter = '' if is_founder else "WHERE NOT EXISTS (SELECT 1 FROM user_roles admin_ur JOIN roles admin_r ON admin_r.id=admin_ur.role_id WHERE admin_ur.user_id=u.id AND admin_r.name='administrator')"
+            data['access_rows'] = rows(f"SELECT u.id,u.email,u.status,u.mfa_enabled,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id {account_filter} ORDER BY u.created_at DESC LIMIT 200")
             roles_by_user = {}
             for assigned_role in rows('SELECT ur.user_id,r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id'):
                 roles_by_user.setdefault(assigned_role['user_id'], []).append(assigned_role['name'])
             for user in data['access_rows']:
                 user['assigned_roles'] = roles_by_user.get(user['id'], [])
-            data['admin_rows'] = rows(
-                """SELECT u.id,u.username,u.email,u.status,u.mfa_enabled,
-                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
-                          ap.user_id IS NOT NULL has_access_profile,COUNT(aap.permission_key) permission_count
-                   FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
-                   LEFT JOIN user_profiles p ON p.user_id=u.id
-                   LEFT JOIN admin_access_profiles ap ON ap.user_id=u.id
-                   LEFT JOIN admin_access_permissions aap ON aap.user_id=u.id
-                   WHERE r.name='administrator'
-                   GROUP BY u.id,u.username,u.email,u.status,u.mfa_enabled,p.display_name,p.first_name,p.last_name,ap.user_id
-                   ORDER BY u.created_at DESC"""
-            )
+            if is_founder:
+                data['admin_rows'] = rows(
+                    """SELECT u.id,u.username,u.email,u.status,u.mfa_enabled,
+                              COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
+                              ap.user_id IS NOT NULL has_access_profile,COUNT(aap.permission_key) permission_count
+                       FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+                       LEFT JOIN user_profiles p ON p.user_id=u.id
+                       LEFT JOIN admin_access_profiles ap ON ap.user_id=u.id
+                       LEFT JOIN admin_access_permissions aap ON aap.user_id=u.id
+                       WHERE r.name='administrator'
+                       GROUP BY u.id,u.username,u.email,u.status,u.mfa_enabled,p.display_name,p.first_name,p.last_name,ap.user_id
+                       ORDER BY u.created_at DESC"""
+                )
         elif section == 'agents':
             data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,main.id main_agent_user_id,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
         elif section == 'businesses':
@@ -478,6 +634,7 @@ def dashboard(request):
     return render(request, 'dashboard.html', data)
 
 @admin_required
+@founder_required
 @never_cache
 def admin_create(request):
     return render(request, 'admin_wizard.html', admin_create_context())
@@ -492,6 +649,7 @@ def admin_create_context(form_values=None, form_step=0, form_error=''):
     }
 
 @admin_required
+@founder_required
 @never_cache
 def admin_detail(request, user_id):
     user_rows = rows(
@@ -538,6 +696,7 @@ def admin_detail(request, user_id):
     })
 
 @admin_required
+@founder_required
 @never_cache
 @require_http_methods(['GET', 'POST'])
 def founder_profile_view(request):
@@ -640,6 +799,7 @@ def founder_profile_view(request):
     })
 
 @admin_required
+@feature_required('users')
 @never_cache
 def user_detail(request, user_id):
     user_rows = rows(
@@ -660,11 +820,14 @@ def user_detail(request, user_id):
         'SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s ORDER BY r.name',
         [user_id],
     )]
+    if 'administrator' in roles and not is_founder_session(request):
+        return HttpResponseForbidden('Founder administrator access required.')
     is_agent = 'agent' in roles
     is_tenant = 'tenant' in roles
     context = {
         'section': 'user-detail',
-        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
+        'is_founder': is_founder_session(request),
         'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')],
         'user': user,
         'user_roles': roles,
@@ -727,6 +890,7 @@ def user_detail(request, user_id):
     return render(request, 'user_detail.html', context)
 
 @admin_required
+@feature_required('listings')
 @never_cache
 def listing_detail(request, listing_id):
     listing_rows = rows(
@@ -751,7 +915,8 @@ def listing_detail(request, listing_id):
     if not listing_rows:
         raise Http404('Listing not found')
     return render(request, 'content_detail.html', {
-        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
+        'is_founder': is_founder_session(request),
         'content_type': 'Listing',
         'page_title': listing_rows[0]['title'],
         'content': listing_rows[0],
@@ -765,6 +930,7 @@ def listing_detail(request, listing_id):
     })
 
 @admin_required
+@feature_required('posts')
 @never_cache
 def post_detail(request, post_id):
     post_rows = rows(
@@ -780,7 +946,8 @@ def post_detail(request, post_id):
     if not post_rows:
         raise Http404('Post not found')
     return render(request, 'content_detail.html', {
-        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
+        'is_founder': is_founder_session(request),
         'content_type': 'Post',
         'page_title': post_rows[0]['listing_title'],
         'content': post_rows[0],
@@ -790,6 +957,29 @@ def post_detail(request, post_id):
 @admin_required
 @require_http_methods(['POST'])
 def action(request, action):
+    if action in FOUNDER_ONLY_ACTIONS:
+        if not is_founder_session(request):
+            return HttpResponseForbidden('Founder administrator access required.')
+    else:
+        required_feature = ADMIN_ACTION_FEATURES.get(action)
+        if required_feature is None:
+            return HttpResponseForbidden('This administrator action is not available.')
+        if not admin_has_feature_access(request, required_feature):
+            return HttpResponseForbidden('You do not have access to this administrator feature.')
+    if not is_founder_session(request):
+        if action == 'user-role' and request.POST.get('role') in {
+            'administrator', 'agency', 'developer', 'verification_officer',
+        }:
+            return HttpResponseForbidden('Only the Founder Console can assign elevated roles.')
+        if action in {'user-status', 'user-hard-delete', 'mfa-reset', 'user-role'}:
+            target_id = request.POST.get('id', '')
+            if target_id.isdigit() and rows(
+                """SELECT ur.user_id FROM user_roles ur
+                   JOIN roles r ON r.id=ur.role_id
+                   WHERE ur.user_id=%s AND r.name='administrator' LIMIT 1""",
+                [int(target_id)],
+            ):
+                return HttpResponseForbidden('Founder administrator access required.')
     created_admin_id = None
     action_error = ''
     try:

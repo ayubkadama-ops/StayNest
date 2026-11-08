@@ -50,7 +50,7 @@ provide additional but not exhaustive evidence.
 | Frontend architecture | **Present, multiple surfaces** | The Vite/vanilla-JS site, Django-rendered marketplace, and Expo app coexist. Keep them intact while establishing which routes and controls are authoritative; do not silently drop a capability during parity work. |
 | Backend architecture | **Present** | Express is the main API and business-logic service. Django has a marketplace proxy and a separate operations console. Some logic and admin workflows exist in both services, so authorization and status changes need contract tests across both. |
 | Database schema and relationships | **Present, incrementally extended** | The baseline schema defines relational tables for accounts, roles, listings, media, bookings, payments, reviews, messaging, notifications, verification, reports, and audit. Listings now model sale/rent/stay intent and structured land/commercial facts. Runtime migrations use an ordered checksum ledger; production-engine compatibility and data recovery still need operational verification. |
-| Authentication and authorization | **Present** | Email/username login, bcrypt, Google OAuth, email verification, password recovery, MFA, MySQL-backed Express sessions, CSRF checks, request limits, role checks, sub-agent permissions, and delegated administrator features exist. The Founder Console is separate from ordinary administrators. Django signed-cookie sessions and Express database sessions have different revocation behavior and should remain clearly separated. |
+| Authentication and authorization | **Present** | Email/username login, bcrypt, Google OAuth, email verification, password recovery, MFA, MySQL-backed Express sessions, CSRF checks, request limits, role checks, sub-agent permissions, and delegated administrator features exist. The Django console now accepts active administrator accounts by username or email and checks feature grants; the protected Founder Console remains separate. Django signed-cookie sessions and Express database sessions have different revocation behavior and should remain clearly separated. |
 | Registration and login | **Present** | Tenant and agent registration flows and the recent homepage username-login fix exist. Agent applications are approval-gated. Test suites cover selected auth/console behaviors but do not constitute a complete cross-client authentication test. |
 | Property listings | **Implemented for the current listing workflow** | Owners and agents can create listings using sale, long-term rental, or stay journeys, add bounded category-specific facts and an advertiser-authority declaration, and manage listing edits/archives. Verification remains a separate administrator-reviewed process; organization-team access and some category-specific validation remain future work. |
 | Property details | **Present for current listing model** | Numeric listing URLs and API detail responses support accommodation/property fields and structured sale, land, and commercial data. Advertiser-reported title information is explicitly not legal verification. |
@@ -318,17 +318,18 @@ Stage 4 verification on the earlier working tree:
 
 Stage 5/6 and Render migration-recovery verification:
 
-- Prior validation for the transaction-type recovery passed locally, but the
-  latest Render build then failed during the next schema migration with
-  `Unknown column 'specializations' in 'agent_profiles'`, followed by a
-  no-open-ports timeout. This indicates startup aborted before binding HTTP;
-  it is not a port configuration problem.
-- A new repair now splits the dependent profile-column DDL and adds an
-  idempotent follow-up migration. Latest validation: 61 Node tests (10
-  migration tests), 77 Django tests/system checks, Vite build, mobile
-  type-check, migration syntax checks, and `git diff --check` pass. Production
-  TiDB migration and health checks remain unverified until the next deployment
-  completes.
+- The profile-column repair was pushed and the public readiness endpoint
+  returned HTTP 200 with database status `ok`. The next Render log showed
+  another startup abort, `Unknown column 'category_details' in 'listings'`,
+  before HTTP port binding. This is a TiDB combined-ALTER limitation, not a
+  port configuration issue.
+- The current repair retries the four dependent listing columns sequentially
+  and adds an idempotent migration for partially applied/ledger-skipped
+  databases. Django console login now supports active delegated administrators
+  with username/email and password, with feature-level checks and Founder-only
+  controls retained. Latest local validation: 79 Django console/marketplace
+  tests, 12 migration tests, Python syntax checks, and `git diff --check`.
+  Confirm the new Render deployment and production TiDB migration after push.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
 
@@ -352,9 +353,10 @@ Stage 7 verification:
   Django, web build, and mobile type-check pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
   property migration, and live document review are not end-to-end verified.
-- Render startup repair is pushed as `ec22d4a`; `/api/health` returned HTTP
-  200 afterward, but verify the Render deployment's commit and migration logs
-  before considering production recovery confirmed.
+- Render migration repairs restored the readiness endpoint once, but a later
+  deploy failed on the `category_details` migration. The sequential migration
+  repair and delegated administrator login fix are pending push and must be
+  verified against the next Render deployment.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.
