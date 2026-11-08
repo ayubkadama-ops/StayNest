@@ -26,7 +26,8 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'property-search-migration.sql',
   'property-verification-migration.sql',
   'agent-ecosystem-migration.sql',
-  'listing-category-details-migration.sql'
+  'listing-category-details-migration.sql',
+  'listing-duplicate-triage-migration.sql'
 ]);
 
 async function columnExists(pool, tableName, columnName) {

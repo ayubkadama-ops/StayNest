@@ -37,6 +37,7 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('property-verification-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-ecosystem-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
 });
 
 test('username column migration keeps its unique index separate for TiDB compatibility', async () => {

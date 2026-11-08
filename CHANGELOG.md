@@ -5,6 +5,26 @@ commit history or release notes.
 
 ## Unreleased
 
+### Posts, reviews, reports, and duplicate triage
+
+- Added a bounded administrator queue for exact listing-address or
+  listing-text duplicate candidates, with documented human review decisions
+  and audit notes; the system never labels or penalizes an account
+  automatically.
+- Prevented owners and agents from reviewing their own listings and added
+  single owner/agent responses to eligible published reviews; published
+  responses appear alongside the reviews.
+- Validated report targets against supported published entities, derived the
+  reported account from the selected item, reject self-reports and repeated
+  open reports, and require an audit-noted resolution when closing reports.
+- Existing listing announcement posts remain linked to published properties
+  and require administrator moderation. Free-standing editorial posts remain
+  disabled pending explicit authoring, URL, and media rules.
+- Validation: 54 Node tests, 76 Django tests/system checks, web production
+  build, modified JavaScript syntax checks, and `git diff --check` pass.
+- The new additive duplicate-triage migration is covered by startup-sequence
+  tests; applying it against the deployed TiDB database is still required.
+
 ### Professional agent ecosystem
 
 - Added property-owner, agency, developer, and verification-officer role

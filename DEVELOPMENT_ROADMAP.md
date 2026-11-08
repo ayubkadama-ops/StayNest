@@ -216,13 +216,25 @@ surgical and preserve current tenant bookings and agent approval behavior.
 
 ### Stage 7 — Posts, reviews, reporting, and fraud triage
 
-- Expand listing announcement posts into moderated editorial content only
-  after authoring, moderation, URL, and media rules are agreed.
-- Add eligible agent reviews and review responses without allowing
-  self-reviews or unverified statistics.
-- Flag duplicates for human review; similarity must not automatically accuse
-  or penalize a user.
-- Acceptance: moderation/audit tests and documented report-resolution paths.
+- [x] Keep listing announcements linked to active published listings and in
+  the existing administrator moderation queue; arbitrary editorial posts are
+  not enabled without agreed authoring, URL, and media rules.
+- [x] Require completed stays for reviews, prevent listing owners and agents
+  from reviewing their own property, and add audited owner/agent responses
+  shown with public reviews. Ratings remain based on eligible published
+  reviews only.
+- [x] Add an administrator queue for exact address or listing-text duplicate
+  candidates, with decisions and notes in the audit trail. Candidate matching
+  is bounded to the 500 most recently updated active listings and never
+  changes a listing or account automatically.
+- [x] Validate report targets against supported published entities, derive
+  the reported user from the selected entity, reject self-reports and
+  duplicate open reports, and require an audit-noted resolution when closing
+  a report.
+- **Stage status:** Implemented and locally verified; free-standing editorial
+  content remains gated on a separately defined content and media policy.
+- Acceptance: moderation/audit tests and documented report-resolution paths
+  pass; possible duplicates are always decided by a human.
 
 ### Stage 8 — Map, SEO, mobile performance, and parity
 
@@ -311,6 +323,18 @@ Stage 5/6 and Render migration-recovery verification:
   recovery is therefore not confirmed.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
+
+Stage 7 verification:
+
+- `npm test` — **54 passed**, including review eligibility and response
+  validation.
+- `npm run test:django` — **76 passed**; Django system checks clean, including
+  duplicate-candidate decision and report-resolution coverage.
+- `npm run build` — **passed**.
+- Modified JavaScript syntax checks and `git diff --check` — **passed**.
+- The new `listing-duplicate-triage-migration.sql` is registered for startup;
+  applying it against TiDB and validating the duplicate query plan against
+  production-sized data remain outstanding.
 
 ## Current handoff for the next development session
 

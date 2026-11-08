@@ -114,6 +114,56 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertIn('ORDER BY COALESCE(l.nightly_price,l.monthly_price,l.yearly_price,0) ASC', query)
         self.assertEqual(params, ['pending_review', '%garden%', '%garden%', '%garden%', '%garden%'])
 
+    @patch('console.views.rows', side_effect=[
+        [{'low_id': 3, 'high_id': 9, 'low_title': 'Garden flat', 'high_title': 'Garden flat',
+          'low_city': 'Arusha', 'high_city': 'Arusha', 'low_status': 'published',
+          'high_status': 'pending_review', 'match_reason': 'Same normalized street address and city'}],
+        [],
+    ])
+    @patch('console.views.scalar', return_value=0)
+    def test_listing_moderation_surfaces_duplicate_candidates_as_review_signals(self, scalar, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=listings')
+
+        query = rows.call_args_list[0].args[0]
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Possible duplicate listings')
+        self.assertContains(response, 'Same normalized street address and city')
+        self.assertContains(response, 'Confirm duplicate')
+        self.assertContains(response, 'do not prove misconduct')
+        self.assertIn('LIMIT 500', query)
+        self.assertIn('listing_duplicate_reviews', query)
+        self.assertIn('LOWER(TRIM(a.address_line1))', query)
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'id': 3}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_record_a_duplicate_review_without_automatic_penalties(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-duplicate-decision/', {
+            'section': 'listings', 'listing_tab': 'review', 'low_id': '3', 'high_id': '9',
+            'decision': 'confirmed_duplicate', 'resolution_note': 'Same address confirmed after checking the listing.',
+        })
+
+        self.assertRedirects(
+            response,
+            '/admin/?section=listings&listing_tab=review&listing_sort=updated&listing_q=&listing_status=all',
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(rows.call_args.args[1], [9, 3])
+        self.assertIn('listing_duplicate_reviews', execute.call_args.args[0])
+        self.assertEqual(execute.call_args.args[1], [
+            3, 9, 'confirmed_duplicate', 'Same address confirmed after checking the listing.',
+        ])
+        audit.assert_called_once_with('listing_duplicate_reviewed', 'listing_pair', 3, {
+            'otherListingId': 9,
+            'decision': 'confirmed_duplicate',
+            'resolutionNote': 'Same address confirmed after checking the listing.',
+        })
+
     @patch('console.views.rows', return_value=[])
     def test_available_listings_tab_is_published_and_rejects_unsafe_sort(self, rows):
         self.authenticate_admin()
@@ -790,10 +840,27 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_admin_can_update_a_safety_report(self, atomic, execute, audit):
         self.authenticate_admin()
-        response = self.client.post('/admin/action/report-status/', {'id': '42', 'status': 'resolved', 'section': 'reports'})
+        response = self.client.post('/admin/action/report-status/', {
+            'id': '42', 'status': 'resolved', 'section': 'reports',
+            'resolution_note': 'Reviewed and addressed.',
+        })
         self.assertRedirects(response, '/admin/?section=reports', fetch_redirect_response=False)
         execute.assert_called_once_with('UPDATE user_reports SET status=%s WHERE id=%s', ['resolved', 42])
-        audit.assert_called_once()
+        audit.assert_called_once_with('report_resolved', 'user_report', 42, {
+            'resolutionNote': 'Reviewed and addressed.',
+        })
+
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_cannot_close_a_safety_report_without_a_resolution_note(self, atomic, execute):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/report-status/', {
+            'id': '42', 'status': 'dismissed', 'section': 'reports',
+        })
+
+        self.assertRedirects(response, '/admin/?section=reports', fetch_redirect_response=False)
+        execute.assert_not_called()
 
     @patch('console.views.audit')
     @patch('console.views.execute')

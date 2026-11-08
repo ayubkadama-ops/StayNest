@@ -237,7 +237,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('businesses', 'Organizations'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('businesses', 'Organizations'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -286,6 +286,39 @@ def dashboard(request):
                    ORDER BY b.status='pending' DESC,b.created_at DESC LIMIT 200"""
             )
         elif section == 'listings':
+            data['duplicate_candidates'] = rows(
+                """SELECT a.id low_id,b.id high_id,a.title low_title,b.title high_title,
+                          a.city low_city,b.city high_city,a.status low_status,b.status high_status,
+                          CASE
+                            WHEN LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1))
+                              THEN 'Same normalized street address and city'
+                            ELSE 'Same title, property category, description, and city'
+                          END match_reason
+                   FROM (
+                     SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
+                     FROM listings
+                     WHERE status IN ('pending_review','published','unpublished','rejected')
+                       AND deleted_at IS NULL
+                     ORDER BY updated_at DESC,id DESC LIMIT 500
+                   ) a
+                   JOIN (
+                     SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
+                     FROM listings
+                     WHERE status IN ('pending_review','published','unpublished','rejected')
+                       AND deleted_at IS NULL
+                     ORDER BY updated_at DESC,id DESC LIMIT 500
+                   ) b ON a.id<b.id AND LOWER(TRIM(a.city))=LOWER(TRIM(b.city))
+                     AND (
+                       (TRIM(a.address_line1)<>'' AND LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1)))
+                       OR (a.property_type_id=b.property_type_id
+                         AND LOWER(TRIM(a.title))=LOWER(TRIM(b.title))
+                         AND LOWER(TRIM(a.description))=LOWER(TRIM(b.description)))
+                     )
+                   LEFT JOIN listing_duplicate_reviews d
+                     ON d.listing_low_id=a.id AND d.listing_high_id=b.id
+                   WHERE d.id IS NULL
+                   ORDER BY a.updated_at DESC,b.updated_at DESC LIMIT 100"""
+            )
             listing_tab = request.GET.get('listing_tab', 'review')
             if listing_tab not in {'review', 'available'}:
                 listing_tab = 'review'
@@ -947,9 +980,52 @@ def action(request, action):
                 audit('agent_badge_updated', 'user', user_id, {'label': label, 'duration': duration})
             elif action == 'report-status':
                 report_id = int(request.POST['id']); status = request.POST.get('status', '')
+                resolution_note = request.POST.get('resolution_note', '').strip()[:1000]
                 if report_id < 1 or status not in {'open', 'reviewing', 'resolved', 'dismissed'}: raise ValueError('Invalid report status or ID')
+                if status in {'resolved', 'dismissed'} and not resolution_note:
+                    raise ValueError('Add a short resolution note before closing a report')
                 execute('UPDATE user_reports SET status=%s WHERE id=%s', [status, report_id])
-                audit(f'report_{status}', 'user_report', report_id)
+                audit(f'report_{status}', 'user_report', report_id, {'resolutionNote': resolution_note or None})
+            elif action == 'listing-duplicate-decision':
+                low_id = int(request.POST.get('low_id', '0'))
+                high_id = int(request.POST.get('high_id', '0'))
+                decision = request.POST.get('decision', '')
+                resolution_note = request.POST.get('resolution_note', '').strip()
+                if low_id < 1 or high_id <= low_id or decision not in {'confirmed_duplicate', 'not_duplicate'}:
+                    raise ValueError('Choose a valid duplicate candidate and decision')
+                if not resolution_note or len(resolution_note) > 1000:
+                    raise ValueError('Enter a review note of up to 1000 characters')
+                matching_pair = rows(
+                    """SELECT a.id FROM listings a JOIN listings b ON b.id=%s
+                       WHERE a.id=%s AND a.id<b.id
+                         AND a.status IN ('pending_review','published','unpublished','rejected')
+                         AND b.status IN ('pending_review','published','unpublished','rejected')
+                         AND a.deleted_at IS NULL AND b.deleted_at IS NULL
+                         AND LOWER(TRIM(a.city))=LOWER(TRIM(b.city))
+                         AND (
+                           (TRIM(a.address_line1)<>'' AND LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1)))
+                           OR (a.property_type_id=b.property_type_id
+                             AND LOWER(TRIM(a.title))=LOWER(TRIM(b.title))
+                             AND LOWER(TRIM(a.description))=LOWER(TRIM(b.description)))
+                         )
+                       FOR UPDATE""",
+                    [high_id, low_id],
+                )
+                if not matching_pair:
+                    raise ValueError('This duplicate candidate changed or is no longer available for review')
+                execute(
+                    """INSERT INTO listing_duplicate_reviews
+                       (listing_low_id,listing_high_id,decision,resolution_note,reviewed_by,reviewed_at)
+                       VALUES (%s,%s,%s,%s,NULL,UTC_TIMESTAMP())
+                       ON DUPLICATE KEY UPDATE decision=VALUES(decision),
+                         resolution_note=VALUES(resolution_note),reviewed_by=NULL,reviewed_at=UTC_TIMESTAMP()""",
+                    [low_id, high_id, decision, resolution_note],
+                )
+                audit('listing_duplicate_reviewed', 'listing_pair', low_id, {
+                    'otherListingId': high_id,
+                    'decision': decision,
+                    'resolutionNote': resolution_note,
+                })
             elif action == 'listing-status':
                 listing_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'published', 'rejected', 'unpublished'}: raise ValueError('Invalid listing status')
@@ -1123,6 +1199,7 @@ def action(request, action):
             'agent-status': f"Agent application {action_status}",
             'badge': 'Agent badge removed' if request.POST.get('duration') == 'remove' else 'Agent badge updated',
             'report-status': f"Safety report marked {action_status}",
+            'listing-duplicate-decision': f"Duplicate candidate marked {request.POST.get('decision', '')}",
             'listing-status': f"Listing {action_status}",
             'post-status': f"Post marked {action_status}",
             'booking-status': f"Booking marked {action_status}",
@@ -1182,7 +1259,7 @@ def action(request, action):
         return redirect('/admin/?section=users')
     if action == 'admin-create' and created_admin_id is not None:
         return redirect(f'/admin/admins/{created_admin_id}/')
-    if action in {'listing-status', 'listing-verification'} and request.POST.get('listing_tab') in {'review', 'available'}:
+    if action in {'listing-status', 'listing-verification', 'listing-duplicate-decision'} and request.POST.get('listing_tab') in {'review', 'available'}:
         listing_tab = request.POST['listing_tab']
         listing_sort = request.POST.get('listing_sort', 'updated')
         if listing_sort not in {'updated', 'oldest', 'title', 'city', 'price_low', 'price_high'}:

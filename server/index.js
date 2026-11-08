@@ -31,6 +31,7 @@ import {
   resolvePropertyVerificationStatus,
   validatePropertyVerificationDecision
 } from './property-verification.js';
+import { isReviewAuthorEligible, validateReviewReply } from './review-rules.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -1620,17 +1621,59 @@ app.post('/api/reports', requireAuth, async (req, res, next) => {
     const entityType = nonEmptyString(req.body.entityType, 40);
     const reason = nonEmptyString(req.body.reason, 120);
     const entityId = req.body.entityId == null ? null : positiveId(req.body.entityId);
-    const reportedUserId = req.body.reportedUserId == null ? null : positiveId(req.body.reportedUserId);
     const details = req.body.details ? nonEmptyString(req.body.details, 1000) : null;
-    if (!entityType || !reason || (req.body.entityId != null && !entityId) || (req.body.reportedUserId != null && !reportedUserId)) return res.status(400).json({ error: 'Invalid report' });
-    const [result] = await pool.execute('INSERT INTO user_reports (reporter_user_id, reported_user_id, entity_type, entity_id, reason, details) VALUES (?, ?, ?, ?, ?, ?)', [req.session.user.id, reportedUserId, entityType, entityId, reason, details]);
+    const reportTargets = {
+      listing: {
+        sql: 'SELECT owner_user_id, agent_user_id FROM listings WHERE id=? AND status="published" AND deleted_at IS NULL',
+        reportedUser: target => target.agent_user_id || target.owner_user_id
+      },
+      review: {
+        sql: 'SELECT l.owner_user_id, l.agent_user_id FROM reviews r JOIN listings l ON l.id=r.listing_id WHERE r.id=? AND r.status="published"',
+        reportedUser: target => target.agent_user_id || target.owner_user_id
+      },
+      post: {
+        sql: 'SELECT l.owner_user_id, l.agent_user_id FROM posts p JOIN listings l ON l.id=p.listing_id WHERE p.id=? AND p.status="published"',
+        reportedUser: target => target.agent_user_id || target.owner_user_id
+      },
+      user: {
+        sql: 'SELECT id FROM users WHERE id=? AND status="active"',
+        reportedUser: target => target.id
+      },
+      agent: {
+        sql: 'SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=? AND u.status="active" AND r.name="agent"',
+        reportedUser: target => target.id
+      }
+    };
+    const targetConfig = reportTargets[entityType];
+    if (!targetConfig || !reason || !entityId) {
+      return res.status(400).json({ error: 'Choose a supported report target and provide a reason' });
+    }
+    const [[target]] = await pool.execute(targetConfig.sql, [entityId]);
+    if (!target) return res.status(404).json({ error: 'The item you are reporting is no longer available' });
+    const resolvedReportedUserId = targetConfig.reportedUser(target);
+    const requestedReportedUserId = req.body.reportedUserId == null ? null : positiveId(req.body.reportedUserId);
+    if (req.body.reportedUserId != null && requestedReportedUserId !== resolvedReportedUserId) {
+      return res.status(400).json({ error: 'Reported user does not match the selected item' });
+    }
+    if (Number(resolvedReportedUserId) === Number(req.session.user.id)) {
+      return res.status(400).json({ error: 'You cannot report your own account or listing' });
+    }
+    const [[existing]] = await pool.execute(
+      'SELECT id FROM user_reports WHERE reporter_user_id=? AND entity_type=? AND entity_id=? AND status IN ("open","reviewing") LIMIT 1',
+      [req.session.user.id, entityType, entityId]
+    );
+    if (existing) return res.status(409).json({ error: 'You already have an open report for this item' });
+    const [result] = await pool.execute(
+      'INSERT INTO user_reports (reporter_user_id, reported_user_id, entity_type, entity_id, reason, details) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.session.user.id, resolvedReportedUserId, entityType, entityId, reason, details]
+    );
     void notifyAdministrators({
-      type: 'listing_report',
-      title: 'New listing report requires review',
+      type: 'safety_report',
+      title: 'New safety report requires review',
       body: `${entityType} report: ${reason}`,
       data: { reportId: Number(result.insertId), entityType, entityId }
     }).catch(error => console.error('Administrator report notification failed:', error.message));
-    await audit(req, 'report_created', entityType, entityId, { reportedUserId, reason });
+    await audit(req, 'report_created', entityType, entityId, { reportedUserId: resolvedReportedUserId, reason });
     res.status(201).json({ id: result.insertId, status: 'open' });
   } catch (error) { next(error); }
 });
@@ -2509,7 +2552,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         l.floor_area floorArea, l.commercial_use commercialUse, l.category_details categoryDetails,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.rental_mode rentalMode, pt.name propertyType,
-        l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
+        l.owner_user_id ownerId, l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
         CASE WHEN lv.verification_status='verified' AND lv.expires_at<CURRENT_DATE() THEN 'expired'
              ELSE COALESCE(lv.verification_status, 'unverified') END propertyVerificationStatus,
@@ -2531,6 +2574,11 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       [req.session.user?.id || 0, req.params.id]
     );
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    const listingManagerId = agentOwnerId(req);
+    listing.canRespondToReviews = (Number(listingManagerId) === Number(listing.ownerId)
+      || Number(listingManagerId) === Number(listing.agentId))
+      && (!req.session.user?.isSubAgent || hasAgentPermission(req.session.user, 'listings.manage'));
+    delete listing.ownerId;
     listing.propertyVerification = {
       status: listing.propertyVerificationStatus,
       identity: listing.identityVerificationStatus,
@@ -2565,7 +2613,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       [req.params.id]
     );
     const [reviews] = await pool.query(
-      `SELECT r.rating, r.comment, r.created_at createdAt, p.first_name firstName, p.last_name lastName
+      `SELECT r.id, r.rating, r.comment, r.host_reply hostReply, r.created_at createdAt, p.first_name firstName, p.last_name lastName
        FROM reviews r JOIN user_profiles p ON p.user_id=r.author_user_id
        WHERE r.listing_id=? AND r.status="published" ORDER BY r.created_at DESC LIMIT 20`,
       [req.params.id]
@@ -2578,11 +2626,12 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       );
       [reviewBookings] = await pool.execute(
         `SELECT b.id, b.created_at createdAt
-         FROM bookings b
+         FROM bookings b JOIN listings l ON l.id=b.listing_id
          LEFT JOIN reviews r ON r.booking_id=b.id AND r.author_user_id=b.guest_user_id
          WHERE b.guest_user_id=? AND b.listing_id=? AND b.status="completed" AND r.id IS NULL
+           AND l.owner_user_id<>? AND (l.agent_user_id IS NULL OR l.agent_user_id<>?)
          ORDER BY b.created_at DESC`,
-        [req.session.user.id, req.params.id]
+        [req.session.user.id, req.params.id, req.session.user.id, req.session.user.id]
       );
     }
     const [similar] = await pool.query(
@@ -2666,12 +2715,17 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
     const bookingId = positiveId(req.body.bookingId);
     if (!bookingId) return res.status(400).json({ error: 'Choose a completed booking to review' });
     const [eligible] = await pool.execute(
-      `SELECT b.id, l.agent_user_id agentId, l.title
+      `SELECT b.id, l.owner_user_id ownerId, l.agent_user_id agentId, l.title
        FROM bookings b JOIN listings l ON l.id=b.listing_id
        WHERE b.id=? AND b.guest_user_id=? AND b.listing_id=? AND b.status="completed"`,
       [bookingId, req.session.user.id, req.params.id]
     );
     if (!eligible.length) return res.status(403).json({ error: 'A completed booking is required to review this listing' });
+    if (!isReviewAuthorEligible({
+      authorUserId: req.session.user.id,
+      ownerUserId: eligible[0].ownerId,
+      agentUserId: eligible[0].agentId
+    })) return res.status(403).json({ error: 'Listing owners and agents cannot review their own listing' });
     const [[existingReview]] = await pool.execute('SELECT id FROM reviews WHERE booking_id=? AND author_user_id=?', [bookingId, req.session.user.id]);
     if (existingReview) return res.status(409).json({ error: 'You have already reviewed this completed booking' });
     const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [bookingId, req.session.user.id, req.params.id, rating, String(req.body.comment || '').slice(0, 5000)]);
@@ -2687,6 +2741,35 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'You have already reviewed this completed booking' });
     next(error);
   }
+});
+
+app.post('/api/listings/:id/reviews/:reviewId/reply', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    const reviewId = positiveId(req.params.reviewId);
+    const validation = validateReviewReply(req.body?.reply);
+    if (!listingId || !reviewId) return res.status(400).json({ error: 'Choose a valid listing and review' });
+    if (validation.error) return res.status(400).json({ error: validation.error });
+    const [result] = await pool.execute(
+      `UPDATE reviews r JOIN listings l ON l.id=r.listing_id
+       SET r.host_reply=?
+       WHERE r.id=? AND r.listing_id=? AND r.status='published'
+         AND r.host_reply IS NULL
+         AND (l.owner_user_id=? OR l.agent_user_id=?)`,
+      [validation.reply, reviewId, listingId, agentOwnerId(req), agentOwnerId(req)]
+    );
+    if (!result.affectedRows) {
+      const [[review]] = await pool.execute(
+        'SELECT r.host_reply FROM reviews r WHERE r.id=? AND r.listing_id=? AND r.status="published"',
+        [reviewId, listingId]
+      );
+      if (!review) return res.status(404).json({ error: 'Published review not found' });
+      if (review.host_reply) return res.status(409).json({ error: 'A response has already been published for this review' });
+      return res.status(403).json({ error: 'Only this listing’s owner or agent can respond' });
+    }
+    await audit(req, 'review_response_published', 'review', reviewId, { listingId });
+    res.status(201).json({ ok: true, reply: validation.reply });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/listings/:id/geocode', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {

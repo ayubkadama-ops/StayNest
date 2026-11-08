@@ -143,7 +143,7 @@ export function markup(result) {
   const reviews = Array.isArray(result.reviews) ? result.reviews : [];
   const reviewCount = Number(listing.reviewCount ?? reviews.length);
   const reviewsMarkup = reviews.length
-    ? reviews.map(review => `<article class="listing-review"><div><strong>${escapeHtml(`${review.firstName || ''} ${review.lastName || ''}`.trim() || 'Makazi Go guest')}</strong><span>${Number(review.rating)} / 5</span></div><small>${review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Verified stay'}</small><p>${escapeHtml(review.comment || 'Guest left a rating.')}</p></article>`).join('')
+    ? reviews.map(review => `<article class="listing-review"><div><strong>${escapeHtml(`${review.firstName || ''} ${review.lastName || ''}`.trim() || 'Makazi Go guest')}</strong><span>${Number(review.rating)} / 5</span></div><small>${review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Verified stay'}</small><p>${escapeHtml(review.comment || 'Guest left a rating.')}</p>${review.hostReply ? `<div class="listing-review-reply"><strong>Owner/agent response</strong><p>${escapeHtml(review.hostReply)}</p></div>` : listing.canRespondToReviews ? `<form class="listing-review-reply-form" data-review-reply="${escapeHtml(review.id)}"><label>Respond to this review<textarea name="reply" maxlength="2000" rows="3" required></textarea></label><button class="outline-btn" type="submit">Post response</button></form>` : ''}</article>`).join('')
     : '<p class="listing-page-description">No guest reviews yet.</p>';
   const reviewBookings = Array.isArray(result.reviewBookings) ? result.reviewBookings : [];
   const reviewFormMarkup = reviewBookings.length
@@ -253,6 +253,23 @@ export function wire(listing, { onBack } = {}) {
       toast(error.message);
     }
   });
+  document.querySelectorAll('[data-review-reply]').forEach(form => form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await api(`/api/listings/${encodeURIComponent(listing.id)}/reviews/${encodeURIComponent(form.dataset.reviewReply)}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await csrf() },
+        body: JSON.stringify({ reply: form.elements.reply.value }),
+      });
+      toast('Your response has been published');
+      location.reload();
+    } catch (error) {
+      submit.disabled = false;
+      toast(error.message);
+    }
+  }));
 }
 const menu = document.querySelector('.menu');
 menu?.addEventListener('click', () => {
