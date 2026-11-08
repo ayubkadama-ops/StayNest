@@ -5,6 +5,46 @@ commit history or release notes.
 
 ## Unreleased
 
+### Stages 12–13 — Administration security and mobile performance
+
+- Removed the public homepage admin shortcut and hidden brand double-click
+  route. Express and Django now send CSP policies that disallow inline script
+  execution and script attributes; Django admin scripts are served externally
+  and inline event handlers use data-driven controls.
+- Preserved existing server-side admin authentication/authorization, CSRF,
+  rate limits, secure sessions, audit logging, upload validation, and
+  parameterized database access. Added regression checks for public admin
+  entry points, CSP directives, and externalized Django admin scripts.
+- Added responsive Cloudinary width/quality/format transformations for mobile
+  discovery, listing, and agent images, and reduced initial/batch rendering
+  windows for discovery and admin lists without changing pagination.
+- Local verification: 74 Node tests, 95 Django tests, Django system checks,
+  Vite production build, mobile TypeScript check, Expo web export, JavaScript
+  syntax checks, and `git diff --check` pass. Android device/network
+  performance tests and production CSP-header verification remain outstanding.
+
+### Stages 10–11 — Reviews, reputation, and mobile experience
+
+- Property and agent reviews are now separate, require a completed booking,
+  require a useful written comment, block self-reviews, and enter moderation
+  before becoming public. Only published reviews contribute to property or
+  agent ratings.
+- Added agent review replies and reporting for property/agent reviews, a
+  permission-scoped Django moderation queue with audited publish/hide
+  decisions, and aggregate refreshes when property reviews are moderated.
+- Added web booking-history actions for separate property and agent reviews;
+  native review history/submission, public agent reputation and responses,
+  web and native verified-stay indicators, per-review report actions,
+  retry/error/empty states, and accessible controls. Public listing details
+  now use the API response rather than a fabricated local guest-review sample.
+- Added the additive `reputation-reviews-migration.sql` migration and updated
+  `database/schema.sql`. It has not been applied to staging or production:
+  the documented provider-backup and isolated-restore gate remains required.
+- Verification: 72 Node tests, 94 Django tests, Django system checks, Vite
+  production build, Expo web export, mobile TypeScript check, Python/JavaScript
+  syntax checks, and `git diff --check` pass. Live TiDB DDL, end-to-end
+  account workflows, and Android device testing remain outstanding.
+
 ### Admin review, booking requests, and account details
 
 - Listing review now surfaces the advertiser's latest identity document (owner

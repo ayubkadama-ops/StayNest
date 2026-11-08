@@ -21,7 +21,7 @@ from django.views.decorators.cache import never_cache
 from urllib.parse import urlencode, unquote, urlparse
 from django.views.decorators.http import require_http_methods
 
-SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
+SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reviews', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
 SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
 ROLES = {'tenant', 'property_owner', 'agent', 'agency', 'developer', 'verification_officer', 'administrator'}
 ADMIN_FEATURES = [
@@ -35,6 +35,7 @@ ADMIN_FEATURES = [
     ('badges', 'Agent badges', 'Assign or remove agent badges.'),
     ('bookings', 'Bookings', 'View and update reservation status.'),
     ('verifications', 'Identity checks', 'Review identity and agent verification requests.'),
+    ('reviews', 'Reviews', 'Moderate verified property and agent reviews.'),
     ('reports', 'Safety reports', 'Review and resolve safety reports.'),
     ('audit', 'Audit logs', 'View administrative activity logs.'),
     ('settings', 'Settings and controls', 'Manage marketplace settings and announcements.'),
@@ -44,7 +45,7 @@ ADMIN_FEATURES = [
 ADMIN_FEATURE_GROUPS = [
     ('Dashboard', ('overview',)),
     ('People and access', ('users', 'access')),
-    ('Marketplace operations', ('agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
+    ('Marketplace operations', ('agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reviews')),
     ('Safety and platform', ('reports', 'audit', 'settings', 'analytics')),
     ('Business model', ('monetization',)),
 ]
@@ -59,6 +60,7 @@ CONSOLE_SECTIONS = [
     ('badges', 'Agent badges'),
     ('bookings', 'Reservations'),
     ('verifications', 'Identity checks'),
+    ('reviews', 'Reviews moderation'),
     ('reports', 'Safety reports'),
     ('audit', 'Audit and security'),
     ('settings', 'Settings and controls'),
@@ -75,6 +77,7 @@ ADMIN_ACTION_FEATURES = {
     'business-status': 'businesses',
     'badge': 'badges',
     'report-status': 'reports',
+    'review-status': 'reviews',
     'listing-duplicate-decision': 'listings',
     'listing-status': 'listings',
     'listing-verification': 'listings',
@@ -397,7 +400,7 @@ def dashboard(request):
         section = 'overview'
     if section not in permissions:
         return redirect(f'/admin/?section={available_sections[0][0]}')
-    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'reviews': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -557,6 +560,36 @@ def dashboard(request):
             data['rows'] = rows("SELECT b.id,b.guest_user_id,b.host_user_id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
             data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.document_last4,v.created_at,(v.document_file_key IS NOT NULL) has_document,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+        elif section == 'reviews':
+            data['reviews'] = rows(
+                """SELECT review_id,review_type,status,rating,comment,created_at,reviewer_name,target_name,target_detail
+                   FROM (
+                     SELECT r.id review_id,'property' review_type,r.status,r.rating,r.comment,r.created_at,
+                       COALESCE(rp.display_name,CONCAT(rp.first_name,' ',rp.last_name),ru.email) reviewer_name,
+                       COALESCE(l.title,CONCAT('Listing ',l.id)) target_name,
+                       CONCAT(COALESCE(l.city,'Location not provided'),' · ',COALESCE(NULLIF(TRIM(CONCAT(hp.first_name,' ',hp.last_name)),''),hu.email)) target_detail
+                     FROM reviews r
+                     JOIN listings l ON l.id=r.listing_id
+                     JOIN users ru ON ru.id=r.author_user_id
+                     LEFT JOIN user_profiles rp ON rp.user_id=ru.id
+                     JOIN users hu ON hu.id=COALESCE(l.agent_user_id,l.owner_user_id)
+                     LEFT JOIN user_profiles hp ON hp.user_id=hu.id
+                     UNION ALL
+                     SELECT ar.id review_id,'agent' review_type,ar.status,ar.rating,ar.comment,ar.created_at,
+                       COALESCE(rp.display_name,CONCAT(rp.first_name,' ',rp.last_name),ru.email) reviewer_name,
+                       COALESCE(NULLIF(TRIM(CONCAT(ap.first_name,' ',ap.last_name)),''),au.email) target_name,
+                       CONCAT(COALESCE(l.title,'Completed stay'),' · ',COALESCE(l.city,'Location not provided')) target_detail
+                     FROM agent_reviews ar
+                     JOIN bookings b ON b.id=ar.booking_id
+                     JOIN listings l ON l.id=b.listing_id
+                     JOIN users ru ON ru.id=ar.author_user_id
+                     LEFT JOIN user_profiles rp ON rp.user_id=ru.id
+                     JOIN users au ON au.id=ar.agent_user_id
+                     LEFT JOIN user_profiles ap ON ap.user_id=au.id
+                   ) queue
+                   ORDER BY CASE status WHEN 'pending_review' THEN 0 WHEN 'reported' THEN 1 ELSE 2 END,
+                     created_at DESC LIMIT 300"""
+            )
         elif section == 'reports':
             data['reports'] = rows("SELECT r.id,r.reporter_user_id,r.reported_user_id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
         elif section == 'audit':
@@ -667,7 +700,7 @@ def admin_create(request):
 
 def admin_create_context(form_values=None, form_step=0, form_error=''):
     return {
-        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reviews', 'Reviews moderation'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
         'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
         'form_values': form_values or {},
         'form_step': form_step,
@@ -714,7 +747,7 @@ def admin_detail(request, user_id):
             'selected_count': sum(feature['checked'] for feature in grouped_features),
         })
     return render(request, 'admin_detail.html', {
-        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
+        'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reviews', 'Reviews moderation'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')],
         'user': user,
         'feature_groups': feature_groups,
         'is_legacy_full_access': is_legacy_full_access,
@@ -1315,6 +1348,37 @@ def action(request, action):
                     raise ValueError('Add a short resolution note before closing a report')
                 execute('UPDATE user_reports SET status=%s WHERE id=%s', [status, report_id])
                 audit(f'report_{status}', 'user_report', report_id, {'resolutionNote': resolution_note or None})
+            elif action == 'review-status':
+                review_id = int(request.POST.get('id', '0'))
+                review_type = request.POST.get('review_type', '')
+                status = request.POST.get('status', '')
+                reason = request.POST.get('reason', '').strip()[:1000]
+                review_table = {'property': 'reviews', 'agent': 'agent_reviews'}.get(review_type)
+                if review_id < 1 or review_table is None or status not in {'published', 'hidden'}:
+                    raise ValueError('Choose a valid review moderation action')
+                if status == 'hidden' and not reason:
+                    raise ValueError('Add a reason before hiding a review')
+                review_reference = 'listing_id' if review_type == 'property' else 'booking_id'
+                review_rows = rows(
+                    f'SELECT id,{review_reference} FROM {review_table} WHERE id=%s FOR UPDATE',
+                    [review_id],
+                )
+                if not review_rows:
+                    raise ValueError('Review no longer exists')
+                execute(f'UPDATE {review_table} SET status=%s WHERE id=%s', [status, review_id])
+                if review_type == 'property':
+                    listing_id = review_rows[0]['listing_id']
+                    execute(
+                        """UPDATE listings SET
+                             average_rating=(SELECT AVG(rating) FROM reviews WHERE listing_id=%s AND status='published'),
+                             review_count=(SELECT COUNT(*) FROM reviews WHERE listing_id=%s AND status='published')
+                           WHERE id=%s""",
+                        [listing_id, listing_id, listing_id],
+                    )
+                    entity_type = 'review'
+                else:
+                    entity_type = 'agent_review'
+                audit(f'{entity_type}_{status}', entity_type, review_id, {'reason': reason or None})
             elif action == 'listing-duplicate-decision':
                 low_id = int(request.POST.get('low_id', '0'))
                 high_id = int(request.POST.get('high_id', '0'))
@@ -1727,6 +1791,7 @@ def action(request, action):
             'agent-status': f"Agent application {action_status}",
             'badge': 'Agent badge removed' if request.POST.get('duration') == 'remove' else 'Agent badge updated',
             'report-status': f"Safety report marked {action_status}",
+            'review-status': f"Review marked {action_status}",
             'listing-duplicate-decision': f"Duplicate candidate marked {request.POST.get('decision', '')}",
             'listing-status': f"Listing {action_status}",
             'listing-verification': 'Property verification step recorded',

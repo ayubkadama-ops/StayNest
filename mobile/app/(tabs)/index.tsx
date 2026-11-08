@@ -739,6 +739,10 @@ export default function ExploreScreen() {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        removeClippedSubviews
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
           loading ? (
@@ -890,7 +894,7 @@ function FilterChip({
 }
 
 function ListingCard({ listing }: { listing: ListingSummary }) {
-  const imageUri = resolveMediaUrl(listing.coverUrl);
+  const imageUri = resolveMediaUrl(listing.coverUrl, 900);
   const price = listing.salePrice ?? listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
   const period = listing.salePrice !== null
     ? 'for sale'

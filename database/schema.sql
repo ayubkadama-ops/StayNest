@@ -555,7 +555,7 @@ CREATE TABLE reviews (
   communication_rating TINYINT UNSIGNED NULL,
   location_rating TINYINT UNSIGNED NULL,
   comment TEXT NULL,
-  status ENUM('published','hidden','reported') NOT NULL DEFAULT 'published',
+  status ENUM('pending_review','published','hidden','reported') NOT NULL DEFAULT 'pending_review',
   host_reply TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_review_booking FOREIGN KEY (booking_id) REFERENCES bookings(id),
@@ -564,6 +564,24 @@ CREATE TABLE reviews (
   CONSTRAINT uq_review_booking UNIQUE (booking_id, author_user_id),
   CONSTRAINT chk_review_rating CHECK (rating BETWEEN 1 AND 5),
   INDEX idx_reviews_listing (listing_id, status, created_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE agent_reviews (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  author_user_id BIGINT UNSIGNED NOT NULL,
+  agent_user_id BIGINT UNSIGNED NOT NULL,
+  rating TINYINT UNSIGNED NOT NULL,
+  comment TEXT NOT NULL,
+  status ENUM('pending_review','published','hidden','reported') NOT NULL DEFAULT 'pending_review',
+  agent_reply TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_agent_review_booking FOREIGN KEY (booking_id) REFERENCES bookings(id),
+  CONSTRAINT fk_agent_review_author FOREIGN KEY (author_user_id) REFERENCES users(id),
+  CONSTRAINT fk_agent_review_agent FOREIGN KEY (agent_user_id) REFERENCES users(id),
+  CONSTRAINT uq_agent_review_booking_author UNIQUE (booking_id, author_user_id),
+  CONSTRAINT chk_agent_review_rating CHECK (rating BETWEEN 1 AND 5),
+  INDEX idx_agent_reviews_agent_status (agent_user_id, status, created_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE conversations (

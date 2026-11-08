@@ -27,13 +27,19 @@ import { buildRobotsTxt, buildSitemapXml, renderCanonicalPageHtml, renderListing
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
+import { securityHeaders } from './security-headers.js';
 import {
   nextPropertyVerificationCheck,
   resetPropertyLocationChecks,
   resolvePropertyVerificationStatus,
   validatePropertyVerificationDecision
 } from './property-verification.js';
-import { isReviewAuthorEligible, validateReviewReply } from './review-rules.js';
+import {
+  canReplyToAgentReview,
+  isReviewAuthorEligible,
+  validateReviewReply,
+  validateReviewSubmission
+} from './review-rules.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -287,24 +293,7 @@ async function sendEmailVerification(userId, email, requestedIp) {
   });
 }
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      frameAncestors: ["'none'"],
-      objectSrc: ["'none'"],
-      frameSrc: ["'self'", 'https://www.openstreetmap.org'],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com', 'https://*.tile.openstreetmap.org'],
-      scriptSrc: ["'self'", "'unsafe-inline'", 'https://www.googletagmanager.com'],
-      connectSrc: ["'self'", 'https://www.google-analytics.com', 'https://analytics.google.com', 'https://region1.google-analytics.com'],
-      scriptSrcAttr: ["'none'"],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:']
-    }
-  },
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
-}));
+app.use(helmet(securityHeaders));
 app.post('/api/payments/webhook', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res, next) => {
   try {
     const signature = req.get('x-payment-signature') || '';
@@ -1035,8 +1024,8 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
         ap.phone, ap.bio, ap.agency_name agencyName, ap.profile_image_url profileImageUrl, ap.followers_count followers, ap.following_count following,
         (u.last_login_at >= UTC_TIMESTAMP() - INTERVAL 15 MINUTE) online, ap.following_count following,
         ab.badge_label badgeLabel, ab.expires_at badgeExpiresAt,
-        (SELECT AVG(r.rating) FROM reviews r JOIN listings rl ON rl.id=r.listing_id WHERE rl.agent_user_id=u.id AND r.status="published") agentRating,
-        (SELECT COUNT(*) FROM reviews r JOIN listings rl ON rl.id=r.listing_id WHERE rl.agent_user_id=u.id AND r.status="published") agentReviewCount,
+        (SELECT AVG(r.rating) FROM agent_reviews r WHERE r.agent_user_id=u.id AND r.status="published") agentRating,
+        (SELECT COUNT(*) FROM agent_reviews r WHERE r.agent_user_id=u.id AND r.status="published") agentReviewCount,
         (SELECT AVG(TIMESTAMPDIFF(MINUTE, b.created_at, b.confirmed_at))/60 FROM bookings b WHERE b.host_user_id=u.id AND b.confirmed_at IS NOT NULL) responseHours
        FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
@@ -1067,12 +1056,14 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
       following = Boolean(follow);
     }
     const [reviews] = await pool.query(
-      `SELECT r.rating, r.comment, r.created_at createdAt, l.title listingTitle,
-        p.first_name firstName, p.last_name lastName
-       FROM reviews r
-       JOIN listings l ON l.id=r.listing_id
-       JOIN user_profiles p ON p.user_id=r.author_user_id
-       WHERE l.agent_user_id=? AND r.status="published"
+      `SELECT r.id, r.rating, r.comment, r.agent_reply agentReply, TRUE verifiedInteraction,
+        r.created_at createdAt, l.title listingTitle,
+        COALESCE(p.first_name,'Makazi Go') firstName, COALESCE(p.last_name,'guest') lastName
+       FROM agent_reviews r
+       JOIN bookings b ON b.id=r.booking_id
+       JOIN listings l ON l.id=b.listing_id
+       LEFT JOIN user_profiles p ON p.user_id=r.author_user_id
+       WHERE r.agent_user_id=? AND r.status="published"
        ORDER BY r.created_at DESC LIMIT 10`,
       [req.params.id]
     );
@@ -1109,9 +1100,10 @@ app.get('/api/agents', async (req, res, next) => {
         MAX(ab.badge_label) badgeLabel,
         ap.followers_count followers,
         COUNT(DISTINCT l.id) listings,
-        COALESCE(AVG(l.average_rating), 0) rating,
+        COALESCE(ar.average_rating, 0) rating,
+        COALESCE(ar.review_count, 0) reviewCount,
         ROUND((LOG10(1 + ap.followers_count) * 3) + (LOG10(1 + COUNT(DISTINCT l.id)) * 2) +
-          (COALESCE(AVG(l.average_rating), 0) * 1.5) + (LOG10(1 + COALESCE(SUM(ll.likes), 0)) * 1.5), 3) rankScore
+          (COALESCE(ar.average_rating, 0) * 1.5) + (LOG10(1 + COALESCE(SUM(ll.likes), 0)) * 1.5), 3) rankScore
        FROM users u
        JOIN user_profiles p ON p.user_id=u.id
        LEFT JOIN agent_profiles ap ON ap.user_id=u.id
@@ -1120,8 +1112,12 @@ app.get('/api/agents', async (req, res, next) => {
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
        LEFT JOIN listings l ON l.agent_user_id=u.id AND l.status="published"
        LEFT JOIN (SELECT listing_id, COUNT(*) likes FROM listing_likes GROUP BY listing_id) ll ON ll.listing_id=l.id
+       LEFT JOIN (
+         SELECT agent_user_id,AVG(rating) average_rating,COUNT(*) review_count
+         FROM agent_reviews WHERE status='published' GROUP BY agent_user_id
+       ) ar ON ar.agent_user_id=u.id
        WHERE u.status="active" AND r.name="agent"
-       GROUP BY u.id, p.first_name, p.last_name, p.city, u.last_login_at, ap.profile_image_url, ap.bio, ap.followers_count
+       GROUP BY u.id, p.first_name, p.last_name, p.city, u.last_login_at, ap.profile_image_url, ap.bio, ap.followers_count, ar.average_rating, ar.review_count
        ORDER BY rankScore DESC, p.first_name ASC, p.last_name ASC, u.id ASC LIMIT ${limit} OFFSET ${offset}`
     );
     res.json({ agents, page, limit, algorithm: 'followers+listings+ratings+engagement' });
@@ -1643,6 +1639,10 @@ app.post('/api/reports', requireAuth, async (req, res, next) => {
         sql: 'SELECT l.owner_user_id, l.agent_user_id FROM reviews r JOIN listings l ON l.id=r.listing_id WHERE r.id=? AND r.status="published"',
         reportedUser: target => target.agent_user_id || target.owner_user_id
       },
+      agent_review: {
+        sql: 'SELECT agent_user_id FROM agent_reviews WHERE id=? AND status="published"',
+        reportedUser: target => target.agent_user_id
+      },
       post: {
         sql: 'SELECT l.owner_user_id, l.agent_user_id FROM posts p JOIN listings l ON l.id=p.listing_id WHERE p.id=? AND p.status="published"',
         reportedUser: target => target.agent_user_id || target.owner_user_id
@@ -1781,7 +1781,15 @@ app.get('/api/account/bookings', requireAuth, async (req, res, next) => {
   try {
     await pool.execute('UPDATE bookings SET status="completed" WHERE guest_user_id=? AND status="confirmed" AND check_out < UTC_DATE()', [req.session.user.id]);
     const [rows] = await pool.execute(
-      'SELECT b.id, b.booking_code, b.booking_kind, b.appointment_at, b.check_in, b.check_out, b.total_amount, b.currency, b.status, b.created_at, l.id listing_id, l.title, l.slug FROM bookings b JOIN listings l ON l.id=b.listing_id WHERE b.guest_user_id=? ORDER BY b.created_at DESC',
+      `SELECT b.id, b.booking_code, b.booking_kind, b.appointment_at, b.check_in, b.check_out,
+        b.total_amount, b.currency, b.status, b.created_at, l.id listing_id, l.title, l.slug,
+        b.host_user_id agent_id,
+        lr.id listing_review_id,lr.status listing_review_status,
+        ar.id agent_review_id,ar.status agent_review_status
+       FROM bookings b JOIN listings l ON l.id=b.listing_id
+       LEFT JOIN reviews lr ON lr.booking_id=b.id AND lr.author_user_id=b.guest_user_id
+       LEFT JOIN agent_reviews ar ON ar.booking_id=b.id AND ar.author_user_id=b.guest_user_id
+       WHERE b.guest_user_id=? ORDER BY b.created_at DESC`,
       [req.session.user.id]
     );
     res.json({ bookings: rows });
@@ -2620,8 +2628,9 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
       [req.params.id]
     );
     const [reviews] = await pool.query(
-      `SELECT r.id, r.rating, r.comment, r.host_reply hostReply, r.created_at createdAt, p.first_name firstName, p.last_name lastName
-       FROM reviews r JOIN user_profiles p ON p.user_id=r.author_user_id
+      `SELECT r.id, r.rating, r.comment, r.host_reply hostReply, TRUE verifiedInteraction,
+        r.created_at createdAt, COALESCE(p.first_name,'Makazi Go') firstName, COALESCE(p.last_name,'guest') lastName
+       FROM reviews r LEFT JOIN user_profiles p ON p.user_id=r.author_user_id
        WHERE r.listing_id=? AND r.status="published" ORDER BY r.created_at DESC LIMIT 20`,
       [req.params.id]
     );
@@ -2717,8 +2726,8 @@ app.post('/api/search-alerts', requireAuth, async (req, res, next) => {
 
 app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
   try {
-    const rating = Number(req.body.rating);
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be from 1 to 5' });
+    const validation = validateReviewSubmission(req.body.rating, req.body.comment);
+    if (validation.error) return res.status(400).json({ error: validation.error });
     const bookingId = positiveId(req.body.bookingId);
     if (!bookingId) return res.status(400).json({ error: 'Choose a completed booking to review' });
     const [eligible] = await pool.execute(
@@ -2735,19 +2744,114 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
     })) return res.status(403).json({ error: 'Listing owners and agents cannot review their own listing' });
     const [[existingReview]] = await pool.execute('SELECT id FROM reviews WHERE booking_id=? AND author_user_id=?', [bookingId, req.session.user.id]);
     if (existingReview) return res.status(409).json({ error: 'You have already reviewed this completed booking' });
-    const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [bookingId, req.session.user.id, req.params.id, rating, String(req.body.comment || '').slice(0, 5000)]);
-    await pool.execute('UPDATE listings SET average_rating=(SELECT AVG(rating) FROM reviews WHERE listing_id=? AND status="published"), review_count=(SELECT COUNT(*) FROM reviews WHERE listing_id=? AND status="published") WHERE id=?', [req.params.id, req.params.id, req.params.id]);
-    void notifyUser(eligible[0].agentId, {
+    const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [bookingId, req.session.user.id, req.params.id, validation.rating, validation.comment]);
+    void notifyUser(eligible[0].agentId || eligible[0].ownerId, {
       type: 'listing_review_received',
       title: 'New guest review',
-      body: `A guest rated ${eligible[0].title} ${rating} out of 5.`,
+      body: `A guest submitted a review for ${eligible[0].title}.`,
       data: { listingId: Number(req.params.id), reviewId: result.insertId }
     }).catch(error => console.error('Agent review notification failed:', error.message));
-    res.status(201).json({ id: result.insertId });
+    res.status(201).json({ id: result.insertId, status: 'pending_review' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'You have already reviewed this completed booking' });
     next(error);
   }
+});
+
+app.get('/api/account/reviewable-bookings', requireAuth, requireRole('tenant'), async (req, res, next) => {
+  try {
+    await pool.execute(
+      'UPDATE bookings SET status="completed" WHERE guest_user_id=? AND status="confirmed" AND check_out < UTC_DATE()',
+      [req.session.user.id]
+    );
+    const [bookings] = await pool.execute(
+      `SELECT b.id bookingId, b.check_in checkIn, b.check_out checkOut, l.id listingId, l.title listingTitle,
+        b.host_user_id agentId,
+        COALESCE(NULLIF(TRIM(CONCAT(ap.first_name,' ',ap.last_name)),''),ag.email) agentName,
+        lr.id listingReviewId, lr.status listingReviewStatus, ar.id agentReviewId, ar.status agentReviewStatus
+       FROM bookings b
+       JOIN listings l ON l.id=b.listing_id
+       JOIN users ag ON ag.id=b.host_user_id
+       LEFT JOIN user_profiles ap ON ap.user_id=ag.id
+       LEFT JOIN reviews lr ON lr.booking_id=b.id AND lr.author_user_id=b.guest_user_id
+       LEFT JOIN agent_reviews ar ON ar.booking_id=b.id AND ar.author_user_id=b.guest_user_id
+       WHERE b.guest_user_id=? AND b.status="completed"
+         AND l.owner_user_id<>? AND b.host_user_id<>?
+       ORDER BY b.check_out DESC,b.id DESC LIMIT 100`,
+      [req.session.user.id, req.session.user.id, req.session.user.id]
+    );
+    res.json({ bookings });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/agents/:id/reviews', requireAuth, requireRole('tenant'), async (req, res, next) => {
+  try {
+    const targetAgentId = positiveId(req.params.id);
+    const bookingId = positiveId(req.body.bookingId);
+    const validation = validateReviewSubmission(req.body.rating, req.body.comment);
+    if (!targetAgentId || !bookingId) return res.status(400).json({ error: 'Choose a completed booking and agent to review' });
+    if (validation.error) return res.status(400).json({ error: validation.error });
+    const [[booking]] = await pool.execute(
+      `SELECT b.id, l.owner_user_id ownerId, b.host_user_id agentId,
+        l.title, COALESCE(NULLIF(TRIM(CONCAT(p.first_name,' ',p.last_name)),''),u.email) agentName
+       FROM bookings b JOIN listings l ON l.id=b.listing_id
+       JOIN users u ON u.id=b.host_user_id
+       LEFT JOIN user_profiles p ON p.user_id=u.id
+       WHERE b.id=? AND b.guest_user_id=? AND b.status="completed"`,
+      [bookingId, req.session.user.id]
+    );
+    if (!booking || Number(booking.agentId) !== targetAgentId) {
+      return res.status(403).json({ error: 'A completed booking with this agent is required' });
+    }
+    if (!isReviewAuthorEligible({
+      authorUserId: req.session.user.id,
+      ownerUserId: booking.ownerId,
+      agentUserId: targetAgentId
+    })) return res.status(403).json({ error: 'Property owners and agents cannot review their own stay' });
+    const [result] = await pool.execute(
+      'INSERT INTO agent_reviews (booking_id, author_user_id, agent_user_id, rating, comment) VALUES (?, ?, ?, ?, ?)',
+      [bookingId, req.session.user.id, targetAgentId, validation.rating, validation.comment]
+    );
+    void notifyUser(targetAgentId, {
+      type: 'agent_review_received',
+      title: 'New guest review',
+      body: `A guest submitted a review after staying at ${booking.title}.`,
+      data: { reviewId: Number(result.insertId), bookingId }
+    }).catch(error => console.error('Agent review notification failed:', error.message));
+    res.status(201).json({ id: result.insertId, status: 'pending_review' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'You have already reviewed this agent for that stay' });
+    next(error);
+  }
+});
+
+app.post('/api/agents/:id/reviews/:reviewId/reply', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const agentId = positiveId(req.params.id);
+    const reviewId = positiveId(req.params.reviewId);
+    const validation = validateReviewReply(req.body?.reply);
+    if (!agentId || !reviewId) return res.status(400).json({ error: 'Choose a valid agent and review' });
+    if (validation.error) return res.status(400).json({ error: validation.error });
+    if (!canReplyToAgentReview({ requesterUserId: agentOwnerId(req), agentUserId: agentId })) {
+      return res.status(403).json({ error: 'Only this agent can respond to the review' });
+    }
+    const [result] = await pool.execute(
+      `UPDATE agent_reviews SET agent_reply=?
+       WHERE id=? AND agent_user_id=? AND status='published' AND agent_reply IS NULL`,
+      [validation.reply, reviewId, agentId]
+    );
+    if (!result.affectedRows) {
+      const [[review]] = await pool.execute(
+        'SELECT agent_reply FROM agent_reviews WHERE id=? AND agent_user_id=? AND status="published"',
+        [reviewId, agentId]
+      );
+      if (!review) return res.status(404).json({ error: 'Published review not found' });
+      if (review.agent_reply) return res.status(409).json({ error: 'A response has already been published for this review' });
+      return res.status(403).json({ error: 'Only this agent can respond to the review' });
+    }
+    await audit(req, 'agent_review_response_published', 'agent_review', reviewId, { agentId });
+    res.status(201).json({ ok: true, reply: validation.reply });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/listings/:id/reviews/:reviewId/reply', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {

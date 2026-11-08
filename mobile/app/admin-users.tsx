@@ -119,6 +119,10 @@ export default function AdminUsersScreen() {
         keyExtractor={(account) => String(account.id)}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.eyebrow}>ADMIN WORKSPACE</Text>

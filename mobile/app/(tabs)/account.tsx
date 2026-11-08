@@ -150,6 +150,14 @@ export default function AccountScreen() {
               </Link>
             ) : null}
 
+            {user.roles.includes('tenant') ? (
+              <Link href="/reviews" asChild>
+                <Pressable accessibilityRole="button" style={styles.secondaryButton}>
+                  <Text style={styles.secondaryButtonText}>Review completed stays</Text>
+                </Pressable>
+              </Link>
+            ) : null}
+
             {user.roles.includes('administrator') ? (
               <Link href="/(tabs)/admin" asChild>
                 <Pressable accessibilityRole="button" style={styles.primaryButton}>

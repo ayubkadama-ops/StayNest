@@ -161,6 +161,8 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 <section class="panel"><h2>Reservations</h2><table class="table"><tr><th>Booking</th><th>Tenant</th><th>Agent</th><th>Dates</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><strong>{{ row.booking_code }}</strong><small>{{ row.title }}</small></td><td>{{ row.guest_name }}</td><td>{{ row.host_name }}</td><td>{{ row.check_in }} to {{ row.check_out }}</td><td><span class="pill">{{ row.status }}</span></td><td>{% if row.status == 'pending' %}<div class="actions"><form method="post" action="/admin/action/booking-status/">{% csrf_token %}<input type="hidden" name="section" value="bookings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="confirmed"><button class="button primary">Approve</button></form><form method="post" action="/admin/action/booking-status/">{% csrf_token %}<input type="hidden" name="section" value="bookings"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="declined"><button class="button danger">Decline</button></form></div>{% endif %}</td></tr>{% endfor %}</table></section>
 {% elif section == 'verifications' %}
 <section class="panel"><h2>Trust and safety</h2><table class="table"><tr><th>Applicant</th><th>Document</th><th>Status</th><th>Actions</th></tr>{% for row in rows %}<tr><td><a class="user-detail-link" href="/admin/users/{{ row.user_id }}/">{{ row.applicant_name }}</a><small>{{ row.email }}</small></td><td>{{ row.document_type }}{% if row.document_last4 %}<small>Ending {{ row.document_last4 }}</small>{% endif %}<small>Submitted {{ row.created_at }}</small></td><td><span class="pill">{{ row.status }}</span></td><td><div class="actions">{% if row.has_document %}<form method="post" action="/admin/action/verification-document/" target="_blank">{% csrf_token %}<input type="hidden" name="section" value="verifications"><input type="hidden" name="id" value="{{ row.id }}"><button class="button">View secure document</button></form>{% endif %}{% if row.status == 'pending' %}<form method="post" action="/admin/action/verification-status/">{% csrf_token %}<input type="hidden" name="section" value="verifications"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="approved"><button class="button primary">Approve</button></form><form method="post" action="/admin/action/verification-status/">{% csrf_token %}<input type="hidden" name="section" value="verifications"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="rejected"><button class="button danger">Reject</button></form>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="4">No identity verification requests have been submitted.</td></tr>{% endfor %}</table><p class="muted">Secure documents open in a separate tab and are available through a short-lived, single-use link.</p></section>
+{% elif section == 'reviews' %}
+<section class="panel"><h2>Verified-interaction reviews</h2><p class="muted">Only reviews attached to a completed booking appear here. Publishing makes the review visible and eligible for ratings; hiding it removes it from public results. A reason is required when hiding a review.</p><table class="table"><tr><th>Review</th><th>Reviewer</th><th>Property or agent</th><th>Status</th><th>Moderation</th></tr>{% for row in reviews %}<tr><td><span class="pill">{{ row.review_type|title }} review</span><small>★ {{ row.rating }} / 5 · {{ row.created_at }}</small><p>{{ row.comment }}</p></td><td>{{ row.reviewer_name }}</td><td><strong>{{ row.target_name }}</strong><small>{{ row.target_detail }}</small></td><td><span class="pill">{{ row.status }}</span></td><td>{% if row.status != 'published' %}<form method="post" action="/admin/action/review-status/">{% csrf_token %}<input type="hidden" name="section" value="reviews"><input type="hidden" name="id" value="{{ row.review_id }}"><input type="hidden" name="review_type" value="{{ row.review_type }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>{% endif %}{% if row.status != 'hidden' %}<form method="post" action="/admin/action/review-status/">{% csrf_token %}<input type="hidden" name="section" value="reviews"><input type="hidden" name="id" value="{{ row.review_id }}"><input type="hidden" name="review_type" value="{{ row.review_type }}"><input type="hidden" name="status" value="hidden"><label>Reason for hiding<textarea name="reason" maxlength="1000" required></textarea></label><button class="button danger">Hide review</button></form>{% endif %}</td></tr>{% empty %}<tr><td colspan="5">No property or agent reviews have been submitted.</td></tr>{% endfor %}</table></section>
 {% elif section == 'reports' %}
 <section class="panel"><h2>Trust and safety reports</h2><p class="muted">Add a resolution note when closing a report. Decisions are recorded in the administrative audit log.</p><table class="table"><tr><th>Report</th><th>Reporter / reported user</th><th>Reason and details</th><th>Status</th><th>Update</th></tr>{% for row in reports %}<tr><td>#{{ row.id }} · {{ row.entity_type }}{% if row.entity_id %} #{{ row.entity_id }}{% endif %}<small>{{ row.created_at }}</small></td><td>{{ row.reporter_email }}<small>Reported: {{ row.reported_email|default:'Not specified' }}</small></td><td>{{ row.reason }}<small>{{ row.details }}</small></td><td>{{ row.status }}</td><td><form method="post" action="/admin/action/report-status/">{% csrf_token %}<input type="hidden" name="section" value="reports"><input type="hidden" name="id" value="{{ row.id }}"><select name="status" aria-label="Report status"><option value="open" {% if row.status == 'open' %}selected{% endif %}>Open</option><option value="reviewing" {% if row.status == 'reviewing' %}selected{% endif %}>Reviewing</option><option value="resolved" {% if row.status == 'resolved' %}selected{% endif %}>Resolved</option><option value="dismissed" {% if row.status == 'dismissed' %}selected{% endif %}>Dismissed</option></select><label>Resolution note<textarea name="resolution_note" maxlength="1000" placeholder="Required when resolving or dismissing"></textarea></label><button class="button primary">Save</button></form></td></tr>{% empty %}<tr><td colspan="5">No safety reports have been filed.</td></tr>{% endfor %}</table></section>
 {% elif section == 'audit' %}
@@ -203,103 +205,6 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
 {{ templates|json_script:"adminEmailTemplatesData" }}
 {{ rules|json_script:"adminIpRulesData" }}
 {% endif %}
-<script>
-const refreshButton=document.querySelector('#refreshDashboard');
-const csrfValue=document.querySelector('form[action="/admin/logout/"] input[name="csrfmiddlewaretoken"]')?.value||'';
-function makeAdminForm(actionPath,sectionName){const form=document.createElement('form');form.method='post';form.action=actionPath;for(const [name,value] of [['csrfmiddlewaretoken',csrfValue],['section',sectionName]]){const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.append(input)}return form}
-function addAdminField(form,labelText,name,value,multiline=false){const label=document.createElement('label');label.append(document.createTextNode(labelText));const input=document.createElement(multiline?'textarea':'input');input.name=name;input.value=value||'';if(multiline){input.rows=5;input.maxLength=20000}else input.maxLength=name==='subject'?255:120;if(name==='cidr')input.dataset.validationRule='ip-network';input.required=true;label.append(input);form.append(label)}
-if(section==='settings'){
-  const templatesData=document.querySelector('#adminEmailTemplatesData');
-  const templatesHeading=[...document.querySelectorAll('h2')].find(node=>node.textContent.trim()==='Email templates');
-  const templatesTable=templatesHeading?.parentElement.querySelector('table');
-  if(templatesData&&templatesTable){
-    const editor=document.createElement('div');editor.className='settings';
-    JSON.parse(templatesData.textContent).forEach(template=>{
-      const form=makeAdminForm('/admin/action/email-template/','settings');form.className='setting';
-      const title=document.createElement('strong');title.textContent=template.template_key;form.append(title);
-      const key=document.createElement('input');key.type='hidden';key.name='key';key.value=template.template_key;form.append(key);
-      addAdminField(form,'Subject','subject',template.subject);
-      addAdminField(form,'Body','body',template.body,true);
-      const save=document.createElement('button');save.className='button primary';save.textContent='Save email template';form.append(save);editor.append(form);
-    });
-    templatesTable.replaceWith(editor);
-  }
-  const rulesData=document.querySelector('#adminIpRulesData');
-  const rulesHeading=[...document.querySelectorAll('h2')].find(node=>node.textContent.trim()==='Administrator network rules');
-  const rulesTable=rulesHeading?.parentElement.querySelector('table');
-  if(rulesData&&rulesTable){
-    const panel=rulesHeading.parentElement;
-    const createForm=makeAdminForm('/admin/action/ip-rule/','settings');createForm.className='setting';
-    const formTitle=document.createElement('strong');formTitle.textContent='Add administrator IP rule';createForm.append(formTitle);
-    const typeLabel=document.createElement('label');typeLabel.append(document.createTextNode('Rule type'));
-    const typeSelect=document.createElement('select');typeSelect.name='rule_type';[['allow','Allow'],['deny','Deny']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;typeSelect.append(option)});typeLabel.append(typeSelect);createForm.append(typeLabel);
-    addAdminField(createForm,'IP address or CIDR','cidr','');
-    const label=document.createElement('label');label.append(document.createTextNode('Label'));const labelInput=document.createElement('input');labelInput.name='label';labelInput.maxLength=120;label.append(labelInput);createForm.append(label);
-    const add=document.createElement('button');add.className='button primary';add.textContent='Add rule';createForm.append(add);panel.insertBefore(createForm,rulesTable);
-    const tbody=rulesTable.tBodies[0];
-    JSON.parse(rulesData.textContent).forEach(rule=>{
-      const row=[...tbody.rows].find(candidate=>candidate.cells[1]?.textContent.trim()===rule.cidr&&candidate.cells[0]?.textContent.trim()===rule.rule_type);
-      if(!row)return;
-      const actionCell=row.insertCell();const removeForm=makeAdminForm('/admin/action/ip-rule-delete/','settings');const id=document.createElement('input');id.type='hidden';id.name='id';id.value=rule.id;removeForm.append(id);const button=document.createElement('button');button.className='button danger';button.textContent='Delete';button.addEventListener('click',event=>{if(!window.confirm('Delete this IP rule?'))event.preventDefault()});removeForm.append(button);actionCell.append(removeForm);
-    });
-    rulesTable.rows[0].insertCell().textContent='Actions';
-  }
-}
-const section=document.querySelector('.main')?.dataset.adminSection;
-const userLinks=JSON.parse(document.querySelector('#adminUserLinksData')?.textContent||'[]');
-const listingLinks=JSON.parse(document.querySelector('#adminListingLinksData')?.textContent||'[]');
-document.querySelectorAll('.table tr').forEach(row=>{
-  const id=row.querySelector('form input[name="id"]')?.value;
-  if(id&&section==='listings'){
-    const title=row.cells[0]?.querySelector('strong');
-    if(title&&!title.querySelector('a')){
-      const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/listings/${encodeURIComponent(id)}/`;
-      while(title.firstChild)link.append(title.firstChild);title.append(link);
-    }
-  }else if(id&&section==='posts'){
-    const cell=row.cells[0];
-    if(cell&&!cell.querySelector('a')){const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/posts/${encodeURIComponent(id)}/`;while(cell.firstChild)link.append(cell.firstChild);cell.append(link)}
-  }
-});
-const adminTable=document.querySelector('.main .table');
-listingLinks.forEach(record=>{
-  const cell=adminTable?.rows[record.row+1]?.cells[record.cell];
-  if(!cell||cell.querySelector('a'))return;
-  const text=cell.querySelector('strong')||cell;const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/listings/${encodeURIComponent(record.id)}/`;
-  while(text.firstChild)link.append(text.firstChild);text.append(link);
-});
-userLinks.forEach(record=>{
-  const row=adminTable?.rows[record.row+1];const cell=row?.cells[record.cell];
-  if(!cell)return;
-  if(record.append){
-    const note=document.createElement('small');note.append(document.createTextNode('Posted by '));
-    const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/users/${encodeURIComponent(record.id)}/`;link.textContent=record.labels[0];note.append(link);cell.append(note);return;
-  }
-  const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
-  nodes.forEach(node=>{
-    if(!record.labels.includes(node.textContent.trim())||node.parentElement.closest('a'))return;
-    const link=document.createElement('a');link.className='user-detail-link';link.href=`/admin/users/${encodeURIComponent(record.id)}/`;link.textContent=node.textContent;node.replaceWith(link);
-  });
-});
-const refreshStatus=document.querySelector('#refreshStatus');
-let hasUnsavedChanges=false;
-refreshStatus.textContent=`Updated at ${new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(new Date())} · Auto-refreshes every 30 seconds`;
-document.addEventListener('input',event=>{if(event.target.closest('form'))hasUnsavedChanges=true});
-document.addEventListener('change',event=>{if(event.target.closest('form'))hasUnsavedChanges=true});
-refreshButton.addEventListener('click',()=>{
-  if(hasUnsavedChanges&&!window.confirm('Discard unsaved changes and refresh the dashboard?'))return;
-  refreshButton.disabled=true;
-  refreshStatus.textContent='Refreshing dashboard…';
-  window.location.reload();
-});
-window.setInterval(()=>{
-  if(document.visibilityState!=='visible')return;
-  if(hasUnsavedChanges||document.activeElement?.matches('input,textarea,select')){
-    refreshStatus.textContent='Auto-refresh paused while you edit';
-    return;
-  }
-  window.location.reload();
-},30000);
-</script>
+<script defer src="{% static 'console/dashboard.js' %}"></script>
 </body>
 </html>

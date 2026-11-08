@@ -90,3 +90,9 @@ completed and recorded by an operator with access to the target database.
 - Do not deploy further schema changes until an authorized operator records
   a provider recovery point, makes a protected logical backup, restores it to
   isolated staging, and completes the migration and smoke tests above.
+- The Stage 10 reputation work adds `database/reputation-reviews-migration.sql`
+  (moderation status for property reviews and a new agent-review table). It is
+  prepared and registered locally but must not be applied to staging or
+  production until the same backup/restore gate is satisfied. Verify TiDB DDL,
+  completed-booking eligibility, admin publish/hide decisions, and rating
+  aggregates on staging before rollout.

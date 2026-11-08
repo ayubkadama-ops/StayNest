@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Linking,
   Pressable,
@@ -12,8 +13,10 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text, View } from '@/components/Themed';
+import { useAuth } from '@/components/AuthProvider';
 import {
   getListingDetails,
+  reportReview,
   resolveMediaUrl,
   type ListingDetails,
 } from '@/constants/marketplaceApi';
@@ -22,6 +25,7 @@ export default function ListingScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
+  const { user } = useAuth();
   const [details, setDetails] = useState<ListingDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +75,7 @@ export default function ListingScreen() {
 
   const listing = details?.listing;
   const mediaItems = details?.media.filter((item) => item.mediaType !== 'video') ?? [];
-  const selectedImage = resolveMediaUrl(selectedMedia);
+  const selectedImage = resolveMediaUrl(selectedMedia, 1200);
   const price = listing?.salePrice ?? listing?.nightlyPrice ?? listing?.monthlyPrice ?? listing?.yearlyPrice ?? null;
   const period = listing?.salePrice !== null && listing?.salePrice !== undefined
     ? 'for sale'
@@ -127,7 +131,7 @@ export default function ListingScreen() {
               contentContainerStyle={styles.thumbnails}
               showsHorizontalScrollIndicator={false}>
               {mediaItems.map((item) => {
-                const uri = resolveMediaUrl(item.mediaUrl);
+                const uri = resolveMediaUrl(item.mediaUrl, 320);
                 if (!uri) return null;
                 return (
                   <Pressable
@@ -253,6 +257,14 @@ export default function ListingScreen() {
                   Average response time: {listing.responseHours.toFixed(1)} hours
                 </Text>
               ) : null}
+              {listing.agentId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push({ pathname: '/agent-profile', params: { id: String(listing.agentId) } })}
+                  style={styles.mapLink}>
+                  <Text style={styles.mapLinkText}>View agent reputation and reviews</Text>
+                </Pressable>
+              ) : null}
             </Section>
 
             <Section title="Guest reviews">
@@ -264,7 +276,39 @@ export default function ListingScreen() {
                     </Text>
                     <Text style={styles.rating}>★ {review.rating.toFixed(1)}</Text>
                   </View>
+                  {review.verifiedInteraction ? <Text style={styles.verified}>Verified completed stay</Text> : null}
                   {review.comment ? <Text style={styles.bodyText}>{review.comment}</Text> : null}
+                  {review.hostReply ? (
+                    <View style={styles.reviewReply}>
+                      <Text style={styles.reviewer}>Host response</Text>
+                      <Text style={styles.bodyText}>{review.hostReply}</Text>
+                    </View>
+                  ) : null}
+                  {user ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        Alert.alert('Report this review?', 'Our team will assess the review.', [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Report',
+                            style: 'destructive',
+                            onPress: () => {
+                              void reportReview(review.id).then(
+                                () => Alert.alert('Report sent', 'Thank you for helping keep reviews trustworthy.'),
+                                (requestError: unknown) => Alert.alert(
+                                  'Report not sent',
+                                  requestError instanceof Error ? requestError.message : 'Please try again later.',
+                                ),
+                              );
+                            },
+                          },
+                        ]);
+                      }}
+                      style={styles.reportButton}>
+                      <Text style={styles.reportText}>Report review</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               )) : (
                 <Text style={styles.bodyText}>No published reviews yet.</Text>
@@ -538,6 +582,23 @@ const styles = StyleSheet.create({
   reviewer: {
     color: '#173222',
     fontSize: 14,
+    fontWeight: '700',
+  },
+  reviewReply: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 9,
+    backgroundColor: '#eef5ef',
+    gap: 4,
+  },
+  reportButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingVertical: 5,
+  },
+  reportText: {
+    color: '#785050',
+    fontSize: 13,
     fontWeight: '700',
   },
   similarItem: {

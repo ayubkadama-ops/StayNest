@@ -107,8 +107,8 @@ export function createAgentEcosystemRouter({
       );
       const [[reviews]] = await pool.execute(
         `SELECT COUNT(*) reviewCount, AVG(r.rating) averageRating
-         FROM reviews r JOIN listings l ON l.id=r.listing_id
-         WHERE l.agent_user_id=? AND r.status='published'`,
+         FROM agent_reviews r
+         WHERE r.agent_user_id=? AND r.status='published'`,
         [ownerId]
       );
       const eligibleRequests = Number(requests.eligibleRequests || 0);

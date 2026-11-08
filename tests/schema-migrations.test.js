@@ -42,6 +42,7 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('monetization-plans-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('reputation-reviews-migration.sql'));
 });
 
 test('approximate listing coordinates are added independently for TiDB upgrades', async () => {
@@ -73,6 +74,16 @@ test('monetization plan migration creates only an unseeded configurable catalog'
   assert.ok(pool.statements.some(statement => statement.includes('CREATE TABLE IF NOT EXISTS monetization_plans')));
   assert.ok(pool.statements.some(statement => statement.startsWith('INSERT INTO schema_migrations')));
   assert.equal(pool.statements.some(statement => /INSERT INTO monetization_plans/i.test(statement)), false);
+});
+
+test('reputation migration separates property review status and agent review table changes', async () => {
+  const pool = createMigrationPool();
+
+  await applySchemaMigrations(pool, 'database', ['reputation-reviews-migration.sql']);
+
+  assert.ok(pool.statements.some(statement => /^ALTER TABLE reviews[\r\n]MODIFY COLUMN status/.test(statement)));
+  assert.ok(pool.statements.some(statement => statement.startsWith('CREATE TABLE IF NOT EXISTS agent_reviews')));
+  assert.ok(pool.statements.some(statement => statement.startsWith('INSERT INTO schema_migrations')));
 });
 
 test('username column migration keeps its unique index separate for TiDB compatibility', async () => {

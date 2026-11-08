@@ -23,6 +23,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'console.security.ContentSecurityPolicyMiddleware',
 ]
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',

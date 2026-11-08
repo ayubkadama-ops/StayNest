@@ -84,11 +84,51 @@ export type ListingMedia = {
 };
 
 export type ListingReview = {
+  id: number;
   rating: number;
   comment: string | null;
   createdAt: string | null;
   firstName: string | null;
   lastName: string | null;
+  hostReply: string | null;
+  verifiedInteraction: boolean;
+};
+
+export type ReviewableBooking = {
+  bookingId: number;
+  checkIn: string | null;
+  checkOut: string | null;
+  listingId: number;
+  listingTitle: string;
+  agentId: number;
+  agentName: string;
+  listingReviewId: number | null;
+  listingReviewStatus: string | null;
+  agentReviewId: number | null;
+  agentReviewStatus: string | null;
+};
+
+export type PublicAgentReview = {
+  id: number;
+  rating: number;
+  comment: string;
+  agentReply: string | null;
+  createdAt: string | null;
+  listingTitle: string | null;
+  firstName: string | null;
+  lastName: string | null;
+};
+
+export type PublicAgentProfile = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  bio: string | null;
+  profileImageUrl: string | null;
+  agencyName: string | null;
+  agentRating: number | null;
+  agentReviewCount: number;
+  reviews: PublicAgentReview[];
 };
 
 export type PropertyVerification = {
@@ -577,11 +617,22 @@ function responseError(payload: unknown, status: number): Error {
   return new Error(message);
 }
 
-export function resolveMediaUrl(path: string | null): string | null {
+export function resolveMediaUrl(path: string | null, maxWidth?: number): string | null {
   if (!path) return null;
   const url = new URL(path, `${getApiOrigin()}/`);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('The server returned an unsupported image URL.');
+  }
+  if (maxWidth !== undefined) {
+    if (!Number.isInteger(maxWidth) || maxWidth < 96 || maxWidth > 2400) {
+      throw new Error('The requested image size is invalid.');
+    }
+    const uploadPath = '/image/upload/';
+    const uploadIndex = url.pathname.indexOf(uploadPath);
+    if (url.hostname === 'res.cloudinary.com' && uploadIndex >= 0) {
+      const transformationIndex = uploadIndex + uploadPath.length;
+      url.pathname = `${url.pathname.slice(0, transformationIndex)}w_${maxWidth},c_limit,q_auto,f_auto/${url.pathname.slice(transformationIndex)}`;
+    }
   }
   return url.toString();
 }
@@ -1070,11 +1121,14 @@ export async function getListingDetails(id: string): Promise<ListingDetails> {
     const rating = nullableNumber(item.rating, 'review rating');
     if (rating === null) throw new Error('The server returned a review without a rating.');
     return {
+      id: requiredId(item.id),
       rating,
       comment: nullableString(item.comment, 'review comment'),
       createdAt: nullableString(item.createdAt, 'review date'),
       firstName: nullableString(item.firstName, 'reviewer first name'),
       lastName: nullableString(item.lastName, 'reviewer last name'),
+      hostReply: nullableString(item.hostReply, 'agent response'),
+      verifiedInteraction: nullableBoolean(item.verifiedInteraction, 'verified interaction') === true,
     };
   });
 
@@ -1115,5 +1169,114 @@ export async function getListingDetails(id: string): Promise<ListingDetails> {
     media,
     reviews,
     similar: payload.similar.map(parseListing),
+  };
+}
+
+export async function getReviewableBookings(): Promise<ReviewableBooking[]> {
+  const payload = await getJson('/api/account/reviewable-bookings');
+  if (!isRecord(payload) || !Array.isArray(payload.bookings)) {
+    throw new Error('The server returned an invalid reviewable bookings response.');
+  }
+  return payload.bookings.map((value): ReviewableBooking => {
+    if (!isRecord(value)) throw new Error('The server returned an invalid completed booking.');
+    const listingTitle = nullableString(value.listingTitle, 'listing title');
+    const agentName = nullableString(value.agentName, 'agent name');
+    if (!listingTitle || !agentName) throw new Error('The server returned incomplete booking review details.');
+    return {
+      bookingId: requiredId(value.bookingId),
+      checkIn: nullableString(value.checkIn, 'booking check-in'),
+      checkOut: nullableString(value.checkOut, 'booking check-out'),
+      listingId: requiredId(value.listingId),
+      listingTitle,
+      agentId: requiredId(value.agentId),
+      agentName,
+      listingReviewId: value.listingReviewId == null ? null : requiredId(value.listingReviewId),
+      listingReviewStatus: nullableString(value.listingReviewStatus, 'property review status'),
+      agentReviewId: value.agentReviewId == null ? null : requiredId(value.agentReviewId),
+      agentReviewStatus: nullableString(value.agentReviewStatus, 'agent review status'),
+    };
+  });
+}
+
+export async function submitListingReview(
+  listingId: number,
+  bookingId: number,
+  rating: number,
+  comment: string,
+): Promise<void> {
+  await postJson(`/api/listings/${listingId}/reviews`, { bookingId, rating, comment }, true);
+}
+
+export async function submitAgentReview(
+  agentId: number,
+  bookingId: number,
+  rating: number,
+  comment: string,
+): Promise<void> {
+  await postJson(`/api/agents/${agentId}/reviews`, { bookingId, rating, comment }, true);
+}
+
+export async function replyToAgentReview(
+  agentId: number,
+  reviewId: number,
+  reply: string,
+): Promise<void> {
+  await postJson(`/api/agents/${agentId}/reviews/${reviewId}/reply`, { reply }, true);
+}
+
+export async function reportReview(reviewId: number): Promise<void> {
+  await reportReviewEntity(reviewId, 'review');
+}
+
+export async function reportAgentReview(reviewId: number): Promise<void> {
+  await reportReviewEntity(reviewId, 'agent_review');
+}
+
+async function reportReviewEntity(reviewId: number, entityType: 'review' | 'agent_review'): Promise<void> {
+  await postJson('/api/reports', {
+    entityType,
+    entityId: reviewId,
+    reason: 'Potentially inappropriate review',
+    details: 'Reported from the mobile review list.',
+  }, true);
+}
+
+export async function getPublicAgentProfile(id: string): Promise<PublicAgentProfile> {
+  if (!/^[1-9]\d*$/.test(id)) throw new Error('Choose a valid agent profile.');
+  const payload = await getJson(`/api/agents/${encodeURIComponent(id)}/profile`);
+  if (!isRecord(payload) || !isRecord(payload.profile) || !Array.isArray(payload.reviews)) {
+    throw new Error('The server returned an invalid agent profile response.');
+  }
+  const profile = payload.profile;
+  const rating = nullableNumber(profile.agentRating, 'agent rating');
+  const count = nullableNumber(profile.agentReviewCount, 'agent review count');
+  if (count === null || !Number.isInteger(count) || count < 0) {
+    throw new Error('The server returned an invalid agent review count.');
+  }
+  return {
+    id: requiredId(profile.id),
+    firstName: nullableString(profile.firstName, 'agent first name') ?? '',
+    lastName: nullableString(profile.lastName, 'agent last name') ?? '',
+    bio: nullableString(profile.bio, 'agent biography'),
+    profileImageUrl: nullableString(profile.profileImageUrl, 'agent photo'),
+    agencyName: nullableString(profile.agencyName, 'agency name'),
+    agentRating: rating,
+    agentReviewCount: count,
+    reviews: payload.reviews.map((value): PublicAgentReview => {
+      if (!isRecord(value)) throw new Error('The server returned an invalid agent review.');
+      const reviewRating = nullableNumber(value.rating, 'agent review rating');
+      const comment = nullableString(value.comment, 'agent review comment');
+      if (reviewRating === null || !comment) throw new Error('The server returned an incomplete agent review.');
+      return {
+        id: requiredId(value.id),
+        rating: reviewRating,
+        comment,
+        agentReply: nullableString(value.agentReply, 'agent response'),
+        createdAt: nullableString(value.createdAt, 'review date'),
+        listingTitle: nullableString(value.listingTitle, 'reviewed stay'),
+        firstName: nullableString(value.firstName, 'reviewer first name'),
+        lastName: nullableString(value.lastName, 'reviewer last name'),
+      };
+    }),
   };
 }

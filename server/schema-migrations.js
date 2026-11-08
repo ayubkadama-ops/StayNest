@@ -31,7 +31,8 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'listing-category-details-migration.sql',
   'listing-category-details-repair-migration.sql',
   'listing-duplicate-triage-migration.sql',
-  'monetization-plans-migration.sql'
+  'monetization-plans-migration.sql',
+  'reputation-reviews-migration.sql'
 ]);
 
 async function columnExists(pool, tableName, columnName) {

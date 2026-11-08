@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 
 @override_settings(STORAGES={
@@ -14,6 +14,18 @@ from django.test import SimpleTestCase, override_settings
     'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
 })
 class AdminConsoleAccessTests(SimpleTestCase):
+    def test_strict_content_security_policy_is_scoped_to_admin_routes(self):
+        from console.security import ContentSecurityPolicyMiddleware
+        from django.http import HttpResponse
+
+        middleware = ContentSecurityPolicyMiddleware(lambda request: HttpResponse())
+
+        admin_response = middleware(RequestFactory().get('/admin/login/'))
+        public_response = middleware(RequestFactory().get('/'))
+
+        self.assertIn("script-src 'self'", admin_response['Content-Security-Policy'])
+        self.assertNotIn('Content-Security-Policy', public_response)
+
     def authenticate_admin(self):
         with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'}):
             with patch('console.views.load_founder_profile', return_value=None):
@@ -44,6 +56,50 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertIn('no-store', response['Cache-Control'])
         self.assertContains(response, 'id="refreshDashboard"')
         self.assertContains(response, 'Agent approvals')
+        policy = dict(
+            directive.strip().split(' ', 1)
+            for directive in response['Content-Security-Policy'].split(';')
+            if directive.strip()
+        )
+        self.assertEqual(policy['script-src'], "'self'")
+        self.assertEqual(policy['script-src-attr'], "'none'")
+        self.assertIn('strict-origin-when-cross-origin', response['Referrer-Policy'])
+        self.assertContains(response, 'console/dashboard.js')
+        self.assertNotContains(response, 'onclick=')
+
+    @patch('console.views.rows', return_value=[{
+        'review_id': 9, 'review_type': 'agent', 'status': 'pending_review', 'rating': 5,
+        'comment': 'A thoughtful and reliable agent.', 'created_at': '2026-10-12',
+        'reviewer_name': 'Asha Mrema', 'target_name': 'Juma Kweka',
+        'target_detail': 'Garden flat · Arusha',
+    }])
+    def test_reviews_queue_shows_verified_reviews_and_moderation_controls(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=reviews')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Verified-interaction reviews')
+        self.assertContains(response, 'A thoughtful and reliable agent.')
+        self.assertContains(response, 'Publish')
+        self.assertContains(response, 'Hide review')
+        self.assertIn('FROM agent_reviews ar', rows.call_args.args[0])
+
+    @patch('console.views.transaction.atomic')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'id': 9, 'listing_id': 22}])
+    def test_publishing_property_review_updates_its_rating(self, rows, execute, atomic):
+        atomic.return_value = nullcontext()
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/review-status/', {
+            'section': 'reviews', 'id': '9', 'review_type': 'property', 'status': 'published',
+        })
+
+        self.assertRedirects(response, '/admin/?section=reviews', fetch_redirect_response=False)
+        statements = [call.args[0] for call in execute.call_args_list]
+        self.assertTrue(any('UPDATE reviews SET status=%s' in statement for statement in statements))
+        self.assertTrue(any('UPDATE listings SET' in statement and 'average_rating=' in statement for statement in statements))
 
     @patch('console.views.rows')
     @patch('console.views.scalar', return_value=3)
@@ -75,6 +131,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Assign role')
         self.assertContains(response, '3 saved homes')
         self.assertContains(response, 'Related bookings')
+        self.assertContains(response, 'console/admin-actions.js')
+        self.assertNotContains(response, 'onclick=')
 
     @patch('console.views.rows')
     def test_agent_profile_photo_uses_marketplace_host_in_admin_user_detail(self, rows):
@@ -129,7 +187,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '"id": "17", "row": 0, "cell": 0')
         self.assertContains(response, '"id": "42", "row": 0, "cell": 1')
         self.assertContains(response, 'href="/admin/listings/17/"')
-        self.assertContains(response, '/admin/listings/${encodeURIComponent(record.id)}/')
+        self.assertContains(response, 'console/dashboard.js')
 
     @patch('console.views.rows', return_value=[])
     def test_listing_review_tab_filters_status_search_and_sort(self, rows):
@@ -1105,6 +1163,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'name="username"')
         self.assertContains(response, 'username or their email address')
         self.assertContains(response, 'name="confirmationPassword"')
+        self.assertContains(response, 'console/admin-wizard.js')
+        self.assertNotContains(response, '<script>')
 
     @patch('console.views.rows', side_effect=[
         [{'id': 15, 'email': 'admin@example.test', 'phone': '+255700000015', 'status': 'active',
@@ -1126,6 +1186,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'value="users" checked')
         self.assertContains(response, 'Permanently delete administrator')
         self.assertContains(response, 'Suspend account')
+        self.assertContains(response, 'data-permission-selection="all"')
+        self.assertContains(response, 'data-confirm="Permanently delete this administrator account')
+        self.assertNotContains(response, 'onclick=')
 
     @patch('console.views.audit')
     @patch('console.views.execute')

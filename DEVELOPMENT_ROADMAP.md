@@ -1,7 +1,7 @@
 # Makazi Go Development Roadmap
 
-- **Status:** Stages 1–4 implemented and locally verified; production-engine verification pending
-- **Audit date:** 2026-11-07
+- **Status:** Stages 1–13 implemented locally; production-engine and operational verification remain pending
+- **Audit date:** 2026-11-08
 - **Baseline revision:** `1ccb3d3` (`main`)
 **Scope:** Current repository working tree, including existing uncommitted changes
 
@@ -56,7 +56,7 @@ provide additional but not exhaustive evidence.
 | Property details | **Present for current listing model** | Numeric listing URLs and API detail responses support accommodation/property fields and structured sale, land, and commercial data. Advertiser-reported title information is explicitly not legal verification. |
 | Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. Search uses TiDB-compatible `LIKE` clauses rather than relying on a FULLTEXT index that is not provisioned on upgraded databases. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
 | Booking functionality | **Present for request-based stays/viewings** | Booking requests validate dates, apply transaction/idempotency logic, and use booking date locks. Preserve this path for stay bookings while separating it from purchase/rental inquiries and future payments. |
-| Host and agent functionality | **Implemented foundation** | Agent/property-owner profiles support bounded specializations and service areas, agency/developer applications, a role-gated verification-officer queue, and listing/request/review metrics derived from existing records. Organization verification is not legal certification; team membership, subscription management, and agent reviews remain future work. |
+| Host and agent functionality | **Implemented foundation; reputation expanded in Stage 10** | Agent/property-owner profiles support bounded specializations and service areas, agency/developer applications, a role-gated verification-officer queue, and listing/request metrics. Stage 10 adds distinct completed-booking-based agent reviews, moderation, responses, and published-review aggregates. Organization verification is not legal certification; team membership and subscription management remain future work. |
 | User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view currently requests agent bookings twice, duplicating a backend call. |
 | Administrator dashboard | **Present** | Founder/delegated admin roles, feature permissions, moderation, reports, verification decisions, audit logs, and settings are represented. Django and Express have separate admin entry/session logic; maintain one explicit permission contract and test every mutation across both. |
 | Image/video uploads | **Present, operational risks** | File signatures are checked and images are resized/encoded with Sharp; listing videos and local/S3/Cloudinary storage paths exist. Public-media fallback to local disk after object-storage failure can lose uploaded media on ephemeral deployments. New identity documents are app-encrypted in private local/S3 storage, and Founder Console review now uses a short-lived single-use token; legacy unencrypted documents remain readable and require a future re-encryption plan. |
@@ -64,7 +64,7 @@ provide additional but not exhaustive evidence.
 | Payment integrations | **Not complete** | Payment/refund/payout tables and a signature-checked generic webhook are present. No checkout/payment-intent endpoint was found in the API route inventory. Do not collect real payments or treat webhook presence as a complete payment integration. |
 | API endpoints | **Present, large surface** | Express exposes public discovery plus account, agent, booking, upload, admin, moderation, messaging, and notification routes. Continue contract tests for authentication, permissions, validation, side effects, and error responses; mobile parity inventory is in `mobile/docs/feature-parity.md`. |
 | Mobile responsiveness | **Present, needs workflow verification** | Responsive web styling and an Expo client are in place. The mobile app currently covers a subset of web capability; the parity ledger explicitly records many incomplete workflows. Test real narrow viewports and native Android before calling a journey complete. |
-| Security | **Controls present; corrective review required** | Parameterized SQL is widely used; Express configures Helmet, CSRF, rate limits, secure HTTP-only cookies in production, session expiry, and upload signature checks. The audit found incorrect admin IP CIDR matching and a predictable Django signing-key fallback; both are corrected. New identity documents are encrypted at rest by the application and exposed only through audited one-time review grants. Also review the CSP's inline-script allowance and verify production secrets/configuration fail closed. |
+| Security | **Controls present; production verification required** | Parameterized SQL is widely used; Express configures Helmet, CSRF, rate limits, secure HTTP-only cookies in production, session expiry, and upload signature checks. The audit found incorrect admin IP CIDR matching and a predictable Django signing-key fallback; both are corrected. New identity documents are encrypted at rest by the application and exposed only through audited one-time review grants. Express and Django now disallow inline script execution and script attributes; verify production secrets/configuration and deployed headers. |
 | Error handling | **Mixed** | Express has a central error handler and request IDs. Django preserves API validation errors on discovery and search pages; upstream network/JSON failures elsewhere can still appear as empty results and should be replaced with explicit error states as those views are improved. |
 | Performance and scalability | **Mixed** | Image processing and database indexes exist. Discovery now uses bounded pages, but wildcard location matches, correlated listing subqueries, and session revocation's full-table session scan may become expensive as data grows. Measure query plans and workload before adding indexes or caching. |
 | SEO | **Partial** | `robots.txt` and a static sitemap exist. The current sitemap lists only `/` and `/posts.html`; property detail routes are numeric and there is no evidence of dynamic listing metadata/structured data or regional landing pages. Build crawlable pages only when canonical URLs and useful unique content are available. |
@@ -72,9 +72,10 @@ provide additional but not exhaustive evidence.
 ### Priority issues
 
 1. **Security and data protection:** IPv4/IPv6 CIDR checks, production Django
-   signing-key enforcement, encrypted new identity documents, and
-   single-use audited review links are implemented; review CSP and test the
-   private-document path against production storage.
+   signing-key enforcement, encrypted new identity documents, single-use
+   audited review links, and no-inline-script CSP policies are implemented;
+   verify deployed headers and the private-document path against production
+   storage.
 2. **Data integrity and deploy safety:** checksum-based migration tracking
    and focused idempotency/failure tests are implemented. Verify the migration
    runner and DDL on the deployed TiDB/MySQL engine, then document backup and
@@ -228,7 +229,7 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - [x] Require completed stays for reviews, prevent listing owners and agents
   from reviewing their own property, and add audited owner/agent responses
   shown with public reviews. Ratings remain based on eligible published
-  reviews only.
+  property reviews only; new submissions enter moderation before publication.
 - [x] Add an administrator queue for exact address or listing-text duplicate
   candidates, with decisions and notes in the audit trail. Candidate matching
   is bounded to the 500 most recently updated active listings and never
@@ -283,6 +284,76 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - **Stage status:** Plan configuration is locally implemented and covered by
   admin/migration tests. Payment-provider integration and all production
   commercial/legal readiness checks remain explicitly out of scope.
+
+### Stage 10 — Reviews, reputation, and moderation
+
+- [x] Keep property reviews tied to completed bookings and add a separate
+  agent review for the actual booking host; block owners/agents from
+  self-review and require a rating plus a useful written comment.
+- [x] Hold new reviews in `pending_review`; only published reviews appear
+  publicly and affect property or agent rating summaries.
+- [x] Add an administrator review queue with publish/hide decisions, required
+  hide reasons, audit records, and property aggregate refresh.
+- [x] Add property/agent review reporting and agent replies; expose verified
+  interaction and agent-response information in native listing/profile
+  screens.
+- [x] Add web booking-history submission actions and native completed-stay
+  review history/submission with pending/published state.
+- [ ] Apply and exercise the additive schema migration on backup-verified
+  isolated staging; confirm TiDB DDL, API eligibility, moderation, and public
+  aggregates before any production rollout.
+- **Stage status:** Implementation and focused local tests are in place.
+  Staging migration, real booking interaction, and production verification are
+  gated by the database backup/restore runbook.
+
+### Stage 11 — User-experience improvements
+
+- [x] Improve the new web/mobile review flows with distinct property/agent
+  actions, useful validation, submission status, loading/error/empty states,
+  retry actions, and accessible labels/alerts.
+- [x] Add a native public agent reputation page with verified-stay indicators,
+  agent replies, and review-report actions; keep public contact fields private.
+- [x] Show verified completed-stay reviews, host replies, and review-report
+  actions on web listing details; add published agent ratings/reviews/replies
+  and reporting to the public web agent page. Remove the fabricated local
+  guest-review fallback in favor of canonical API data.
+- [ ] Continue the broader hierarchy, navigation, listing-card/detail,
+  discovery, listing-form, dashboard, accessibility, and responsive audit
+  across the Vite site, Django marketplace, and Expo app. Preserve the current
+  brand and existing workflows; make changes only where testing identifies a
+  concrete usability gap.
+- **Stage status:** Trust-related UX gaps discovered during Stage 10 are
+  implemented and locally verified across Vite, Django admin, and Expo. The
+  broader cross-surface visual audit and Android device testing remain open.
+
+### Stage 12 — Administration and security
+
+- [x] Keep admin routes and controls out of public navigation; remove the
+  homepage shortcut and hidden brand double-click entry.
+- [x] Enforce CSP policies on Express and Django responses that disallow
+  inline script execution and script attributes; externalize Django admin
+  scripts and replace inline event handlers with data-driven actions.
+- [x] Preserve server-side authentication, role/feature authorization,
+  CSRF, rate limiting, secure sessions, audit logging, input/upload
+  validation, password hashing, and parameterized SQL controls.
+- [x] Add regression coverage for public admin entry points, CSP directives,
+  and externalized Django admin scripts/actions.
+- **Stage status:** Local security tests and Django checks pass. Production
+  header verification and a full security assessment remain outstanding.
+
+### Stage 13 — Mobile performance
+
+- [x] Request Cloudinary image variants sized for discovery cards, agent
+  avatars, thumbnails, and full listing views, using automatic quality and
+  format while leaving non-Cloudinary media URLs unchanged.
+- [x] Reduce initial render and batch sizes for discovery and admin lists;
+  retain existing pagination/load-more behavior and loading/error states.
+- [x] Preserve lazy-loaded listing images and server-side image compression.
+- [ ] Verify image transfer sizes and scrolling behavior on representative
+  Android devices and slower mobile connections.
+- **Stage status:** Mobile TypeScript and Expo web export are locally
+  verified. Native Android performance and real-network measurements remain
+  outstanding.
 
 Stage 8/9 verification:
 
@@ -374,10 +445,10 @@ Stage 7 verification:
 
 ## Current handoff for the next development session
 
-- Stages 1–6 are implemented locally and local test/build checks pass. The
-  saved
-  master prompt reference is `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Node,
-  Django, web build, and mobile type-check pass locally. No database or
+- Stages 1–13 are implemented locally. The saved master prompt reference is
+  `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Current Node and Django tests,
+  Django system checks, web build, mobile type-check, Expo web export,
+  JavaScript syntax checks, and diff checks pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
   property migration, and live document review are not end-to-end verified.
 - Render's latest logs showed startup stopping at `category_details`. The
