@@ -72,10 +72,15 @@
     </form>
     <div class="listings-result-meta">
       <p class="listings-result-note" id="listingsResultNote" role="status"></p>
+      <button class="outline-btn" type="button" id="listingsMapToggle" aria-pressed="false">Map view</button>
       <button class="outline-btn" type="button" id="saveListingSearch">Save this search</button>
     </div>
     <p class="listings-search-message" id="saveListingSearchMessage" role="status" aria-live="polite"></p>
     <section class="all-listings-grid" id="allListingsGrid" aria-live="polite"></section>
+    <section class="listing-discovery-map" id="listingDiscoveryMap" aria-label="Map of current property results" hidden>
+      <div id="listingDiscoveryCanvas" class="listing-discovery-map-canvas" role="application" aria-label="Map showing approximate locations of current property results"></div>
+      <p class="feed-empty" id="listingDiscoveryMapEmpty" role="status" hidden>No approximate map locations are available for these results.</p>
+    </section>
     <nav class="listings-pagination" id="listingsPagination" aria-label="Listing pages" hidden>
       <button class="outline-btn" type="button" id="listingsPrevious">Previous</button>
       <span id="listingsPageStatus"></span>

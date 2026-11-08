@@ -59,6 +59,7 @@ def _render(request, page, **context):
     return render(request, 'marketplace/page.html', {
         'page': page,
         'property_types': PROPERTY_TYPES,
+        'canonical_url': request.build_absolute_uri(request.path),
         **context,
     })
 
@@ -131,6 +132,7 @@ def property_detail(request, listing_id):
         'listing': listing,
         'media': result.get('media', []),
         'property_types': PROPERTY_TYPES,
+        'canonical_url': request.build_absolute_uri(request.path),
     })
 
 

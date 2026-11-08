@@ -3023,6 +3023,12 @@ body > .topbar:has(+ .topbar) {
 .listings-result-meta, .discovery-results-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .listings-search-message { min-height: 20px; color: var(--muted); font-size: 13px; }
 .discovery-results-meta .result-count { margin: 0; }
+.listing-discovery-map { width: 100%; margin: 8px 0 20px; }
+.listing-discovery-map[hidden] { display: none; }
+.listing-discovery-map-canvas { width: 100%; height: min(65vh, 620px); min-height: 320px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-soft); }
+.listing-map-price-marker { width: max-content !important; height: auto !important; padding: 6px 9px; border: 1px solid var(--brand-forest); border-radius: 999px; color: var(--white); background: var(--brand-forest); box-shadow: var(--shadow-card); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.listing-map-preview { display: grid; gap: 5px; color: var(--ink); text-decoration: none; }
+.listing-map-preview span { color: var(--muted); font-size: 12px; }
 
 .all-listings-grid {
   display: grid;

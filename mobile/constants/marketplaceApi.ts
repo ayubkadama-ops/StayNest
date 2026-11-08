@@ -38,6 +38,8 @@ export type ListingSummary = {
   region: string | null;
   district: string | null;
   ward: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
   propertySize: number | null;
   furnished: string | null;
   verifiedAgent: boolean | null;
@@ -418,6 +420,8 @@ function parseListing(value: unknown): ListingSummary {
     region: nullableString(value.region, 'region'),
     district: nullableString(value.district, 'district'),
     ward: nullableString(value.ward, 'ward'),
+    locationLatitude: nullableNumber(value.locationLatitude, 'latitude'),
+    locationLongitude: nullableNumber(value.locationLongitude, 'longitude'),
     propertySize: nullableNumber(value.propertySize, 'property size'),
     furnished: nullableString(value.furnished, 'furnishing'),
     verifiedAgent: nullableBoolean(value.verifiedAgent, 'agent verification'),

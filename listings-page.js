@@ -1,5 +1,7 @@
 import { installLiveFormValidation } from './form-validation.js';
 import { addToComparison, markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 installLiveFormValidation();
 
@@ -8,6 +10,10 @@ const detail = document.querySelector('#listingDetailPage');
 const filters = document.querySelector('#listingFilters');
 const resultNote = document.querySelector('#listingsResultNote');
 const pagination = document.querySelector('#listingsPagination');
+const map = document.querySelector('#listingDiscoveryMap');
+const mapCanvas = document.querySelector('#listingDiscoveryCanvas');
+const mapEmpty = document.querySelector('#listingDiscoveryMapEmpty');
+const mapToggle = document.querySelector('#listingsMapToggle');
 const pageStatus = document.querySelector('#listingsPageStatus');
 const inlineDetail = document.querySelector('#listingInlineDetail');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
@@ -53,7 +59,58 @@ function listingDetailUrl(id) {
   const returnUrl = new URL(location.href);
   returnUrl.searchParams.delete('listing');
   const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
-  return `/listing-detail.html?listing=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`;
+  return `/properties/${encodeURIComponent(id)}/?returnTo=${encodeURIComponent(returnTo)}`;
+}
+let discoveryMap;
+let discoveryMarkers;
+let currentListings = [];
+function renderDiscoveryMap(listings) {
+  if (map.hidden) return;
+  const mappedListings = listings.filter(listing =>
+    listing.locationLatitude !== null && listing.locationLatitude !== undefined
+    && listing.locationLongitude !== null && listing.locationLongitude !== undefined
+    && Number.isFinite(Number(listing.locationLatitude))
+    && Number.isFinite(Number(listing.locationLongitude))
+  );
+  mapEmpty.hidden = mappedListings.length > 0;
+  mapCanvas.hidden = mappedListings.length === 0;
+  if (!mappedListings.length) return;
+  if (!discoveryMap) {
+    discoveryMap = L.map(mapCanvas, { scrollWheelZoom: false }).setView(
+      [Number(mappedListings[0].locationLatitude), Number(mappedListings[0].locationLongitude)],
+      12
+    );
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(discoveryMap);
+    discoveryMarkers = L.featureGroup().addTo(discoveryMap);
+  }
+  discoveryMarkers.clearLayers();
+  for (const listing of mappedListings) {
+    const latitude = Number(listing.locationLatitude);
+    const longitude = Number(listing.locationLongitude);
+    const priceMarker = L.divIcon({
+      className: 'listing-map-price-marker',
+      html: escapeHtml(money(listing)),
+      iconSize: null,
+    });
+    const marker = L.marker([latitude, longitude], { icon: priceMarker }).addTo(discoveryMarkers);
+    const preview = document.createElement('a');
+    preview.href = listingDetailUrl(listing.id);
+    preview.className = 'listing-map-preview';
+    const title = document.createElement('strong');
+    title.textContent = listing.title;
+    const locationText = document.createElement('span');
+    locationText.textContent = [listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', ');
+    const price = document.createElement('span');
+    price.textContent = money(listing);
+    preview.append(title, locationText, price);
+    marker.bindPopup(preview);
+  }
+  const bounds = discoveryMarkers.getBounds();
+  discoveryMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
+  requestAnimationFrame(() => discoveryMap.invalidateSize());
 }
 function cardMarkup(listing) {
   const cover = imageUrl(listing.coverUrl);
@@ -87,6 +144,7 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     const result = await api(`/api/listings/discover?${query}`, { signal: controller.signal });
     if (controller.signal.aborted) return;
     const listings = Array.isArray(result.listings) ? result.listings : [];
+    currentListings = listings;
     const page = result.pagination || { page: Number(filters.elements.page.value) || 1, total: listings.length, totalPages: 0, hasPrevious: false, hasNext: false };
     filters.elements.page.value = String(page.page);
     const currentUrl = new URL(location.href);
@@ -100,6 +158,7 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     document.querySelector('#listingsPrevious').disabled = !page.hasPrevious;
     document.querySelector('#listingsNext').disabled = !page.hasNext;
     grid.innerHTML = listings.length ? listings.map(cardMarkup).join('') : '<p class="feed-empty">No listings match these filters yet.</p>';
+    renderDiscoveryMap(listings);
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', event => {
       if (event.target.closest('[data-agent-link],[data-save-listing],[data-share-listing],[data-compare-listing]')) return;
       location.href = listingDetailUrl(card.dataset.listingId);
@@ -146,11 +205,21 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     }));
   } catch (error) {
     if (error.name === 'AbortError') return;
+    currentListings = [];
+    renderDiscoveryMap(currentListings);
     resultNote.textContent = '';
     pagination.hidden = true;
     grid.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p>`;
   }
 }
+mapToggle.addEventListener('click', () => {
+  const showMap = map.hidden;
+  map.hidden = !showMap;
+  grid.hidden = showMap;
+  mapToggle.setAttribute('aria-pressed', String(showMap));
+  mapToggle.textContent = showMap ? 'List view' : 'Map view';
+  if (showMap) renderDiscoveryMap(currentListings);
+});
 function detailMediaMarkup(media, title) {
   return media.map((item, index) => item.mediaType === 'video'
     ? `<video class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(imageUrl(item.mediaUrl))}" controls playsinline preload="metadata"></video>`

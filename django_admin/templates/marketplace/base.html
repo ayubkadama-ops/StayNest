@@ -5,7 +5,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#062b22">
-  <meta name="description" content="Homes, apartments, land, hotels, and commercial property across Tanzania.">
+  <meta name="description" content="{% block meta_description %}Homes, apartments, land, hotels, and commercial property across Tanzania.{% endblock %}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{% block og_title %}Makazi Go | Find your place. Make your move.{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Homes, apartments, land, hotels, and commercial property across Tanzania.{% endblock %}">
+  {% block og_image %}{% endblock %}
+  {% block canonical_link %}{% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}{% endblock %}
   <title>{% block title %}Makazi Go | Find your place. Make your move.{% endblock %}</title>
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
   <link rel="stylesheet" href="{% static 'form-validation.css' %}">

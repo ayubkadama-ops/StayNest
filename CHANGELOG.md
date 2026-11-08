@@ -5,6 +5,24 @@ commit history or release notes.
 
 ## Unreleased
 
+### Map discovery, SEO, and mobile location handoff
+
+- Added privacy-safe approximate coordinates to paginated discovery results
+  and a lazy, opt-in map/list toggle with price markers and property previews;
+  listings without coordinates are excluded from the map.
+- Added canonical listing URLs, dynamic absolute sitemap and robots routes,
+  per-listing Open Graph metadata, and structured listing data for published
+  property pages. Canonical and metadata support is also present on Django
+  marketplace pages.
+- Updated the native listing detail screen to open the approximate location in
+  OpenStreetMap without adding a mapping SDK or requiring credentials.
+- Kept existing WebP image processing, lazy-loaded web listing cards, and
+  paginated mobile discovery behavior. No database migration was required.
+- Validation: 59 Node tests, 77 Django tests/system checks, Vite production
+  build, mobile TypeScript check, browser map/list and 375px viewport smoke
+  test, and `git diff --check` pass. Production-host canonical/sitemap and
+  Android device checks remain pending.
+
 ### Posts, reviews, reports, and duplicate triage
 
 - Added a bounded administrator queue for exact listing-address or

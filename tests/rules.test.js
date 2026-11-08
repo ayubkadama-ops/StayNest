@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateListingJourney, verifyWebhookSignature } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateListingJourney, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
@@ -167,6 +167,18 @@ test('public listing coordinates are rounded and invalid coordinates are omitted
   assert.deepEqual(approximateListingCoordinates(-0.001, 0.001), { latitude: 0, longitude: 0 });
   assert.equal(approximateListingCoordinates(null, 39.2), null);
   assert.equal(approximateListingCoordinates(-91, 39.2), null);
+});
+
+test('public listing payloads expose only rounded coordinates and omit coordinate fields when unavailable', () => {
+  const listing = withPublicListingCoordinates({
+    id: 7,
+    latitude: -6.82341,
+    longitude: 39.2198,
+    approximate_latitude: -6.8143,
+    approximate_longitude: 39.2124
+  });
+  assert.deepEqual(listing, { id: 7, locationLatitude: -6.81, locationLongitude: 39.21 });
+  assert.deepEqual(withPublicListingCoordinates({ id: 8, latitude: null, longitude: null }), { id: 8 });
 });
 
 test('availability rejects a date that is already locked', () => {

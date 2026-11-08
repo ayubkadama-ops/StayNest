@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,6 +27,7 @@ export default function ListingScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -185,6 +187,29 @@ export default function ListingScreen() {
               <Text style={styles.bodyText}>
                 {listing.description || 'The agent has not added a description yet.'}
               </Text>
+            </Section>
+
+            <Section title="Approximate location">
+              {listing.locationLatitude !== null && listing.locationLongitude !== null ? (
+                <>
+                  <Text style={styles.bodyText}>The map shows an approximate area to protect the exact address.</Text>
+                  <Pressable
+                    accessibilityRole="link"
+                    onPress={() => {
+                      const { locationLatitude, locationLongitude } = listing;
+                      const url = `https://www.openstreetmap.org/?mlat=${locationLatitude}&mlon=${locationLongitude}#map=13/${locationLatitude}/${locationLongitude}`;
+                      void Linking.openURL(url).then(() => setMapError(null)).catch(() => {
+                        setMapError('The map could not be opened. Please try again later.');
+                      });
+                    }}
+                    style={styles.mapLink}>
+                    <Text style={styles.mapLinkText}>View approximate location on OpenStreetMap</Text>
+                  </Pressable>
+                  {mapError ? <Text style={styles.bodyText} accessibilityRole="alert">{mapError}</Text> : null}
+                </>
+              ) : (
+                <Text style={styles.bodyText}>Approximate map coordinates are not available for this property.</Text>
+              )}
             </Section>
 
             <Section title="Makazi Go property checks">
@@ -465,6 +490,19 @@ const styles = StyleSheet.create({
     color: '#53665b',
     fontSize: 14,
     lineHeight: 22,
+  },
+  mapLink: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#e5f2eb',
+  },
+  mapLinkText: {
+    color: '#087f5b',
+    fontSize: 14,
+    fontWeight: '700',
   },
   amenityList: {
     flexDirection: 'row',

@@ -102,6 +102,27 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(response, 'data-save-search')
         self.assertContains(response, 'href="?q=apartment&amp;district=Kinondoni&amp;minBedrooms=3&amp;amenities=Parking&amp;amenities=Wi-Fi&amp;page=3"')
 
+    @patch('marketplace.views._api_json', return_value={
+        'listing': {
+            'id': 17,
+            'title': 'Mikocheni apartment',
+            'description': 'A bright apartment near the coast.',
+            'city': 'Dar es Salaam',
+            'locationLatitude': -6.82,
+            'locationLongitude': 39.22,
+        },
+        'media': [],
+    })
+    def test_property_detail_uses_canonical_metadata_and_approximate_map_location(self, api_json):
+        response = self.client.get('/properties/17/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<link rel="canonical" href="http://testserver/properties/17/">')
+        self.assertContains(response, 'Mikocheni apartment | Makazi Go')
+        self.assertContains(response, 'View approximate location')
+        self.assertContains(response, 'mlat=-6.82&amp;mlon=39.22')
+        self.assertNotContains(response, 'View pinned location')
+
     @patch('marketplace.views._api_json', return_value={'error': 'Choose a price period for this range.'})
     def test_property_discovery_shows_filter_errors_without_dropping_input(self, api_json):
         response = self.client.get('/properties/?minPrice=2000000&maxPrice=1000000')
@@ -122,7 +143,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertNotContains(response, 'data-message-form')
 
     @patch('marketplace.views._api_json')
-    def test_apartment_detail_shows_distinct_capacity_and_pinned_location(self, api_json):
+    def test_apartment_detail_shows_distinct_capacity_and_approximate_location(self, api_json):
         api_json.return_value = {
             'listing': {
                 'id': 19,
@@ -136,8 +157,8 @@ class MarketplaceRoutingTests(SimpleTestCase):
                 'ward': 'Mikocheni',
                 'propertySize': 95,
                 'furnished': 'partially_furnished',
-                'latitude': -6.8,
-                'longitude': 39.2,
+                'locationLatitude': -6.8,
+                'locationLongitude': 39.2,
             },
             'media': [],
         }
@@ -147,7 +168,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(response, 'Kinondoni')
         self.assertContains(response, 'Mikocheni')
         self.assertContains(response, '95.00 m² · Partially furnished')
-        self.assertContains(response, 'https://www.openstreetmap.org/?mlat=-6.8&amp;mlon=39.2#map=17/-6.8/39.2')
+        self.assertContains(response, 'https://www.openstreetmap.org/?mlat=-6.8&amp;mlon=39.2#map=13/-6.8/39.2')
 
     @patch('marketplace.views._api_json')
     def test_land_detail_uses_agent_enquiry_flow(self, api_json):

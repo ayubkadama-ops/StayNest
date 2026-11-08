@@ -277,7 +277,22 @@ menu?.addEventListener('click', () => {
   menu.setAttribute('aria-expanded', String(open));
 });
 if (page) {
-  const id = new URLSearchParams(location.search).get('listing');
+  const id = location.pathname.match(/^\/properties\/([1-9]\d*)\/?$/)?.[1]
+    || new URLSearchParams(location.search).get('listing');
   if (!id) location.replace('/listings.html');
-  else api(`/api/listings/${encodeURIComponent(id)}/details`).then(result => { page.innerHTML = markup(result); wire(result.listing); }).catch(error => { page.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p><a class="primary" href="/listings.html">Back to listings</a>`; });
+  else api(`/api/listings/${encodeURIComponent(id)}/details`).then(result => {
+    page.innerHTML = markup(result);
+    document.title = `${result.listing.title} | Makazi Go`;
+    const canonical = new URL(`/properties/${encodeURIComponent(id)}/`, location.origin).href;
+    const canonicalLink = document.querySelector('link[rel="canonical"]');
+    if (canonicalLink) canonicalLink.href = canonical;
+    const description = String(result.listing.description || `Explore ${result.listing.title} on Makazi Go.`).replace(/\s+/g, ' ').slice(0, 160);
+    const descriptionTag = document.querySelector('meta[name="description"]');
+    if (descriptionTag) descriptionTag.content = description;
+    for (const [property, value] of [['og:title', document.title], ['og:description', description], ['og:url', canonical]]) {
+      const tag = document.querySelector(`meta[property="${property}"]`);
+      if (tag) tag.content = value;
+    }
+    wire(result.listing);
+  }).catch(error => { page.innerHTML = `<p class="feed-empty">${escapeHtml(error.message)}</p><a class="primary" href="/listings.html">Back to listings</a>`; });
 }

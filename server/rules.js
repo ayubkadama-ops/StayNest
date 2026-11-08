@@ -186,6 +186,23 @@ export function approximateListingCoordinates(latitude, longitude) {
   return { latitude: roundedLat || 0, longitude: roundedLng || 0 };
 }
 
+export function withPublicListingCoordinates(listing) {
+  const {
+    approximate_latitude: approximateLatitude,
+    approximate_longitude: approximateLongitude,
+    latitude,
+    longitude,
+    ...publicListing
+  } = listing;
+  const coordinates = approximateListingCoordinates(
+    approximateLatitude ?? latitude,
+    approximateLongitude ?? longitude
+  );
+  return coordinates
+    ? { ...publicListing, locationLatitude: coordinates.latitude, locationLongitude: coordinates.longitude }
+    : publicListing;
+}
+
 export function datesOverlap(checkIn, checkOut, existingCheckIn, existingCheckOut) {
   return checkIn < existingCheckOut && checkOut > existingCheckIn;
 }

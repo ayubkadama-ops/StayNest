@@ -238,13 +238,23 @@ surgical and preserve current tenant bookings and agent approval behavior.
 
 ### Stage 8 — Map, SEO, mobile performance, and parity
 
-- Preserve approximate public coordinates; never expose private addresses.
-- Add canonical SEO metadata/sitemap entries for useful unique inventory.
-- Optimize image sizes, lazy loading, caching, and paginated API usage for
-  lower-bandwidth Android clients.
-- Complete mobile workflows in small slices using
-  `mobile/docs/feature-parity.md`; test web and Android behavior against the
-  same API.
+- [x] Preserve approximate public coordinates in discovery and detail
+  responses; omit exact coordinate columns from public payloads.
+- [x] Add an opt-in map view for the current paginated results, with map
+  markers and previews only for listings that have an approximate location.
+- [x] Add absolute canonical/Open Graph metadata, structured listing data,
+  crawlable `/properties/<id>/` pages, and an absolute dynamic sitemap that
+  includes published, non-deleted listings only.
+- [x] Expose the approximate map location in the native detail screen using
+  OpenStreetMap without adding a provider SDK or API credential.
+- [x] Retain existing responsive image processing, lazy-loaded web listing
+  images, paginated API requests, and mobile load-more behavior.
+- [ ] Run native Android device/emulator smoke tests and production-host
+  canonical/sitemap checks; broad cross-client workflow parity remains tracked
+  in `mobile/docs/feature-parity.md`.
+- **Stage status:** Core implementation and local web/API/Django/mobile type
+  checks are verified; deployment-domain and native Android runtime validation
+  remain open.
 - Acceptance: responsive/browser/native smoke tests and cross-client
   persistence checks for each completed slice.
 

@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, approximateListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -23,6 +23,7 @@ import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
 import { createDiscoveryPlan } from './discovery.js';
+import { buildRobotsTxt, buildSitemapXml, renderCanonicalPageHtml, renderListingSeoHtml } from './seo.js';
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
@@ -1305,9 +1306,10 @@ app.get('/api/listings/discover', async (req, res, next) => {
     const offset = (page - 1) * plan.limit;
     plan.filters.page = page;
     const savedUserId = Number(req.session.user?.id) || 0;
-    const [listings] = await pool.execute(
+    const [listingRows] = await pool.execute(
       `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region, l.currency,
         l.district, l.ward, l.property_size propertySize, l.furnished,
+        l.approximate_latitude, l.approximate_longitude, l.latitude, l.longitude,
         l.transaction_type transactionType, l.sale_price salePrice,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
@@ -1332,6 +1334,7 @@ app.get('/api/listings/discover', async (req, res, next) => {
        LIMIT ? OFFSET ?`,
        [savedUserId, ...plan.params, ...plan.orderParams, plan.limit, offset]
     );
+    const listings = listingRows.map(withPublicListingCoordinates);
     res.json({
       listings,
       filters: plan.filters,
@@ -2595,18 +2598,11 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
     delete listing.documentReviewStatus;
     delete listing.propertyVerifiedAt;
     delete listing.propertyVerificationExpiresAt;
-    const publicLocation = approximateListingCoordinates(
-      listing.approximate_latitude ?? listing.latitude,
-      listing.approximate_longitude ?? listing.longitude
-    );
+    Object.assign(listing, withPublicListingCoordinates(listing));
     delete listing.approximate_latitude;
     delete listing.approximate_longitude;
     delete listing.latitude;
     delete listing.longitude;
-    if (publicLocation) {
-      listing.locationLatitude = publicLocation.latitude;
-      listing.locationLongitude = publicLocation.longitude;
-    }
     const [media] = await pool.query(
       `SELECT id, media_type mediaType, public_url mediaUrl, caption, sort_order sortOrder, is_cover isCover
        FROM listing_media WHERE listing_id=? ORDER BY is_cover DESC, sort_order ASC, id ASC`,
@@ -3800,6 +3796,49 @@ app.use('/api', createAgentEcosystemRouter({
   agentOwnerId,
   audit
 }));
+app.get(['/', '/index.html', '/listings.html'], async (req, res, next) => {
+  try {
+    const fileName = req.path === '/listings.html' ? 'listings.html' : 'index.html';
+    const template = await readFile(path.resolve(process.cwd(), 'dist', fileName), 'utf8');
+    const canonicalPath = fileName === 'index.html' ? '/' : '/listings.html';
+    const canonicalUrl = new URL(canonicalPath, publicAppUrl()).href;
+    res.type('html').send(renderCanonicalPageHtml(template, canonicalUrl));
+  } catch (error) { next(error); }
+});
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(buildRobotsTxt(publicAppUrl()));
+});
+app.get('/sitemap.xml', async (_req, res, next) => {
+  try {
+    const [listings] = await pool.query(
+      `SELECT id, updated_at
+       FROM listings
+       WHERE status='published' AND deleted_at IS NULL
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 10000`
+    );
+    res.type('application/xml').send(buildSitemapXml(publicAppUrl(), listings));
+  } catch (error) { next(error); }
+});
+app.get(/^\/properties\/([1-9]\d*)\/?$/, async (req, res, next) => {
+  try {
+    const listingId = req.params[0];
+    const [[listing]] = await pool.query(
+      `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region,
+         (SELECT lm.public_url FROM listing_media lm
+          WHERE lm.listing_id=l.id
+          ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC
+          LIMIT 1) coverUrl
+       FROM listings l
+       WHERE l.id=? AND l.status='published' AND l.deleted_at IS NULL`,
+      [listingId]
+    );
+    if (!listing) return res.status(404).send('Property not found');
+    const template = await readFile(path.resolve(process.cwd(), 'dist', 'listing-detail.html'), 'utf8');
+    const canonicalUrl = new URL(`/properties/${listing.id}/`, publicAppUrl()).href;
+    res.type('html').send(renderListingSeoHtml(template, listing, canonicalUrl));
+  } catch (error) { next(error); }
+});
 app.use(express.static(path.resolve(process.cwd(), 'dist')));
 app.use((error, req, res, _next) => {
   console.error(JSON.stringify({

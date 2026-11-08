@@ -1,5 +1,9 @@
 {% extends 'marketplace/base.html' %}
 {% block title %}{{ listing.title }} | Makazi Go{% endblock %}
+{% block meta_description %}{{ listing.description|default:'Explore this property in Tanzania on Makazi Go.'|truncatechars:160 }}{% endblock %}
+{% block og_title %}{{ listing.title }} | Makazi Go{% endblock %}
+{% block og_description %}{{ listing.description|default:'Explore this property in Tanzania on Makazi Go.'|truncatechars:160 }}{% endblock %}
+{% block og_image %}{% if listing.coverUrl %}<meta property="og:image" content="{{ listing.coverUrl }}">{% endif %}{% endblock %}
 {% block content %}
 <section class="detail-shell">
   <a class="back-link" href="{% url 'marketplace:properties' %}">Back to properties</a>
@@ -16,7 +20,7 @@
       <p class="eyebrow">{{ listing.propertyType|default:'Property'|title }}{% if listing.verifiedAgent %} · Identity-checked agent{% endif %}</p>
       <h1>{{ listing.title }}</h1>
       <p class="detail-location">{{ listing.neighborhood }}{% if listing.neighborhood and listing.city %}, {% endif %}{{ listing.city }}{% if listing.region %}, {{ listing.region }}{% endif %}{% if listing.district %} · {{ listing.district }}{% endif %}{% if listing.ward %}, {{ listing.ward }}{% endif %}</p>
-      {% if listing.latitude and listing.longitude %}<p><a class="text-link" href="https://www.openstreetmap.org/?mlat={{ listing.latitude }}&amp;mlon={{ listing.longitude }}#map=17/{{ listing.latitude }}/{{ listing.longitude }}" target="_blank" rel="noopener noreferrer">View pinned location</a></p>{% endif %}
+      {% if listing.locationLatitude != None and listing.locationLongitude != None %}<p><a class="text-link" href="https://www.openstreetmap.org/?mlat={{ listing.locationLatitude }}&amp;mlon={{ listing.locationLongitude }}#map=13/{{ listing.locationLatitude }}/{{ listing.locationLongitude }}" target="_blank" rel="noopener noreferrer">View approximate location</a></p>{% endif %}
       {% if listing.propertyType == 'house' %}
         <p class="detail-facts">Home · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms · Up to {{ listing.maxGuests|default:0 }} guests</p>
       {% elif listing.propertyType == 'apartment' %}
