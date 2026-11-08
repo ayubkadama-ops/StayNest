@@ -195,6 +195,8 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - [x] Add professional profile specializations/service areas, agency and
   developer application/review, verification-officer review queue, and
   listing/request/review analytics from recorded data only.
+- [x] Add TiDB startup recovery that retries dependent agent-profile columns
+  sequentially and applies an idempotent repair migration.
 - [x] Expose profile and review controls in the public web experience and
   organization review/role controls in the Founder Console.
 - Acceptance: focused role/profile tests pass. Organization team membership,
@@ -316,21 +318,17 @@ Stage 4 verification on the earlier working tree:
 
 Stage 5/6 and Render migration-recovery verification:
 
-- `npm test` — **52 passed**, including the TiDB same-column fallback
-  regression test; all 8 migration tests pass.
-- `npm run test:django` — **73 passed**; Django system checks clean.
-- `npm run build` — **passed**.
-- `npm run typecheck --prefix mobile` — **passed**.
-- Modified JavaScript/Python syntax checks, listing INSERT column/placeholder/
-  argument counts (**42/39/39 plus three SQL literals**), and
-  `git diff --check` — **passed**.
-- Render's latest failed deploy built successfully but exited during DB
-  migration with `Unsupported operate same column 'transaction_type'`,
-  followed by a no-open-ports timeout. Commit `ec22d4a` separates the column
-  change and index creation. The public health endpoint returned HTTP 200
-  after the push, but the available response does not identify its deployed
-  commit and Render runtime logs were unavailable; production migration
-  recovery is therefore not confirmed.
+- Prior validation for the transaction-type recovery passed locally, but the
+  latest Render build then failed during the next schema migration with
+  `Unknown column 'specializations' in 'agent_profiles'`, followed by a
+  no-open-ports timeout. This indicates startup aborted before binding HTTP;
+  it is not a port configuration problem.
+- A new repair now splits the dependent profile-column DDL and adds an
+  idempotent follow-up migration. Latest validation: 61 Node tests (10
+  migration tests), 77 Django tests/system checks, Vite build, mobile
+  type-check, migration syntax checks, and `git diff --check` pass. Production
+  TiDB migration and health checks remain unverified until the next deployment
+  completes.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
 

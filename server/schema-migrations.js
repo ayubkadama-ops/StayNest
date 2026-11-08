@@ -26,6 +26,7 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'property-search-migration.sql',
   'property-verification-migration.sql',
   'agent-ecosystem-migration.sql',
+  'agent-profile-columns-repair-migration.sql',
   'listing-category-details-migration.sql',
   'listing-duplicate-triage-migration.sql'
 ]);
@@ -69,6 +70,20 @@ async function applyLegacyStatement(pool, statement) {
   try {
     await pool.query(statement);
   } catch (error) {
+    if (/unknown column ['`]?specializations['`]? in ['`]?agent_profiles/i.test(error.message || '')
+      && /ALTER TABLE agent_profiles\s+ADD COLUMN specializations\b/i.test(statement)
+      && /\bADD COLUMN service_areas\b/i.test(statement)
+      && /\bADD COLUMN business_id\b/i.test(statement)) {
+      for (const column of [
+        'ALTER TABLE agent_profiles ADD COLUMN specializations JSON NULL AFTER agency_name',
+        'ALTER TABLE agent_profiles ADD COLUMN service_areas JSON NULL AFTER specializations',
+        'ALTER TABLE agent_profiles ADD COLUMN business_id BIGINT UNSIGNED NULL AFTER service_areas'
+      ]) {
+        const [, tableName, columnName] = column.match(/^ALTER TABLE (\w+) ADD COLUMN (\w+)/i) || [];
+        await addColumnIfMissing(pool, tableName, columnName, column);
+      }
+      return;
+    }
     if (/unsupported operate same column/i.test(error.message || '')
       && /ALTER TABLE listings\s+MODIFY COLUMN transaction_type\b/i.test(statement)
       && /\bADD INDEX idx_listings_journey\b/i.test(statement)) {

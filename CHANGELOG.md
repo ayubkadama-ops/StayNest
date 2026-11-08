@@ -5,6 +5,19 @@ commit history or release notes.
 
 ## Unreleased
 
+### Render TiDB agent-profile migration recovery
+
+- Render startup moved past the transaction-type migration but then failed
+  because TiDB could not resolve `specializations` inside the combined,
+  position-dependent `agent_profiles` ALTER. Startup consequently never bound
+  the HTTP port.
+- Added a TiDB-specific sequential retry for those three profile columns and
+  an additive idempotent repair migration for databases whose migration ledger
+  may already have advanced without all profile columns.
+- Validation: 61 Node tests, 77 Django tests/system checks, Vite build, mobile
+  type-check, migration syntax checks, and `git diff --check` pass. Production
+  TiDB deployment and health checks must be confirmed after the push.
+
 ### Map discovery, SEO, and mobile location handoff
 
 - Added privacy-safe approximate coordinates to paginated discovery results

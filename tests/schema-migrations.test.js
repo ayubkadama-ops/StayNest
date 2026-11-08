@@ -36,6 +36,7 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('property-search-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-verification-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-ecosystem-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('agent-profile-columns-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
 });
@@ -90,6 +91,77 @@ test('TiDB retries the journey type change and index as separate operations', as
   assert.ok(statements.includes(
     'CREATE INDEX idx_listings_journey ON listings (transaction_type, status, property_type_id, city)'
   ));
+});
+
+test('TiDB agent-profile migration retries dependent column additions separately', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      if (/ALTER TABLE agent_profiles\s+ADD COLUMN specializations/i.test(sql)
+        && /ADD COLUMN service_areas/i.test(sql)) {
+        const error = new Error("Unknown column 'specializations' in 'agent_profiles'");
+        error.code = 'ER_BAD_FIELD_ERROR';
+        throw error;
+      }
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) return [[], []];
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+  const migration = `ALTER TABLE agent_profiles
+    ADD COLUMN specializations JSON NULL AFTER agency_name,
+    ADD COLUMN service_areas JSON NULL AFTER specializations,
+    ADD COLUMN business_id BIGINT UNSIGNED NULL AFTER service_areas;`;
+
+  await applySchemaMigrations(pool, '.', ['agent-ecosystem.sql'], async () => migration);
+
+  assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN specializations JSON NULL AFTER agency_name'));
+  assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN service_areas JSON NULL AFTER specializations'));
+  assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN business_id BIGINT UNSIGNED NULL AFTER service_areas'));
+  assert.equal(statements.some(sql => /ADD COLUMN service_areas.*ADD COLUMN business_id/s.test(sql)), false);
+});
+
+test('agent-profile repair migration completes partially applied columns and reuses an existing index', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql, values = []) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      if (sql === 'ALTER TABLE agent_profiles ADD COLUMN specializations JSON NULL') {
+        const error = new Error('Duplicate column');
+        error.code = 'ER_DUP_FIELDNAME';
+        throw error;
+      }
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS')) {
+        return values[1] === 'specializations' ? [[{ COLUMN_NAME: 'specializations' }], []] : [[], []];
+      }
+      if (sql === 'CREATE INDEX idx_agent_profiles_business ON agent_profiles (business_id)') {
+        const error = new Error('Duplicate key name');
+        error.code = 'ER_DUP_KEYNAME';
+        throw error;
+      }
+      if (sql.includes('INFORMATION_SCHEMA.STATISTICS')) {
+        return [[{ INDEX_NAME: 'idx_agent_profiles_business' }], []];
+      }
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+
+  await applySchemaMigrations(pool, 'database', ['agent-profile-columns-repair-migration.sql']);
+
+  assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN service_areas JSON NULL'));
+  assert.ok(statements.includes('ALTER TABLE agent_profiles ADD COLUMN business_id BIGINT UNSIGNED NULL'));
+  assert.equal(statements.some(sql => sql.includes('CREATE INDEX idx_agent_profiles_business')), false);
+  assert.ok(statements.some(sql => sql.startsWith('INSERT INTO schema_migrations')));
 });
 
 test('schema migrations apply once and skip unchanged applied files', async () => {
