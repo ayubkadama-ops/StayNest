@@ -59,6 +59,38 @@ test('username column migration keeps its unique index separate for TiDB compati
   assert.ok(statements.every(sql => !/ADD COLUMN username[^;]*UNIQUE/i.test(sql)));
 });
 
+test('TiDB retries the journey type change and index as separate operations', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      if (/MODIFY COLUMN transaction_type/i.test(sql) && /ADD INDEX idx_listings_journey/i.test(sql)) {
+        const error = new Error("Unsupported operate same column 'transaction_type'");
+        error.code = 'ER_NOT_SUPPORTED_YET';
+        throw error;
+      }
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+  const migration = `ALTER TABLE listings
+    MODIFY COLUMN transaction_type ENUM('sale','rent','stay','both') NOT NULL DEFAULT 'stay',
+    ADD INDEX idx_listings_journey (transaction_type, status, property_type_id, city);`;
+
+  await applySchemaMigrations(pool, '.', ['journey.sql'], async () => migration);
+
+  assert.ok(statements.includes(
+    "ALTER TABLE listings MODIFY COLUMN transaction_type ENUM('sale','rent','stay','both') NOT NULL DEFAULT 'stay'"
+  ));
+  assert.ok(statements.includes(
+    'CREATE INDEX idx_listings_journey ON listings (transaction_type, status, property_type_id, city)'
+  ));
+});
+
 test('schema migrations apply once and skip unchanged applied files', async () => {
   const pool = createMigrationPool();
   const load = async () => 'CREATE TABLE sample (id INT);\nALTER TABLE sample ADD COLUMN title VARCHAR(20);\n';

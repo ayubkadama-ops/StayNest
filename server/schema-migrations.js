@@ -68,6 +68,19 @@ async function applyLegacyStatement(pool, statement) {
   try {
     await pool.query(statement);
   } catch (error) {
+    if (/unsupported operate same column/i.test(error.message || '')
+      && /ALTER TABLE listings\s+MODIFY COLUMN transaction_type\b/i.test(statement)
+      && /\bADD INDEX idx_listings_journey\b/i.test(statement)) {
+      await applyLegacyStatement(
+        pool,
+        "ALTER TABLE listings MODIFY COLUMN transaction_type ENUM('sale','rent','stay','both') NOT NULL DEFAULT 'stay'"
+      );
+      await applyLegacyStatement(
+        pool,
+        'CREATE INDEX idx_listings_journey ON listings (transaction_type, status, property_type_id, city)'
+      );
+      return;
+    }
     if (/ALTER TABLE listings\s+ADD COLUMN structure_type/i.test(statement)) {
       for (const column of [
         'ALTER TABLE listings ADD COLUMN structure_type VARCHAR(40) NULL',

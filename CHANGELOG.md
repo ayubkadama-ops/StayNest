@@ -15,7 +15,7 @@ commit history or release notes.
   queue, and Founder Console review controls.
 - Added listing, booking-request, and published-review metrics based on
   existing records; missing data is not presented as a fabricated score.
-- Validation: 50 Node tests, 73 Django tests/system checks, web production
+- Validation: 52 Node tests, 73 Django tests/system checks, web production
   build, mobile type-check, and syntax checks pass.
 - Production migration execution and complete multi-user role-isolation
   testing remain outstanding.
@@ -83,15 +83,18 @@ commit history or release notes.
 - Added an additive, checksum-tracked migration that backfills existing
   transaction types from rental mode and changes currency defaults to TZS
   without rewriting stored amounts.
-- Verified TiDB ALTER TABLE syntax against current documentation; execution
-  against the deployed TiDB instance is still required before rollout.
+- Render startup logs identified TiDB's `Unsupported operate same column
+  'transaction_type'` error when the migration modified and indexed that
+  column in one ALTER. The migration runner now retries those as separate
+  operations without changing the historical migration checksum. The new
+  agent-profile index is also created separately. A clean Render redeploy is
+  still required to confirm recovery.
 
 ### Security
 
 - Confirmed the username migration adds the nullable column separately from
   its unique index for TiDB compatibility; added a regression test for the
-  previously reported startup migration failure. The deployed database still
-  needs a fresh migration run to verify recovery.
+  previously reported startup migration failure.
 - Corrected administrator IP allow/deny matching to use validated IPv4/IPv6
   CIDR ranges instead of a string-prefix approximation.
 - Made Django startup reject missing or short `DJANGO_SECRET_KEY` values in

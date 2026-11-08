@@ -133,9 +133,12 @@ surgical and preserve current tenant bookings and agent approval behavior.
   for stay and legacy combined listings.
 - [x] Expose the journey and structured facts in public web, Django
   marketplace, and mobile discovery/listing surfaces.
+- [x] Add a TiDB-specific fallback that separates modifying
+  `transaction_type` from adding its index when TiDB rejects both operations
+  in one ALTER statement.
 - **Stage status:** Implementation and local tests/builds are verified.
-  TiDB DDL/bootstrap and backup/recovery procedures remain unverified and
-  must be checked before production rollout.
+  Render exposed a same-column TiDB ALTER limitation; a tested fallback is
+  ready for a clean redeploy. Backup/recovery procedures remain unverified.
 - Acceptance: legacy listings still render; existing stays remain bookable;
   invalid combinations are rejected server-side.
 
@@ -155,9 +158,10 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - [ ] Run `EXPLAIN` and representative latency/cardinality checks against a
   controlled TiDB/MySQL dataset; confirm full-text and migration behavior on
   the deployed engine before rollout.
-- **Stage status:** Discovery implementation is locally verified. Database
-  query-plan and production-engine verification remain open; the application
-  has not been tested against live production data.
+- **Stage status:** Discovery implementation is locally verified. Render
+  startup logs exposed a TiDB same-column ALTER limitation in the journey
+  migration; a tested fallback is ready for redeploy. Query-plan and
+  production-engine verification remain open.
 - Acceptance: filter-combination tests, pagination boundary tests, correct
   TZS and price-period behavior, and measured query bounds.
 
@@ -286,16 +290,22 @@ Stage 4 verification on the earlier working tree:
 - TiDB/MySQL migration execution, query plans, backup/restore, and private
   storage end-to-end checks — **not run**; production access was unavailable.
 
-Stage 5/6 verification on the current working tree:
+Stage 5/6 and Render migration-recovery verification:
 
-- `npm test` — **51 passed**, including 12 focused agent, listing-detail, and
-  migration checks.
+- `npm test` — **52 passed**, including the TiDB same-column fallback
+  regression test; all 8 migration tests pass.
 - `npm run test:django` — **73 passed**; Django system checks clean.
 - `npm run build` — **passed**.
 - `npm run typecheck --prefix mobile` — **passed**.
 - Modified JavaScript/Python syntax checks, listing INSERT column/placeholder/
   argument counts (**42/39/39 plus three SQL literals**), and
   `git diff --check` — **passed**.
+- Render's latest failed deploy built successfully but exited during DB
+  migration with `Unsupported operate same column 'transaction_type'`,
+  followed by a no-open-ports timeout. A tested fallback now separates the
+  column change and index creation. The previous live release returned HTTP
+  200 from its health endpoint; the pushed fix still needs a successful Render
+  deploy and health check to verify production migration recovery.
 - Production TiDB/MySQL migration execution, backup/restore, and end-to-end
   listing submissions against a controlled database remain outstanding.
 
