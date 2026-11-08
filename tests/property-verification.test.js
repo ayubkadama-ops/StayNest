@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PROPERTY_VERIFICATION_CHECKS,
+  nextPropertyVerificationCheck,
   resetPropertyLocationChecks,
   resolvePropertyVerificationStatus,
   validatePropertyVerificationDecision
@@ -19,6 +20,19 @@ test('property verification requires all four independent checks', () => {
   assert.equal(resolvePropertyVerificationStatus(checks), 'under_review');
   checks.documents_status = 'checked';
   assert.equal(resolvePropertyVerificationStatus(checks), 'verified');
+});
+
+test('property verification advances one ordered check at a time and retries rejected checks', () => {
+  const checks = blankChecks();
+  assert.equal(nextPropertyVerificationCheck(checks), 'identity_status');
+  checks.identity_status = 'checked';
+  assert.equal(nextPropertyVerificationCheck(checks), 'location_status');
+  checks.location_status = 'rejected';
+  assert.equal(nextPropertyVerificationCheck(checks), 'location_status');
+  checks.location_status = 'checked';
+  checks.authority_status = 'checked';
+  checks.documents_status = 'checked';
+  assert.equal(nextPropertyVerificationCheck(checks), null);
 });
 
 test('a rejected property check prevents verification even when other checks pass', () => {

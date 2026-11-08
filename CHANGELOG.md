@@ -5,6 +5,28 @@ commit history or release notes.
 
 ## Unreleased
 
+### Admin review, booking requests, and account details
+
+- Listing review now surfaces the advertiser's latest identity document (owner
+  or assigned agent), offers an audited secure preview, and records the
+  ordered identity, location, authorization, and document checks before
+  publication. API and Django moderation paths reject skipped steps; document
+  checks cannot be completed without an uploaded document.
+- Admins can add missing listing and agent/account profile details using
+  advertiser-confirmed information. Location edits reopen the location review
+  and return published listings to moderation.
+- Homepage discovery uses the shared server search rather than filtering only
+  the currently rendered cards. The property map continues to use approximate
+  coordinates from the shared discovery API.
+- Booking requests now distinguish scheduled property viewings from stays.
+  Viewing requests require a future appointment, do not reserve stay dates or
+  create an accommodation charge, and show their schedule and status to both
+  tenant and host. Stay requests retain date validation and use an
+  idempotency key when supported by the browser.
+- Inbox threads and booking details use account names, email fallbacks, listing
+  titles, and booking codes rather than showing raw entity IDs; missing profile
+  rows no longer hide conversations or booking requests.
+
 ### Marketplace search, image uploads, and admin profile photos
 
 - Fixed discovery failures on upgraded TiDB databases by adding the missing

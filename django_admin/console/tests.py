@@ -277,6 +277,95 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.audit')
     @patch('console.views.execute')
     @patch('console.views.rows', return_value=[{
+        'verification_status': 'under_review',
+        'identity_status': 'checked',
+        'location_status': 'not_reviewed',
+        'authority_status': 'not_reviewed',
+        'documents_status': 'not_reviewed',
+    }])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_property_check_cannot_skip_an_earlier_wizard_step(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-verification/', {
+            'section': 'listings', 'listing_tab': 'review', 'id': '17',
+            'check': 'documents_status', 'status': 'checked',
+        })
+
+        self.assertRedirects(
+            response,
+            '/admin/?section=listings&listing_tab=review&listing_sort=updated&listing_q=&listing_status=all',
+            fetch_redirect_response=False,
+        )
+        self.assertTrue(any(
+            'complete the earlier property checks in order' in str(message).lower()
+            for message in response.wsgi_request._messages
+        ))
+        execute.assert_not_called()
+        audit.assert_not_called()
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_listing_location_edits_reopen_all_dependent_checks(
+        self, atomic, rows, execute, audit
+    ):
+        self.authenticate_admin()
+        rows.side_effect = [
+            [{
+                'id': 17,
+                'status': 'published',
+                'address_line1': 'Old address',
+                'neighborhood': 'Kigamboni',
+                'district': 'Temeke',
+                'ward': 'Kibada',
+                'city': 'Dar es Salaam',
+                'region': 'Dar es Salaam',
+                'country_code': 'TZ',
+            }],
+            [{
+                'identity_status': 'checked',
+                'location_status': 'checked',
+                'authority_status': 'checked',
+                'documents_status': 'checked',
+            }],
+        ]
+
+        response = self.client.post('/admin/action/listing-details-save/', {
+            'section': 'listings', 'id': '17', 'return_to': '/admin/listings/17/',
+            'title': 'Serviced plot', 'description': 'A surveyed residential plot.',
+            'address_line1': 'New address', 'neighborhood': 'Kigamboni',
+            'district': 'Temeke', 'ward': 'Kibada', 'city': 'Dar es Salaam',
+            'region': 'Dar es Salaam', 'country_code': 'TZ',
+        })
+
+        self.assertRedirects(response, '/admin/listings/17/', fetch_redirect_response=False)
+        reset_call = next(
+            call for call in execute.call_args_list
+            if "location_status='not_reviewed'" in call.args[0]
+        )
+        self.assertIn("authority_status='not_reviewed'", reset_call.args[0])
+        self.assertIn("documents_status='not_reviewed'", reset_call.args[0])
+        reset_events = [
+            call for call in execute.call_args_list
+            if 'INSERT INTO listing_verification_events' in call.args[0]
+        ]
+        self.assertEqual(len(reset_events), 3)
+        self.assertTrue(any(
+            'UPDATE listings SET status=' in call.args[0]
+            and call.args[1] == [17]
+            for call in execute.call_args_list
+        ))
+        audit.assert_called_once_with('listing_details_updated', 'listing', 17, {
+            'fields': ['title', 'description', 'address_line1', 'neighborhood', 'district',
+                       'ward', 'city', 'region', 'country_code'],
+            'locationReviewReset': True,
+        })
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{
         'verification_status': 'verified',
         'is_current': 0,
     }])
@@ -344,6 +433,13 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'category_details': '{"access_road":"Yes","utilities":"Water and power"}',
             'advertising_authorization': 'owner',
             'owner_user_id': 42,
+            'listing_agent_user_id': 23,
+            'owner_document_id': 54,
+            'owner_document_user_id': 23,
+            'owner_document_type': 'national_id',
+            'owner_document_status': 'pending',
+            'owner_document_last4': '1234',
+            'owner_document_created_at': '2026-11-08 09:00:00',
             'owner_name': 'Asha Mrema',
             'owner_email': 'asha@example.test',
             'property_type': 'land',
@@ -368,6 +464,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Access Road')
         self.assertContains(response, 'Water and power')
         self.assertContains(response, '/media/listings/17/plot.webp')
+        self.assertContains(response, 'Agent identity document')
+        self.assertContains(response, '/admin/action/listing-document/')
+        self.assertContains(response, 'Step 1: Identity')
 
     @patch('console.views.rows', return_value=[{
         'id': 8, 'listing_id': 17, 'post_type': 'new_listing', 'caption': 'Now available',
@@ -1136,7 +1235,39 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(len(token), 43)
         self.assertEqual(execute.call_args.args[1][0], hashlib.sha256(token.encode('ascii')).digest())
         self.assertNotIn(token, execute.call_args.args[0])
-        audit.assert_called_once_with('identity_document_access_granted', 'identity_verification', 42)
+        audit.assert_called_once_with(
+            'identity_document_access_granted',
+            'identity_verification',
+            42,
+            {'source': 'identity_queue'},
+        )
+
+    @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'id': 42}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_listing_review_can_open_an_assigned_agents_identity_document(
+        self, atomic, rows, execute, audit
+    ):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-document/', {
+            'id': '17',
+            'section': 'listings',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        query = rows.call_args.args[0]
+        self.assertIn('l.agent_user_id', query)
+        self.assertEqual(rows.call_args.args[1], [17])
+        self.assertIn('/api/admin/verifications/42/document', response['Location'])
+        audit.assert_called_once_with(
+            'identity_document_access_granted',
+            'identity_verification',
+            42,
+            {'source': 'listing_review'},
+        )
 
     @patch('console.views.rows', return_value=[{
         'id': 42,

@@ -7,6 +7,10 @@ export const PROPERTY_VERIFICATION_CHECKS = Object.freeze([
 
 export const PROPERTY_VERIFICATION_VALUES = Object.freeze(['checked', 'rejected']);
 
+export function nextPropertyVerificationCheck(checks) {
+  return PROPERTY_VERIFICATION_CHECKS.find(key => checks?.[key] !== 'checked') || null;
+}
+
 export function resolvePropertyVerificationStatus(checks) {
   if (PROPERTY_VERIFICATION_CHECKS.some(key => checks[key] === 'rejected')) return 'rejected';
   if (PROPERTY_VERIFICATION_CHECKS.every(key => checks[key] === 'checked')) return 'verified';

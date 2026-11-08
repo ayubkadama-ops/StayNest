@@ -28,6 +28,7 @@ import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
 import {
+  nextPropertyVerificationCheck,
   resetPropertyLocationChecks,
   resolvePropertyVerificationStatus,
   validatePropertyVerificationDecision
@@ -1483,7 +1484,10 @@ app.post('/api/messages', requireAuth, requireMessagePermission, async (req, res
     }
     if (blocked) return res.status(403).json({ error: 'Messaging is unavailable for this user' });
     const [[recipient]] = await connection.query(
-      'SELECT u.id, p.first_name firstName, p.last_name lastName FROM users u JOIN user_profiles p ON p.user_id=u.id WHERE u.id=? AND u.status="active"',
+      `SELECT u.id,
+        COALESCE(NULLIF(p.display_name,''), NULLIF(CONCAT_WS(' ', NULLIF(p.first_name,''), NULLIF(p.last_name,'')),''), u.email) displayName
+       FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+       WHERE u.id=? AND u.status="active"`,
       [recipientId]
     );
     if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
@@ -1500,7 +1504,8 @@ app.post('/api/messages', requireAuth, requireMessagePermission, async (req, res
     }
     const [message] = await connection.execute('INSERT INTO messages (conversation_id, sender_user_id, body) VALUES (?, ?, ?)', [conversationId, req.session.user.id, body]);
     await connection.commit();
-    const senderName = `${req.session.user.firstName || 'A Makazi Go member'} ${req.session.user.lastName || ''}`.trim();
+    const senderName = `${req.session.user.firstName || ''} ${req.session.user.lastName || ''}`.trim()
+      || req.session.user.displayName || req.session.user.email || 'Makazi Go member';
     void notifyUser(recipient.id, {
       type: 'new_message',
       title: `New message from ${senderName}`,
@@ -1520,15 +1525,18 @@ app.get('/api/messages', requireAuth, async (req, res, next) => {
     const [conversations] = await pool.execute(
       `SELECT c.id conversationId, c.created_at createdAt,
         MAX(m.created_at) lastMessageAt, SUBSTRING_INDEX(GROUP_CONCAT(m.body ORDER BY m.created_at DESC SEPARATOR '||'), '||', 1) lastMessage,
-        other.id otherUserId, otherProfile.first_name otherFirstName, otherProfile.last_name otherLastName,
+        other.id otherUserId,
+        COALESCE(NULLIF(otherProfile.display_name,''), NULLIF(CONCAT_WS(' ', NULLIF(otherProfile.first_name,''), NULLIF(otherProfile.last_name,'')),''), other.email) otherDisplayName,
+        otherProfile.first_name otherFirstName, otherProfile.last_name otherLastName,
         SUM(CASE WHEN m.sender_user_id<>? AND m.created_at>COALESCE(member.last_read_at,'1000-01-01') THEN 1 ELSE 0 END) unread
        FROM conversations c
        JOIN conversation_members member ON member.conversation_id=c.id AND member.user_id=?
        JOIN conversation_members otherMember ON otherMember.conversation_id=c.id AND otherMember.user_id<>?
        JOIN users other ON other.id=otherMember.user_id
-       JOIN user_profiles otherProfile ON otherProfile.user_id=other.id
+       LEFT JOIN user_profiles otherProfile ON otherProfile.user_id=other.id
        LEFT JOIN messages m ON m.conversation_id=c.id AND m.deleted_at IS NULL AND m.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
-       GROUP BY c.id, c.created_at, other.id, otherProfile.first_name, otherProfile.last_name, member.last_read_at
+       GROUP BY c.id, c.created_at, other.id, other.email, otherProfile.display_name,
+        otherProfile.first_name, otherProfile.last_name, member.last_read_at
        HAVING MAX(m.created_at) IS NOT NULL
        ORDER BY lastMessageAt DESC, c.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
       [req.session.user.id, req.session.user.id, req.session.user.id]
@@ -1560,8 +1568,9 @@ app.get('/api/messages/:conversationId', requireAuth, async (req, res, next) => 
     if (!member) return res.status(403).json({ error: 'You do not have access to this conversation' });
     const [messages] = await pool.execute(
       `SELECT m.id, m.body, m.sender_user_id senderId, m.created_at createdAt,
-        p.first_name firstName, p.last_name lastName
-       FROM messages m JOIN users u ON u.id=m.sender_user_id JOIN user_profiles p ON p.user_id=u.id
+        COALESCE(NULLIF(p.first_name,''), u.email, 'Makazi Go member') firstName,
+        COALESCE(p.last_name,'') lastName
+       FROM messages m JOIN users u ON u.id=m.sender_user_id LEFT JOIN user_profiles p ON p.user_id=u.id
        WHERE m.conversation_id=? AND m.deleted_at IS NULL AND m.created_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY ORDER BY m.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
       [conversationId]
     );
@@ -1785,9 +1794,10 @@ app.get('/api/bookings/:id', requireAuth, async (req, res, next) => {
       `SELECT b.id, b.booking_code bookingCode, b.booking_kind bookingKind, b.appointment_at appointmentAt,
         b.check_in checkIn, b.check_out checkOut, b.guests, b.total_amount totalAmount, b.currency, b.status,
         b.created_at createdAt, l.id listingId, l.title, l.city, l.address_line1 addressLine1,
-        u.id tenantId, p.first_name firstName, p.last_name lastName, u.email, u.phone
+        u.id tenantId, COALESCE(NULLIF(p.first_name,''), u.email, 'Guest') firstName,
+        COALESCE(p.last_name,'') lastName, u.email, u.phone
        FROM bookings b JOIN listings l ON l.id=b.listing_id
-       JOIN users u ON u.id=b.guest_user_id JOIN user_profiles p ON p.user_id=u.id
+       JOIN users u ON u.id=b.guest_user_id LEFT JOIN user_profiles p ON p.user_id=u.id
        WHERE b.id=? AND (b.guest_user_id=? OR b.host_user_id=? OR l.agent_user_id=?)`,
       [req.params.id, req.session.user.id, req.session.user.id, agentOwnerId(req) || 0]
     );
@@ -2407,11 +2417,12 @@ app.get('/api/agent/bookings', requireAuth, requireAgentAccess('bookings.view'),
       `SELECT b.id, b.booking_code bookingCode, b.booking_kind bookingKind, b.appointment_at appointmentAt, b.check_in checkIn, b.check_out checkOut, b.guests,
         b.total_amount totalAmount, b.currency, b.status, b.created_at createdAt,
         l.id listingId, l.title, l.city, l.address_line1 addressLine1,
-        u.id tenantId, p.first_name firstName, p.last_name lastName, u.email, u.phone
+        u.id tenantId, COALESCE(NULLIF(p.first_name,''), u.email, 'Guest') firstName,
+        COALESCE(p.last_name,'') lastName, u.email, u.phone
        FROM bookings b
        JOIN listings l ON l.id=b.listing_id
        JOIN users u ON u.id=b.guest_user_id
-       JOIN user_profiles p ON p.user_id=u.id
+       LEFT JOIN user_profiles p ON p.user_id=u.id
        WHERE l.agent_user_id=? ORDER BY b.created_at DESC LIMIT 100`,
       [agentOwnerId(req)]
     );
@@ -3561,7 +3572,10 @@ app.post('/api/admin/listings/:id/verification', requireAuth, requireAdminAccess
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[listing]] = await connection.execute('SELECT id FROM listings WHERE id=? FOR UPDATE', [listingId]);
+    const [[listing]] = await connection.execute(
+      'SELECT id, owner_user_id, agent_user_id FROM listings WHERE id=? FOR UPDATE',
+      [listingId]
+    );
     if (!listing) {
       await connection.rollback();
       return res.status(404).json({ error: 'Listing not found' });
@@ -3579,6 +3593,27 @@ app.post('/api/admin/listings/:id/verification', requireAuth, requireAdminAccess
         'SELECT * FROM listing_verifications WHERE listing_id=? FOR UPDATE',
         [listingId]
       );
+    }
+    const nextCheck = nextPropertyVerificationCheck(verification);
+    if (nextCheck !== decision.check) {
+      await connection.rollback();
+      return res.status(409).json({
+        error: nextCheck
+          ? `Complete the ${nextCheck.replace('_status', '').replace('_', ' ')} check first`
+          : 'All listing verification checks are already complete'
+      });
+    }
+    if (['identity_status', 'documents_status'].includes(decision.check)) {
+      const [[document]] = await connection.execute(
+        `SELECT id FROM identity_verifications
+         WHERE user_id IN (?, ?) AND document_file_key IS NOT NULL
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [listing.owner_user_id, listing.agent_user_id]
+      );
+      if (!document) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'An advertiser identity document must be available before this check' });
+      }
     }
     const previousCheckStatus = verification[decision.check];
     const nextChecks = {
@@ -3678,10 +3713,30 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
   const connection = await pool.getConnection();
   try {
     if (!(await isFeatureEnabled('bookings'))) return res.status(503).json({ error: 'Booking requests are temporarily paused' });
-    const { listingId, checkIn, checkOut, guests = 1, bookingKind = 'stay', appointmentAt = null } = req.body;
+    let { listingId, checkIn, checkOut, guests = 1, bookingKind = 'stay', appointmentAt = null } = req.body;
     const validListingId = positiveId(listingId);
     const idempotencyKey = req.get('idempotency-key')?.trim();
-    if (!validListingId || !['stay', 'viewing'].includes(bookingKind) || !isValidDate(checkIn) || !isValidDate(checkOut) || !Number.isSafeInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > 100) {
+    const isViewing = bookingKind === 'viewing';
+    let normalizedAppointment = null;
+    if (isViewing) {
+      if (typeof appointmentAt !== 'string'
+        || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(appointmentAt)) {
+        return res.status(400).json({ error: 'Choose a valid viewing date and time' });
+      }
+      const appointmentDate = new Date(appointmentAt);
+      if (!Number.isFinite(appointmentDate.getTime()) || appointmentDate <= new Date()) {
+        return res.status(400).json({ error: 'Viewing requests must be scheduled for a future date and time' });
+      }
+      normalizedAppointment = appointmentDate.toISOString().slice(0, 19).replace('T', ' ');
+      checkIn = appointmentDate.toISOString().slice(0, 10);
+      const nextDay = new Date(appointmentDate);
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      checkOut = nextDay.toISOString().slice(0, 10);
+      guests = 1;
+    }
+    if (!validListingId || !['stay', 'viewing'].includes(bookingKind)
+      || (!isViewing && (!isValidDate(checkIn) || !isValidDate(checkOut)
+        || !Number.isSafeInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > 100))) {
       return res.status(400).json({ error: 'Invalid listing, dates, or guest count' });
     }
     if (idempotencyKey && !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Invalid idempotency key' });
@@ -3699,43 +3754,53 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
       await connection.rollback();
       return res.status(404).json({ error: 'Listing not found' });
     }
-    if (!['stay', 'both'].includes(listing.transaction_type)) {
+    if (!isViewing && !['stay', 'both'].includes(listing.transaction_type)) {
       await connection.rollback();
       return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
     }
-    const [overlaps] = await connection.execute('SELECT id FROM bookings WHERE listing_id=? AND status IN ("pending","payment_pending","confirmed") AND check_in < ? AND check_out > ? FOR UPDATE', [listingId, checkOut, checkIn]);
-    if (overlaps.length) {
-      await connection.rollback();
-      return res.status(409).json({ error: 'Those dates are no longer available' });
-    }
     let booking;
-    try {
-      booking = calculateBooking({ nightlyPrice: listing.nightly_price || 0, cleaningFee: listing.cleaning_fee || 0, checkIn, checkOut, minimumNights: listing.min_stay_nights });
-    } catch {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Invalid dates or minimum stay not met' });
+    if (isViewing) {
+      booking = { nights: 1, subtotal: 0, total: 0 };
+    } else {
+      const [overlaps] = await connection.execute('SELECT id FROM bookings WHERE listing_id=? AND booking_kind="stay" AND status IN ("pending","payment_pending","confirmed") AND check_in < ? AND check_out > ? FOR UPDATE', [listingId, checkOut, checkIn]);
+      if (overlaps.length) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'Those dates are no longer available' });
+      }
+      try {
+        booking = calculateBooking({ nightlyPrice: listing.nightly_price || 0, cleaningFee: listing.cleaning_fee || 0, checkIn, checkOut, minimumNights: listing.min_stay_nights });
+      } catch {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Invalid dates or minimum stay not met' });
+      }
     }
     const bookingCode = `SN${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     const { nights, subtotal, total } = booking;
     const bookingHost = listing.agent_user_id || listing.owner_user_id;
-    const [result] = await connection.execute('INSERT INTO bookings (booking_code, listing_id, guest_user_id, host_user_id, booking_kind, appointment_at, check_in, check_out, guests, currency, nightly_rate, nights, subtotal, cleaning_fee, total_amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending")', [bookingCode, validListingId, req.session.user.id, bookingHost, bookingKind, appointmentAt || null, checkIn, checkOut, guests, listing.currency, listing.nightly_price || 0, nights, subtotal, listing.cleaning_fee || 0, total]);
-    for (let date = new Date(`${checkIn}T00:00:00Z`); date < new Date(`${checkOut}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1)) {
-      await connection.execute('INSERT INTO booking_date_locks (listing_id, stay_date, booking_id, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE))', [validListingId, date.toISOString().slice(0, 10), result.insertId]);
+    const [result] = await connection.execute('INSERT INTO bookings (booking_code, listing_id, guest_user_id, host_user_id, booking_kind, appointment_at, check_in, check_out, guests, currency, nightly_rate, nights, subtotal, cleaning_fee, total_amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending")', [bookingCode, validListingId, req.session.user.id, bookingHost, bookingKind, normalizedAppointment, checkIn, checkOut, guests, listing.currency, isViewing ? 0 : listing.nightly_price || 0, nights, subtotal, isViewing ? 0 : listing.cleaning_fee || 0, total]);
+    if (!isViewing) {
+      for (let date = new Date(`${checkIn}T00:00:00Z`); date < new Date(`${checkOut}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1)) {
+        await connection.execute('INSERT INTO booking_date_locks (listing_id, stay_date, booking_id, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE))', [validListingId, date.toISOString().slice(0, 10), result.insertId]);
+      }
     }
-    const response = { bookingId: result.insertId, bookingCode, amount: total };
+    const response = { bookingId: result.insertId, bookingCode, amount: total, bookingKind };
     if (idempotencyKey) await connection.execute('INSERT INTO request_idempotency (user_id, idempotency_key, response_json) VALUES (?, ?, ?)', [req.session.user.id, idempotencyKey, JSON.stringify(response)]);
     await connection.commit();
     await audit(req, 'booking_created', 'booking', result.insertId, { listingId: validListingId });
     void notifyUser(bookingHost, {
       type: 'booking_request',
-      title: 'New booking request',
-      body: `New request for ${listing.title || 'your listing'} from ${checkIn} to ${checkOut}.`,
+      title: isViewing ? 'New viewing request' : 'New stay request',
+      body: isViewing
+        ? `Viewing requested for ${listing.title || 'your listing'} at ${normalizedAppointment} UTC.`
+        : `Stay requested for ${listing.title || 'your listing'} from ${checkIn} to ${checkOut}.`,
       data: { bookingId: result.insertId, listingId }
     }).catch(error => console.error('Agent booking notification failed:', error.message));
     void notifyUser(req.session.user.id, {
       type: 'booking_created',
-      title: 'Booking request sent',
-      body: `${listing.title || 'Your selected home'} · awaiting agent review.`,
+      title: isViewing ? 'Viewing request sent' : 'Stay request sent',
+      body: isViewing
+        ? `${listing.title || 'Your selected property'} · viewing requested for ${normalizedAppointment} UTC.`
+        : `${listing.title || 'Your selected home'} · awaiting agent review.`,
       data: { bookingId: result.insertId, listingId, status: 'pending' }
     }).catch(error => console.error('Tenant booking notification failed:', error.message));
     res.status(201).json(response);

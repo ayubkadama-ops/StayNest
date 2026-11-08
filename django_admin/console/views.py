@@ -78,6 +78,9 @@ ADMIN_ACTION_FEATURES = {
     'listing-duplicate-decision': 'listings',
     'listing-status': 'listings',
     'listing-verification': 'listings',
+    'listing-details-save': 'listings',
+    'listing-document': 'listings',
+    'user-profile-save': 'users',
     'post-status': 'posts',
     'booking-status': 'bookings',
     'verification-status': 'verifications',
@@ -525,10 +528,19 @@ def dashboard(request):
                           COALESCE(v.authority_status,'not_reviewed') authority_status,
                           COALESCE(v.documents_status,'not_reviewed') documents_status,
                           v.verified_at,v.expires_at,
+                          iv.id owner_document_id,iv.user_id owner_document_user_id,iv.document_type owner_document_type,
+                          iv.status owner_document_status,iv.created_at owner_document_created_at,
                           COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name
                    FROM listings l JOIN users u ON u.id=l.owner_user_id
                    LEFT JOIN user_profiles p ON p.user_id=u.id
                    LEFT JOIN listing_verifications v ON v.listing_id=l.id
+                   LEFT JOIN identity_verifications iv ON iv.id=(
+                     SELECT latest.id FROM identity_verifications latest
+                     WHERE latest.user_id IN (l.owner_user_id,l.agent_user_id)
+                       AND latest.document_file_key IS NOT NULL
+                     ORDER BY CASE WHEN latest.user_id=l.agent_user_id THEN 0 ELSE 1 END,
+                       latest.created_at DESC,latest.id DESC LIMIT 1
+                   )
                    WHERE {' AND '.join(listing_where)}
                    ORDER BY {listing_sorts[listing_sort]} LIMIT 200""",
                 listing_params,
@@ -824,7 +836,8 @@ def user_detail(request, user_id):
               (SELECT reason FROM account_deletion_requests WHERE user_id=u.id LIMIT 1) deletion_reason,
                   p.first_name,p.last_name,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
                   p.city,p.country_code,p.bio,
-                  COALESCE(NULLIF(p.avatar_url,''),NULLIF(ap.profile_image_url,'')) avatar_url
+                  COALESCE(NULLIF(p.avatar_url,''),NULLIF(ap.profile_image_url,'')) avatar_url,
+                  ap.agency_name
            FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
            LEFT JOIN agent_profiles ap ON ap.user_id=u.id WHERE u.id=%s""",
         [user_id],
@@ -939,7 +952,7 @@ def listing_detail(request, listing_id):
                   (SELECT GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ')
                    FROM listing_amenity_map am JOIN listing_amenities a ON a.id=am.amenity_id
                    WHERE am.listing_id=l.id) amenities,
-                  u.id owner_user_id,
+                  u.id owner_user_id,l.agent_user_id listing_agent_user_id,
                   CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
                        ELSE COALESCE(v.verification_status,'unverified') END verification_status,
                   COALESCE(v.identity_status,'not_reviewed') identity_status,
@@ -947,12 +960,22 @@ def listing_detail(request, listing_id):
                   COALESCE(v.authority_status,'not_reviewed') authority_status,
                   COALESCE(v.documents_status,'not_reviewed') documents_status,
                   v.verified_at,v.expires_at,
+                  iv.id owner_document_id,iv.user_id owner_document_user_id,iv.document_type owner_document_type,
+                  iv.status owner_document_status,iv.document_last4 owner_document_last4,
+                  iv.created_at owner_document_created_at,
                   COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
                   u.email owner_email
            FROM listings l JOIN users u ON u.id=l.owner_user_id
            JOIN property_types pt ON pt.id=l.property_type_id
            LEFT JOIN user_profiles p ON p.user_id=u.id
            LEFT JOIN listing_verifications v ON v.listing_id=l.id
+           LEFT JOIN identity_verifications iv ON iv.id=(
+             SELECT latest.id FROM identity_verifications latest
+             WHERE latest.user_id IN (l.owner_user_id,l.agent_user_id)
+               AND latest.document_file_key IS NOT NULL
+             ORDER BY CASE WHEN latest.user_id=l.agent_user_id THEN 0 ELSE 1 END,
+               latest.created_at DESC,latest.id DESC LIMIT 1
+           )
            WHERE l.id=%s""",
         [listing_id],
     )
@@ -975,6 +998,16 @@ def listing_detail(request, listing_id):
         for key, value in category_details.items()
         if value is not None and value != ''
     ]
+    verification_steps = [
+        {'column': 'identity_status', 'label': 'Identity', 'status': listing.get('identity_status') or 'not_reviewed', 'number': 1},
+        {'column': 'location_status', 'label': 'Approximate location', 'status': listing.get('location_status') or 'not_reviewed', 'number': 2},
+        {'column': 'authority_status', 'label': 'Owner/agent authorization', 'status': listing.get('authority_status') or 'not_reviewed', 'number': 3},
+        {'column': 'documents_status', 'label': 'Property documents', 'status': listing.get('documents_status') or 'not_reviewed', 'number': 4},
+    ]
+    next_verification_step = next(
+        (step for step in verification_steps if step['status'] != 'checked'),
+        None,
+    )
     return render(request, 'content_detail.html', {
         'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
         'is_founder': is_founder_session(request),
@@ -982,6 +1015,9 @@ def listing_detail(request, listing_id):
         'page_title': listing['title'],
         'content': listing,
         'category_detail_rows': category_detail_rows,
+        'verification_steps': verification_steps,
+        'next_verification_step': next_verification_step,
+        'all_verification_checks_complete': next_verification_step is None,
         'media': rows('SELECT media_type media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id', [listing_id]),
         'verification_events': rows(
             """SELECT check_name,previous_status,new_status,reason,created_at,actor_user_id,actor_label
@@ -1103,6 +1139,47 @@ def action(request, action):
                     [created_admin_id],
                 )
                 audit('administrator_created', 'user', created_admin_id, {'email': email, 'username': username})
+            elif action == 'user-profile-save':
+                user_id = int(request.POST.get('id', '0'))
+                if user_id < 1 or not rows('SELECT id FROM users WHERE id=%s FOR UPDATE', [user_id]):
+                    raise ValueError('User account no longer exists')
+                first_name = request.POST.get('first_name', '').strip()
+                last_name = request.POST.get('last_name', '').strip()
+                phone = request.POST.get('phone', '').strip()
+                city = request.POST.get('city', '').strip()
+                country_code = request.POST.get('country_code', '').strip().upper()
+                bio = request.POST.get('bio', '').strip()
+                agency_name = request.POST.get('agency_name', '').strip()
+                if not first_name or len(first_name) > 80 or not last_name or len(last_name) > 80:
+                    raise ValueError('Enter a first and last name within 80 characters')
+                if phone and not re.fullmatch(r'\+?[0-9][0-9\s().-]{6,24}', phone):
+                    raise ValueError('Enter a valid phone number')
+                if len(city) > 100 or (country_code and not re.fullmatch(r'[A-Z]{2}', country_code)):
+                    raise ValueError('Enter a valid city and two-letter country code')
+                if len(bio) > 2000 or len(agency_name) > 160:
+                    raise ValueError('Profile description or agency name is too long')
+                execute(
+                    """INSERT INTO user_profiles (user_id,first_name,last_name,city,country_code,bio)
+                       VALUES (%s,%s,%s,%s,%s,%s)
+                       ON DUPLICATE KEY UPDATE first_name=VALUES(first_name),last_name=VALUES(last_name),
+                         city=VALUES(city),country_code=VALUES(country_code),bio=VALUES(bio)""",
+                    [user_id, first_name, last_name, city or None, country_code or None, bio or None],
+                )
+                execute('UPDATE users SET phone=%s WHERE id=%s', [phone or None, user_id])
+                user_is_agent = bool(rows(
+                    "SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name IN ('agent','property_owner','agency','developer') LIMIT 1",
+                    [user_id],
+                ))
+                if user_is_agent:
+                    execute(
+                        """INSERT INTO agent_profiles (user_id,phone,bio,agency_name) VALUES (%s,%s,%s,%s)
+                           ON DUPLICATE KEY UPDATE phone=VALUES(phone),bio=VALUES(bio),agency_name=VALUES(agency_name)""",
+                        [user_id, phone or None, bio or None, agency_name or None],
+                    )
+                audit('user_profile_updated', 'user', user_id, {
+                    'fields': ['name', 'phone', 'city', 'country_code', 'bio'],
+                    'agentProfileUpdated': user_is_agent,
+                })
             elif action == 'admin-access-save':
                 user_id = int(request.POST.get('id', '0'))
                 if user_id < 1:
@@ -1278,9 +1355,117 @@ def action(request, action):
                     'decision': decision,
                     'resolutionNote': resolution_note,
                 })
+            elif action == 'listing-details-save':
+                listing_id = int(request.POST.get('id', '0'))
+                current_listing = rows(
+                    """SELECT id,status,address_line1,neighborhood,district,ward,city,region,country_code
+                       FROM listings WHERE id=%s FOR UPDATE""",
+                    [listing_id],
+                ) if listing_id > 0 else []
+                if not current_listing:
+                    raise ValueError('Listing no longer exists')
+                title = request.POST.get('title', '').strip()
+                description = request.POST.get('description', '').strip()
+                address_line1 = request.POST.get('address_line1', '').strip()
+                neighborhood = request.POST.get('neighborhood', '').strip()
+                district = request.POST.get('district', '').strip()
+                ward = request.POST.get('ward', '').strip()
+                city = request.POST.get('city', '').strip()
+                region = request.POST.get('region', '').strip()
+                country_code = request.POST.get('country_code', '').strip().upper()
+                if not title or len(title) > 180:
+                    raise ValueError('Enter a listing title within 180 characters')
+                if not description or len(description) > 5000:
+                    raise ValueError('Enter a listing description within 5,000 characters')
+                if not address_line1 or len(address_line1) > 190 or not city or len(city) > 100:
+                    raise ValueError('Enter the listing street address and city')
+                if any(len(value) > limit for value, limit in (
+                    (neighborhood, 120), (district, 100), (ward, 100), (region, 100),
+                )):
+                    raise ValueError('A location field exceeds its allowed length')
+                if country_code and not re.fullmatch(r'[A-Z]{2}', country_code):
+                    raise ValueError('Country code must be a two-letter code')
+                execute(
+                    """UPDATE listings SET title=%s,description=%s,address_line1=%s,neighborhood=%s,
+                       district=%s,ward=%s,city=%s,region=%s,country_code=%s WHERE id=%s""",
+                    [title, description, address_line1, neighborhood or None, district or None,
+                     ward or None, city, region or None, country_code or None, listing_id],
+                )
+                location_fields = {
+                    'address_line1': address_line1,
+                    'neighborhood': neighborhood,
+                    'district': district,
+                    'ward': ward,
+                    'city': city,
+                    'region': region,
+                    'country_code': country_code,
+                }
+                location_review_reset = False
+                location_changed = any(
+                    str(current_listing[0].get(field) or '').strip().casefold()
+                    != value.strip().casefold()
+                    for field, value in location_fields.items()
+                )
+                if location_changed:
+                    prior_verification = rows(
+                        """SELECT identity_status,location_status,authority_status,documents_status
+                           FROM listing_verifications WHERE listing_id=%s FOR UPDATE""",
+                        [listing_id],
+                    )
+                    if prior_verification:
+                        verification = prior_verification[0]
+                        reset_checks = ('location_status', 'authority_status', 'documents_status')
+                        changed_checks = [
+                            check for check in reset_checks
+                            if verification.get(check) != 'not_reviewed'
+                        ]
+                        if changed_checks:
+                            execute(
+                                """UPDATE listing_verifications SET
+                                   location_status='not_reviewed',authority_status='not_reviewed',
+                                   documents_status='not_reviewed',
+                                   verification_status=CASE
+                                     WHEN identity_status='rejected' THEN 'rejected'
+                                     WHEN identity_status='checked' THEN 'under_review'
+                                     ELSE 'submitted' END,
+                                   submitted_at=UTC_TIMESTAMP(),verified_at=NULL,reviewed_by=NULL,
+                                   rejection_reason=NULL WHERE listing_id=%s""",
+                                [listing_id],
+                            )
+                            actor_label = (
+                                request.session.get('admin_name')
+                                or request.session.get('admin_username')
+                                or request.session.get('admin_label')
+                                or 'Founder Console'
+                            )[:120]
+                            for check in changed_checks:
+                                execute(
+                                    """INSERT INTO listing_verification_events
+                                       (listing_id,actor_user_id,actor_label,check_name,previous_status,new_status,reason)
+                                       VALUES (%s,NULL,%s,%s,%s,'not_reviewed',
+                                               'Listing location changed by an administrator; check reopened')""",
+                                    [listing_id, actor_label, check, verification.get(check)],
+                                )
+                            location_review_reset = True
+                    if current_listing[0]['status'] == 'published':
+                        execute(
+                            """UPDATE listings SET status='pending_review' WHERE id=%s""",
+                            [listing_id],
+                        )
+                        location_review_reset = True
+                audit('listing_details_updated', 'listing', listing_id, {
+                    'fields': ['title', 'description', 'address_line1', 'neighborhood', 'district',
+                               'ward', 'city', 'region', 'country_code'],
+                    'locationReviewReset': location_review_reset,
+                })
             elif action == 'listing-status':
                 listing_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'published', 'rejected', 'unpublished'}: raise ValueError('Invalid listing status')
+                reason = request.POST.get('reason', '').strip()
+                if status == 'rejected' and not reason:
+                    raise ValueError('Enter a reason when rejecting a listing')
+                if len(reason) > 500:
+                    raise ValueError('Listing decision reason must be 500 characters or fewer')
                 if status == 'published':
                     verification = rows(
                         """SELECT verification_status,
@@ -1290,7 +1475,11 @@ def action(request, action):
                     )
                     if not verification or verification[0]['verification_status'] != 'verified' or not verification[0]['is_current']:
                         raise ValueError('Complete identity, location, authorization, and document checks before publishing this property')
-                execute('UPDATE listings SET status=%s,published_at=IF(%s=\'published\',COALESCE(published_at,UTC_TIMESTAMP()),published_at) WHERE id=%s', [status, status, listing_id]); audit(f'listing_{status}', 'listing', listing_id)
+                execute('UPDATE listings SET status=%s,published_at=IF(%s=\'published\',COALESCE(published_at,UTC_TIMESTAMP()),published_at) WHERE id=%s', [status, status, listing_id])
+                if status == 'rejected':
+                    audit(f'listing_{status}', 'listing', listing_id, {'reason': reason})
+                else:
+                    audit(f'listing_{status}', 'listing', listing_id)
             elif action == 'listing-verification':
                 listing_id = int(request.POST.get('id', '0'))
                 check = request.POST.get('check', '')
@@ -1322,6 +1511,18 @@ def action(request, action):
                 else:
                     previous_checks = {key: verification[0][key] for key in check_columns}
                     previous_overall = verification[0]['verification_status']
+                check_order = ('identity_status', 'location_status', 'authority_status', 'documents_status')
+                if any(previous_checks[prior] != 'checked' for prior in check_order[:check_order.index(check)]):
+                    raise ValueError('Complete the earlier property checks in order before recording this step')
+                if check in {'identity_status', 'documents_status'} and status == 'checked' and not rows(
+                    """SELECT iv.id FROM identity_verifications iv
+                       JOIN listings l ON iv.user_id IN (l.owner_user_id,l.agent_user_id)
+                       WHERE l.id=%s AND iv.document_file_key IS NOT NULL
+                       ORDER BY CASE WHEN iv.user_id=l.agent_user_id THEN 0 ELSE 1 END,
+                         iv.created_at DESC,iv.id DESC LIMIT 1""",
+                    [listing_id],
+                ):
+                    raise ValueError('Review the submitted property document before completing this check')
                 previous_status = previous_checks[check]
                 previous_checks[check] = status
                 if 'rejected' in previous_checks.values():
@@ -1372,16 +1573,24 @@ def action(request, action):
                 verification_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'approved', 'rejected'}: raise ValueError('Invalid verification status')
                 execute('UPDATE identity_verifications SET status=%s, reviewed_at=UTC_TIMESTAMP(), rejection_reason=%s WHERE id=%s', [status, None if status == 'approved' else 'Rejected by administrator', verification_id]); audit(f'verification_{status}', 'identity_verification', verification_id)
-            elif action == 'verification-document':
-                verification_id = int(request.POST.get('id', '0'))
-                if verification_id < 1:
-                    raise ValueError('Choose a valid verification')
+            elif action in {'verification-document', 'listing-document'}:
+                record_id = int(request.POST.get('id', '0'))
+                if record_id < 1:
+                    raise ValueError('Choose a valid document record')
                 document_rows = rows(
-                    'SELECT id FROM identity_verifications WHERE id=%s AND document_file_key IS NOT NULL',
-                    [verification_id],
+                    """SELECT iv.id FROM identity_verifications iv
+                       WHERE iv.document_file_key IS NOT NULL AND iv.id=%s"""
+                    if action == 'verification-document'
+                    else """SELECT iv.id FROM identity_verifications iv
+                            JOIN listings l ON iv.user_id IN (l.owner_user_id,l.agent_user_id)
+                            WHERE l.id=%s AND iv.document_file_key IS NOT NULL
+                            ORDER BY CASE WHEN iv.user_id=l.agent_user_id THEN 0 ELSE 1 END,
+                              iv.created_at DESC,iv.id DESC LIMIT 1""",
+                    [record_id],
                 )
                 if not document_rows:
                     raise ValueError('Verification document not found')
+                verification_id = document_rows[0]['id']
                 marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
                 marketplace_origin = urlparse(marketplace_url)
                 if (
@@ -1396,7 +1605,9 @@ def action(request, action):
                         'INSERT INTO identity_document_download_tokens (token_hash,verification_id,expires_at) VALUES (%s,%s,DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE))',
                         [hashlib.sha256(token.encode('ascii')).digest(), verification_id],
                     )
-                    audit('identity_document_access_granted', 'identity_verification', verification_id)
+                    audit('identity_document_access_granted', 'identity_verification', verification_id, {
+                        'source': 'listing_review' if action == 'listing-document' else 'identity_queue',
+                    })
                 document_url = f'{marketplace_url}/api/admin/verifications/{verification_id}/document?{urlencode({"token": token})}'
                 return redirect(document_url)
             elif action == 'feature':
@@ -1518,6 +1729,10 @@ def action(request, action):
             'report-status': f"Safety report marked {action_status}",
             'listing-duplicate-decision': f"Duplicate candidate marked {request.POST.get('decision', '')}",
             'listing-status': f"Listing {action_status}",
+            'listing-verification': 'Property verification step recorded',
+            'listing-details-save': 'Listing details updated',
+            'listing-document': 'Secure property document opened',
+            'user-profile-save': 'Account profile details updated',
             'post-status': f"Post marked {action_status}",
             'booking-status': f"Booking marked {action_status}",
             'verification-status': f"Identity verification {action_status}",
@@ -1538,8 +1753,6 @@ def action(request, action):
             role = request.POST.get('role', 'account')
             operation = 'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'
             success_message = f"Role '{role}' {operation} user"
-        if action_id and action != 'user-hard-delete':
-            success_message = f'{success_message} (ID {action_id})'
         messages.success(request, f'{success_message}.')
     except IntegrityError as error:
         if action == 'admin-create':
@@ -1592,6 +1805,12 @@ def action(request, action):
             listing_status = request.POST.get('listing_status', 'all')
             params['listing_status'] = listing_status if listing_status in {'all', 'pending_review', 'draft'} else 'all'
         return redirect(f'/admin/?{urlencode(params)}')
+    if (
+        action in {'listing-details-save', 'listing-verification', 'listing-status'}
+        and re.fullmatch(r'/admin/listings/\d+/', return_to)
+        and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+    ):
+        return redirect(return_to)
     if return_to.startswith('/admin/users/') and return_to.endswith('/') and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return redirect(return_to)
     if re.fullmatch(r'/admin/admins/\d+/', return_to) and url_has_allowed_host_and_scheme(return_to, allowed_hosts={request.get_host()}, require_https=request.is_secure()):

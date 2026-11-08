@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { parseAgentProfileList, normalizeAgentServiceAreas, normalizeAgentSpecializations } from './agent-profile.js';
 import { boundedPage, positiveId } from './validation.js';
-import { resolvePropertyVerificationStatus, validatePropertyVerificationDecision } from './property-verification.js';
+import {
+  nextPropertyVerificationCheck,
+  resolvePropertyVerificationStatus,
+  validatePropertyVerificationDecision
+} from './property-verification.js';
 
 export function createAgentEcosystemRouter({
   pool,
@@ -249,7 +253,10 @@ export function createAgentEcosystemRouter({
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const [[listing]] = await connection.execute('SELECT id FROM listings WHERE id=? FOR UPDATE', [listingId]);
+      const [[listing]] = await connection.execute(
+        'SELECT id, owner_user_id, agent_user_id FROM listings WHERE id=? FOR UPDATE',
+        [listingId]
+      );
       if (!listing) {
         await connection.rollback();
         return res.status(404).json({ error: 'Listing not found' });
@@ -268,6 +275,27 @@ export function createAgentEcosystemRouter({
           'SELECT * FROM listing_verifications WHERE listing_id=? FOR UPDATE',
           [listingId]
         );
+      }
+      const nextCheck = nextPropertyVerificationCheck(verification);
+      if (nextCheck !== decision.check) {
+        await connection.rollback();
+        return res.status(409).json({
+          error: nextCheck
+            ? `Complete the ${nextCheck.replace('_status', '').replace('_', ' ')} check first`
+            : 'All listing verification checks are already complete'
+        });
+      }
+      if (['identity_status', 'documents_status'].includes(decision.check)) {
+        const [[document]] = await connection.execute(
+          `SELECT id FROM identity_verifications
+           WHERE user_id IN (?, ?) AND document_file_key IS NOT NULL
+           ORDER BY created_at DESC, id DESC LIMIT 1`,
+          [listing.owner_user_id, listing.agent_user_id]
+        );
+        if (!document) {
+          await connection.rollback();
+          return res.status(409).json({ error: 'An advertiser identity document must be available before this check' });
+        }
       }
       const previousStatus = verification[decision.check];
       const nextChecks = { ...verification, [decision.check]: decision.status };

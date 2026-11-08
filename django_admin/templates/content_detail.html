@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="{% static 'form-validation.css' %}">
   <script type="module" src="{% static 'form-validation.js' %}"></script>
   <style>
-    :root{--green:#2d5a3d;--ink:#173222;--muted:#6d7d72;--line:#dfe7df;--bg:#f5f7f5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,Segoe UI,sans-serif}.shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.side{padding:24px 16px;background:#fff;border-right:1px solid var(--line)}.brand{font-size:20px;font-weight:800;margin:0 10px 28px;color:var(--green)}.nav{display:grid;gap:4px}.nav a{padding:11px 12px;color:var(--muted);text-decoration:none;border-radius:6px}.nav a.active,.nav a:hover{color:var(--green);background:#eef5ef}.main{padding:28px;min-width:0}.head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.head h1{margin:0 0 5px;font-size:26px}.muted{color:var(--muted)}.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.fact{padding:12px;background:#f5f7f5;border-radius:6px;overflow-wrap:anywhere}.fact span{display:block;color:var(--muted);font-size:12px}.fact strong{display:block;margin-top:5px}.link{color:var(--green);font-weight:700}.media{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.media img,.media video{width:100%;aspect-ratio:4/3;object-fit:cover;background:#edf3ef;border-radius:6px}.media a{color:var(--green);overflow-wrap:anywhere}@media(max-width:760px){.shell{display:flex;flex-direction:column}.side{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 10px}.nav{display:flex;overflow-x:auto}.nav a{white-space:nowrap}.main{padding:16px}.head{align-items:flex-start;flex-direction:column}}
+    :root{--green:#2d5a3d;--ink:#173222;--muted:#6d7d72;--line:#dfe7df;--bg:#f5f7f5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,Segoe UI,sans-serif}.shell{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}.side{padding:24px 16px;background:#fff;border-right:1px solid var(--line)}.brand{font-size:20px;font-weight:800;margin:0 10px 28px;color:var(--green)}.nav{display:grid;gap:4px}.nav a{padding:11px 12px;color:var(--muted);text-decoration:none;border-radius:6px}.nav a.active,.nav a:hover{color:var(--green);background:#eef5ef}.main{padding:28px;min-width:0}.head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.head h1{margin:0 0 5px;font-size:26px}.muted{color:var(--muted)}.panel{background:#fff;border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px}.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.fact{padding:12px;background:#f5f7f5;border-radius:6px;overflow-wrap:anywhere}.fact span{display:block;color:var(--muted);font-size:12px}.fact strong{display:block;margin-top:5px}.link{color:var(--green);font-weight:700}.notice{padding:12px;margin:0 0 14px;border-radius:6px;background:#eef5ef}.notice.error{background:#fdecec;color:#8d2626}.media{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.media img,.media video{width:100%;aspect-ratio:4/3;object-fit:cover;background:#edf3ef;border-radius:6px}.media a{color:var(--green);overflow-wrap:anywhere}input,textarea,select{max-width:100%;padding:8px;border:1px solid var(--line);border-radius:5px;font:inherit}textarea{width:100%;min-height:80px}.actions{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}.actions form{margin:0}.button{display:inline-block;padding:9px 11px;border:1px solid #bdd0c0;background:#fff;color:var(--green);border-radius:7px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}.button.primary{background:var(--green);color:#fff}.button.danger{color:#8d2626;border-color:#e3bcbc}.button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.shell{display:flex;flex-direction:column}.side{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 10px}.nav{display:flex;overflow-x:auto}.nav a{white-space:nowrap}.main{padding:16px}.head{align-items:flex-start;flex-direction:column}}
   </style>
 </head>
 <body>
@@ -25,13 +25,14 @@
       <div><h1>{{ page_title|default:content_type }} <span class="muted">#{{ content.id }}</span></h1><p class="muted">{{ content_type }} record · {{ content.status }}</p></div>
       <a class="link" href="/admin/?section={% if content_type == 'Listing' %}listings{% else %}posts{% endif %}">Back to {{ content_type|lower }} moderation</a>
     </header>
+    {% for message in messages %}<div class="notice {% if message.tags == 'error' %}error{% endif %}" role="status">{{ message }}</div>{% endfor %}
     <section class="panel">
       <h2>{{ content_type }} details</h2>
       <div class="facts">
         {% if content_type == 'Listing' %}
           <div class="fact"><span>Property type · journey</span><strong>{{ content.property_type|default:'—'|title }} · {{ content.transaction_type|default:'—'|title }}</strong><span>Rental mode: {{ content.rental_mode|default:'—'|cut:'_'|title }}</span></div>
           <div class="fact"><span>Owner</span><strong><a class="link" href="/admin/users/{{ content.owner_user_id }}/">{{ content.owner_name }}</a></strong><span>{{ content.owner_email }}</span></div>
-          <div class="fact"><span>Address and area</span><strong>{{ content.address_line1 }}{% if content.neighborhood %} · {{ content.neighborhood }}{% endif %}</strong><span>{{ content.ward|default:'' }}{% if content.district %}{% if content.ward %}, {% endif %}{{ content.district }}{% endif %}{% if content.city %}{% if content.ward or content.district %}, {% endif %}{{ content.city }}{% endif %}{% if content.region %}, {{ content.region }}{% endif %}{% if content.country_code %}, {{ content.country_code }}{% endif %}</span></div>
+          <div class="fact"><span>Address and area</span><strong>{{ content.address_line1|default:'Address not provided' }}{% if content.neighborhood %} · {{ content.neighborhood }}{% endif %}</strong><span>{{ content.ward|default:'' }}{% if content.district %}{% if content.ward %}, {% endif %}{{ content.district }}{% endif %}{% if content.city %}{% if content.ward or content.district %}, {% endif %}{{ content.city }}{% endif %}{% if content.region %}, {{ content.region }}{% endif %}{% if content.country_code %}, {{ content.country_code }}{% endif %}</span></div>
           <div class="fact"><span>Prices</span><strong>{% if content.sale_price %}{{ content.currency }} {{ content.sale_price }} sale{% endif %}{% if content.nightly_price %} · {{ content.currency }} {{ content.nightly_price }} / night{% endif %}{% if content.monthly_price %} · {{ content.currency }} {{ content.monthly_price }} / month{% endif %}{% if content.yearly_price %} · {{ content.currency }} {{ content.yearly_price }} / year{% endif %}</strong></div>
           <div class="fact"><span>Bedrooms · beds · bathrooms</span><strong>{{ content.bedrooms }} · {{ content.beds|default:'—' }} · {{ content.bathrooms }}</strong></div>
           <div class="fact"><span>Maximum guests</span><strong>{{ content.max_guests }}</strong></div>
@@ -55,7 +56,51 @@
       {% if category_detail_rows %}<h3>Category-specific details</h3><div class="facts">{% for detail in category_detail_rows %}<div class="fact"><span>{{ detail.label }}</span><strong>{{ detail.value }}</strong></div>{% endfor %}</div>{% endif %}
       {% if content.caption %}<h3>Caption</h3><p>{{ content.caption }}</p>{% endif %}
     </section>
-    {% if content_type == 'Listing' %}<section class="panel"><h2>Property verification history</h2>{% if verification_events %}<table class="table"><tr><th>Check</th><th>Change</th><th>Recorded by</th><th>Reason</th><th>Time</th></tr>{% for event in verification_events %}<tr><td>{{ event.check_name }}</td><td>{{ event.previous_status|default:'—' }} → {{ event.new_status }}</td><td>{{ event.actor_label|default:'Makazi Go system' }}</td><td>{{ event.reason|default:'—' }}</td><td>{{ event.created_at }}</td></tr>{% endfor %}</table>{% else %}<p class="muted">No property checks have been recorded.</p>{% endif %}<p class="muted">Makazi Go checks do not certify legal title or replace a formal ownership search.</p></section>{% endif %}
+    {% if content_type == 'Listing' %}
+      <section class="panel">
+        <h2>Update missing listing details</h2>
+        <p class="muted">Use information confirmed by the advertiser. These changes are audited and do not mark any verification as complete.</p>
+        <form method="post" action="/admin/action/listing-details-save/">{% csrf_token %}
+          <input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ content.id }}"><input type="hidden" name="return_to" value="/admin/listings/{{ content.id }}/">
+          <div class="facts">
+            <label class="fact">Title<input name="title" maxlength="180" required value="{{ content.title }}"></label>
+            <label class="fact">Street address<input name="address_line1" maxlength="190" required value="{{ content.address_line1|default:'' }}"></label>
+            <label class="fact">Neighborhood<input name="neighborhood" maxlength="120" value="{{ content.neighborhood|default:'' }}"></label>
+            <label class="fact">District<input name="district" maxlength="100" value="{{ content.district|default:'' }}"></label>
+            <label class="fact">Ward<input name="ward" maxlength="100" value="{{ content.ward|default:'' }}"></label>
+            <label class="fact">City<input name="city" maxlength="100" required value="{{ content.city|default:'' }}"></label>
+            <label class="fact">Region<input name="region" maxlength="100" value="{{ content.region|default:'' }}"></label>
+            <label class="fact">Country code<input name="country_code" maxlength="2" pattern="[A-Za-z]{2}" value="{{ content.country_code|default:'' }}"></label>
+          </div>
+          <label>Description<textarea name="description" maxlength="5000" required>{{ content.description }}</textarea></label>
+          <button class="button primary" type="submit">Save confirmed details</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Listing approval wizard</h2>
+        <p class="muted">Review each step in order. Review status and submission reason remain visible in the history. Publishing is available only after every check is current and complete.</p>
+        <ol>
+          {% for step in verification_steps %}<li><strong>{{ step.label }}</strong> · {{ step.status|cut:'_'|title }}{% if step.column == 'documents_status' and content.owner_document_id %} — {{ content.owner_document_type|cut:'_'|title }} submitted {{ content.owner_document_created_at }}{% endif %}</li>{% endfor %}
+        </ol>
+        {% if content.owner_document_id %}
+          <p><strong>{% if content.owner_document_user_id == content.listing_agent_user_id %}Agent{% else %}Owner{% endif %} identity document:</strong> {{ content.owner_document_type|cut:'_'|title }} · {{ content.owner_document_status }}{% if content.owner_document_last4 %} · ending {{ content.owner_document_last4 }}{% endif %} · submitted {{ content.owner_document_created_at }}</p>
+          <form method="post" action="/admin/action/listing-document/" target="_blank">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ content.id }}"><button class="button">View secure document</button></form>
+        {% else %}<p class="notice">No private identity document is available for this advertiser. Request evidence before marking identity or document review complete.</p>{% endif %}
+        {% if next_verification_step %}
+          <h3>Step {{ next_verification_step.number }}: {{ next_verification_step.label }}</h3>
+          <form method="post" action="/admin/action/listing-verification/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ content.id }}"><input type="hidden" name="return_to" value="/admin/listings/{{ content.id }}/"><input type="hidden" name="check" value="{{ next_verification_step.column }}">
+            <label>Decision<select name="status"><option value="checked">Review complete</option><option value="rejected">Needs correction</option></select></label>
+            <label>Review note<textarea name="reason" maxlength="500" placeholder="Required when requesting a correction"></textarea></label>
+            <button class="button primary" type="submit">Record {{ next_verification_step.label }} review</button>
+          </form>
+        {% else %}<p class="notice success">All four checks are complete.</p>{% endif %}
+        <div class="actions">
+          <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ content.id }}"><input type="hidden" name="status" value="published"><input type="hidden" name="return_to" value="/admin/listings/{{ content.id }}/"><button class="button primary" {% if not all_verification_checks_complete %}disabled title="Complete all four checks first"{% endif %}>Approve and publish</button></form>
+          <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="id" value="{{ content.id }}"><input type="hidden" name="status" value="rejected"><input type="hidden" name="return_to" value="/admin/listings/{{ content.id }}/"><label>Listing rejection reason<textarea name="reason" maxlength="500" required></textarea></label><button class="button danger">Reject listing</button></form>
+        </div>
+      </section>
+      <section class="panel"><h2>Property verification history</h2>{% if verification_events %}<table class="table"><tr><th>Check</th><th>Change</th><th>Recorded by</th><th>Reason</th><th>Time</th></tr>{% for event in verification_events %}<tr><td>{{ event.check_name }}</td><td>{{ event.previous_status|default:'—' }} → {{ event.new_status }}</td><td>{{ event.actor_label|default:'Makazi Go system' }}</td><td>{{ event.reason|default:'—' }}</td><td>{{ event.created_at }}</td></tr>{% endfor %}</table>{% else %}<p class="muted">No property checks have been recorded.</p>{% endif %}<p class="muted">Makazi Go checks do not certify legal title or replace a formal ownership search.</p></section>
+    {% endif %}
     {% if media %}<section class="panel"><h2>Listing media</h2><div class="media">{% for item in media %}<div>{% if item.media_type == 'video' %}<video controls preload="metadata" src="{{ item.public_url }}"></video>{% else %}<img loading="lazy" src="{{ item.public_url }}" alt="{{ item.caption|default:content.title }}">{% endif %}{% if item.caption %}<p>{{ item.caption }}</p>{% endif %}<a href="{{ item.public_url }}" target="_blank" rel="noopener">Open media</a></div>{% endfor %}</div></section>{% endif %}
   </main>
 </div>
