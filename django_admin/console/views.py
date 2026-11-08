@@ -18,7 +18,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, unquote, urlparse
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
@@ -816,20 +816,24 @@ def founder_profile_view(request):
 @feature_required('users')
 @never_cache
 def user_detail(request, user_id):
+    marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
     user_rows = rows(
         """SELECT u.id,u.email,u.phone,u.status,u.email_verified_at,u.phone_verified_at,
               u.mfa_enabled,u.last_login_at,u.created_at,u.updated_at,u.deleted_at,
               (SELECT created_at FROM account_deletion_requests WHERE user_id=u.id LIMIT 1) deletion_requested_at,
               (SELECT reason FROM account_deletion_requests WHERE user_id=u.id LIMIT 1) deletion_reason,
                   p.first_name,p.last_name,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,
-                  p.city,p.country_code,p.bio,p.avatar_url
-           FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=%s""",
+                  p.city,p.country_code,p.bio,
+                  COALESCE(NULLIF(p.avatar_url,''),NULLIF(ap.profile_image_url,'')) avatar_url
+           FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+           LEFT JOIN agent_profiles ap ON ap.user_id=u.id WHERE u.id=%s""",
         [user_id],
     )
     if not user_rows:
         raise Http404('User not found')
 
     user = user_rows[0]
+    user['avatar_url'] = _admin_profile_image_url(user.get('avatar_url'), marketplace_url)
     roles = [item['name'] for item in rows(
         'SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s ORDER BY r.name',
         [user_id],
@@ -856,8 +860,8 @@ def user_detail(request, user_id):
         'user_verifications': [],
         'user_audit': [],
         'saved_homes': 0,
-        'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/'),
-        'avatar_fallback_url': f"{os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}/assets/default-avatar.svg",
+        'marketplace_url': marketplace_url,
+        'avatar_fallback_url': f'{marketplace_url}/assets/default-avatar.svg',
     }
     if is_agent:
         profile_rows = rows(
@@ -902,6 +906,22 @@ def user_detail(request, user_id):
         [user_id],
     )
     return render(request, 'user_detail.html', context)
+
+
+def _admin_profile_image_url(value, marketplace_url):
+    image_url = str(value or '').strip()
+    if not image_url:
+        return ''
+    parsed = urlparse(image_url)
+    if parsed.scheme == 'https' and parsed.netloc:
+        return image_url
+    decoded_path = parsed.path
+    if parsed.scheme or parsed.netloc or not decoded_path.startswith(('/media/', '/assets/')):
+        return ''
+    if any(segment in {'.', '..'} for segment in unquote(decoded_path).split('/')):
+        return ''
+    return f'{marketplace_url}{decoded_path}'
+
 
 @admin_required
 @feature_required('listings')

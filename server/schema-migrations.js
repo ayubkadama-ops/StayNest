@@ -24,6 +24,7 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'private-document-access-migration.sql',
   'property-journeys-migration.sql',
   'property-search-migration.sql',
+  'listing-approximate-location-migration.sql',
   'property-verification-migration.sql',
   'agent-ecosystem-migration.sql',
   'agent-profile-columns-repair-migration.sql',

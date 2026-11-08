@@ -54,7 +54,7 @@ provide additional but not exhaustive evidence.
 | Registration and login | **Present** | Tenant and agent registration flows and the recent homepage username-login fix exist. Agent applications are approval-gated. Test suites cover selected auth/console behaviors but do not constitute a complete cross-client authentication test. |
 | Property listings | **Implemented for the current listing workflow** | Owners and agents can create listings using sale, long-term rental, or stay journeys, add bounded category-specific facts and an advertiser-authority declaration, and manage listing edits/archives. Verification remains a separate administrator-reviewed process; organization-team access and some category-specific validation remain future work. |
 | Property details | **Present for current listing model** | Numeric listing URLs and API detail responses support accommodation/property fields and structured sale, land, and commercial data. Advertiser-reported title information is explicitly not legal verification. |
-| Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` now uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
+| Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. Search uses TiDB-compatible `LIKE` clauses rather than relying on a FULLTEXT index that is not provisioned on upgraded databases. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
 | Booking functionality | **Present for request-based stays/viewings** | Booking requests validate dates, apply transaction/idempotency logic, and use booking date locks. Preserve this path for stay bookings while separating it from purchase/rental inquiries and future payments. |
 | Host and agent functionality | **Implemented foundation** | Agent/property-owner profiles support bounded specializations and service areas, agency/developer applications, a role-gated verification-officer queue, and listing/request/review metrics derived from existing records. Organization verification is not legal certification; team membership, subscription management, and agent reviews remain future work. |
 | User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view currently requests agent bookings twice, duplicating a backend call. |
@@ -157,13 +157,17 @@ surgical and preserve current tenant bookings and agent approval behavior.
   responses and public detail views.
 - [x] Add focused discovery/filter, pagination, and Django form-state tests;
   verify the web production build and mobile type-check.
+- [x] Replace the unprovisioned FULLTEXT search dependency with parameterized
+  TiDB-compatible matching and add a migration for missing approximate
+  coordinate columns used in discovery results.
 - [ ] Run `EXPLAIN` and representative latency/cardinality checks against a
-  controlled TiDB/MySQL dataset; confirm full-text and migration behavior on
-  the deployed engine before rollout.
+  controlled TiDB/MySQL dataset and confirm migration behavior on the
+  deployed engine before rollout.
 - **Stage status:** Discovery implementation is locally verified. Render
-  startup logs exposed a TiDB same-column ALTER limitation in the journey
-  migration; a tested fallback is ready for redeploy. Query-plan and
-  production-engine verification remain open.
+  startup logs exposed TiDB journey migration limitations and a production
+  discovery failure caused by the absent approximate-coordinate columns.
+  Sequential, additive migration recovery and TiDB-compatible search are now
+  covered locally. Query-plan and production-engine verification remain open.
 - Acceptance: filter-combination tests, pagination boundary tests, correct
   TZS and price-period behavior, and measured query bounds.
 

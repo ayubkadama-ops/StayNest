@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { installLiveFormValidation } from './form-validation.js';
+import { prepareListingPhoto } from './listing-photo.js';
 
 installLiveFormValidation();
 
@@ -1091,32 +1092,6 @@ function openAgentListingWizard(){
   const form=content.querySelector('#agentListingWizard'),panels=[...form.querySelectorAll('.wizard-panel')],errorBox=form.querySelector('.form-error'),progress=content.querySelector('#wizardProgress'),stepLabel=content.querySelector('#wizardStepLabel'),back=form.querySelector('#wizardBack'),next=form.querySelector('#wizardNext');
   let currentStep=0,marker=null,mediaFiles=[];
   const maxPhotoBytes=20*1024*1024,maxPhotoCount=10,maxOptimizedPhotoBytes=3*1024*1024;
-  const prepareListingPhoto=async file=>{
-    let bitmap=null,image=null,objectUrl='';
-    if(typeof createImageBitmap==='function'){
-      try{bitmap=await createImageBitmap(file)}catch{}
-    }
-    if(!bitmap){
-      objectUrl=URL.createObjectURL(file);
-      image=new Image();
-      try{image.src=objectUrl;await image.decode()}
-      catch{URL.revokeObjectURL(objectUrl);throw new Error(`${file.name} could not be decoded. Choose a valid JPG, PNG, WebP, or AVIF photo.`)}
-    }
-    const source=bitmap||image,sourceWidth=bitmap?.width||image.naturalWidth,sourceHeight=bitmap?.height||image.naturalHeight;
-    try{
-      if(file.size<=maxOptimizedPhotoBytes&&sourceWidth<=1920&&sourceHeight<=1920)return file;
-      for(const maxDimension of [1920,1600,1280]){
-        const scale=Math.min(1,maxDimension/sourceWidth,maxDimension/sourceHeight),canvas=document.createElement('canvas');
-        canvas.width=Math.max(1,Math.round(sourceWidth*scale));canvas.height=Math.max(1,Math.round(sourceHeight*scale));
-        canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);
-        for(const quality of [0.82,0.72,0.62]){
-          const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',quality));
-          if(blob&&blob.size<=maxOptimizedPhotoBytes){const name=file.name.replace(/\.[^.]+$/,'')||'listing-photo';return new File([blob],`${name}.webp`,{type:'image/webp',lastModified:file.lastModified})}
-        }
-      }
-      throw new Error(`${file.name} could not be reduced to 3 MB. Choose a smaller photo.`);
-    }finally{bitmap?.close();if(objectUrl)URL.revokeObjectURL(objectUrl)}
-  };
   const categoryInput=document.createElement('input');categoryInput.type='hidden';categoryInput.name='propertyType';form.append(categoryInput);const categoryByStructure={house:'house',apartment:'apartment',room:'room',land_plot:'land',guesthouse:'hotel',serviced_apartment:'apartment',hotel:'hotel',commercial:'commercial'};const syncPropertyCategory=()=>{const structure=form.querySelector('[name="structureType"]:checked')?.value;categoryInput.value=categoryByStructure[structure]||'apartment'};
   const bathroomStepper=form.elements.bathrooms.closest('.wizard-stepper');
   const bedsStepper=document.createElement('div');
@@ -1289,7 +1264,7 @@ function openAgentListingWizard(){
         errorBox.textContent=`Preparing photo ${index+1} of ${mediaFiles.length}…`;
         submission.append('media',await prepareListingPhoto(file));
       }
-      errorBox.textContent=`Uploading ${mediaFiles.length} optimized photos and submitting your listing…`;
+      errorBox.textContent=`Uploading ${mediaFiles.length} photos and submitting your listing…`;
       submission.set('transactionType',form.elements.transactionType.value);
       submission.set('rentalMode',form.elements.transactionType.value==='stay'?'short_term':'long_term');
       submission.set('categoryDetails',JSON.stringify(answers));

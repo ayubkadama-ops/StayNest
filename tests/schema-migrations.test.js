@@ -34,6 +34,7 @@ function createMigrationPool({ failOn } = {}) {
 test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('property-journeys-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-search-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('listing-approximate-location-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-verification-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-ecosystem-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('agent-profile-columns-repair-migration.sql'));
@@ -41,6 +42,27 @@ test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-repair-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('listing-duplicate-triage-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('monetization-plans-migration.sql'));
+});
+
+test('approximate listing coordinates are added independently for TiDB upgrades', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+
+  await applySchemaMigrations(pool, 'database', ['listing-approximate-location-migration.sql']);
+
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN approximate_latitude DECIMAL(10,7) NULL'));
+  assert.ok(statements.includes('ALTER TABLE listings ADD COLUMN approximate_longitude DECIMAL(10,7) NULL'));
+  assert.ok(statements.some(sql => sql.startsWith('INSERT INTO schema_migrations')));
 });
 
 test('monetization plan migration creates only an unseeded configurable catalog', async () => {

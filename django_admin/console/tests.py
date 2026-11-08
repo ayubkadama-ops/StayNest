@@ -76,6 +76,36 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '3 saved homes')
         self.assertContains(response, 'Related bookings')
 
+    @patch('console.views.rows')
+    def test_agent_profile_photo_uses_marketplace_host_in_admin_user_detail(self, rows):
+        from console.views import _admin_profile_image_url
+
+        with patch.dict(os.environ, {'MARKETPLACE_URL': 'https://marketplace.example'}):
+            self.authenticate_admin()
+            rows.side_effect = [
+                [{'id': 42, 'email': 'agent@example.test', 'phone': None, 'status': 'active',
+                  'email_verified_at': None, 'phone_verified_at': None, 'mfa_enabled': False,
+                  'last_login_at': None, 'created_at': '2026-10-01', 'updated_at': '2026-10-02',
+                  'deleted_at': None, 'deletion_requested_at': None, 'deletion_reason': None,
+                  'first_name': 'Asha', 'last_name': 'Mrema', 'name': 'Asha Mrema',
+                  'city': 'Dar es Salaam', 'country_code': 'TZ', 'bio': None,
+                  'avatar_url': '/media/agents/42/profile-photo.webp'}],
+                [{'name': 'agent'}],
+                [], [], [], [], [], [], [],
+            ]
+
+            response = self.client.get('/admin/users/42/')
+
+        query = rows.call_args_list[0].args[0]
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'src="https://marketplace.example/media/agents/42/profile-photo.webp"')
+        self.assertIn('COALESCE(NULLIF(p.avatar_url', query)
+        self.assertIn('LEFT JOIN agent_profiles ap ON ap.user_id=u.id', query)
+        self.assertEqual(
+            _admin_profile_image_url('/media/../private/photo.webp', 'https://marketplace.example'),
+            '',
+        )
+
     @patch('console.views.rows', side_effect=[[], []])
     def test_user_detail_returns_not_found_for_unknown_id(self, rows):
         self.authenticate_admin()

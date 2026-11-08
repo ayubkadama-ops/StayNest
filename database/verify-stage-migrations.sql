@@ -7,7 +7,8 @@ WHERE table_schema=DATABASE()
       'transaction_type', 'sale_price', 'plot_size', 'plot_size_unit',
       'land_use', 'title_status', 'floor_area', 'commercial_use',
       'district', 'ward', 'property_size', 'furnished', 'category_details',
-      'advertising_authorization', 'authorization_notes', 'authorization_attested_at'
+      'advertising_authorization', 'authorization_notes', 'authorization_attested_at',
+      'approximate_latitude', 'approximate_longitude'
     ))
     OR (table_name='agent_profiles' AND column_name IN ('specializations','service_areas','business_id'))
     OR (table_name='businesses' AND column_name='business_type')
@@ -74,6 +75,7 @@ WHERE migration_name IN (
   'private-document-access-migration.sql',
   'property-journeys-migration.sql',
   'property-search-migration.sql',
+  'listing-approximate-location-migration.sql',
   'property-verification-migration.sql'
   ,'listing-category-details-migration.sql'
   ,'monetization-plans-migration.sql'

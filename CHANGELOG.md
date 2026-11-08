@@ -5,6 +5,25 @@ commit history or release notes.
 
 ## Unreleased
 
+### Marketplace search, image uploads, and admin profile photos
+
+- Fixed discovery failures on upgraded TiDB databases by adding the missing
+  approximate-coordinate columns through a new additive migration and
+  replacing the unprovisioned FULLTEXT dependency with parameterized,
+  TiDB-compatible `LIKE` search and deterministic relevance ordering. Web and
+  mobile continue using the shared discovery API.
+- Listing-photo preparation now falls back to submitting the original image
+  when the browser decoder cannot read it, allowing the server's image
+  validator/optimizer to handle the upload. Compressed file extensions and
+  MIME types now match the actual canvas output.
+- Admin user details now prefer the account avatar and fall back to the agent
+  profile image; relative marketplace media URLs resolve against the
+  configured marketplace host.
+- Validation: 67 Node tests, 89 Django tests, Django system checks, web
+  production build, mobile TypeScript check, and `git diff --check` pass.
+  Production TiDB migration execution remains subject to the database
+  backup/staging runbook.
+
 ### Stages 8 and 9 validation and monetization plan configuration
 
 - Verified the configured Render homepage canonical, dynamic sitemap, and

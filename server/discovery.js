@@ -2,6 +2,17 @@ import { isValidDate } from './validation.js';
 
 const TRANSACTION_TYPES = new Set(['sale', 'rent', 'stay', 'both']);
 const PROPERTY_TYPES = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay']);
+const SEARCH_COLUMNS = Object.freeze([
+  'l.title',
+  'l.description',
+  'l.neighborhood',
+  'l.city',
+  'l.region',
+  'l.district',
+  'l.ward',
+  'l.address_line1',
+  'pt.name'
+]);
 const PRICE_COLUMNS = Object.freeze({
   sale: 'l.sale_price',
   nightly: 'l.nightly_price',
@@ -172,11 +183,8 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } 
   };
   if (filters.query) {
     const like = `%${filters.query}%`;
-    where.push(`(
-      MATCH(l.title,l.description,l.neighborhood,l.city) AGAINST (? IN NATURAL LANGUAGE MODE)
-      OR l.region LIKE ? OR l.district LIKE ? OR l.ward LIKE ? OR l.address_line1 LIKE ? OR pt.name LIKE ?
-    )`);
-    params.push(filters.query, like, like, like, like, like);
+    where.push(`(${SEARCH_COLUMNS.map(column => `${column} LIKE ?`).join(' OR ')})`);
+    params.push(...SEARCH_COLUMNS.map(() => like));
   }
   if (filters.location) {
     where.push('(l.city LIKE ? OR l.neighborhood LIKE ? OR l.region LIKE ? OR l.district LIKE ? OR l.ward LIKE ?)');
@@ -289,7 +297,7 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } 
     : filters.sort === 'price_high' ? `${priceColumn} DESC, l.id DESC`
       : filters.sort === 'popular' ? 'l.average_rating DESC, l.review_count DESC, l.id DESC'
         : filters.sort === 'relevance' && filters.query
-          ? 'MATCH(l.title,l.description,l.neighborhood,l.city) AGAINST (? IN NATURAL LANGUAGE MODE) DESC, l.published_at DESC, l.id DESC'
+          ? 'CASE WHEN l.title LIKE ? THEN 0 WHEN l.neighborhood LIKE ? OR l.city LIKE ? THEN 1 ELSE 2 END ASC, l.published_at DESC, l.id DESC'
           : 'l.published_at DESC, l.created_at DESC, l.id DESC';
 
   return {
@@ -297,7 +305,9 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = 60 } 
     whereSql: where.join(' AND '),
     params,
     orderBy,
-    orderParams: filters.sort === 'relevance' && filters.query ? [filters.query] : [],
+    orderParams: filters.sort === 'relevance' && filters.query
+      ? [`%${filters.query}%`, `%${filters.query}%`, `%${filters.query}%`]
+      : [],
     limit: filters.limit,
     offset: (filters.page - 1) * filters.limit
   };

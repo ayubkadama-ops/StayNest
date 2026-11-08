@@ -98,8 +98,11 @@ test('pagination, relevance, and sorting are bounded and deterministic', () => {
   assert.equal(plan.filters.page, 10000);
   assert.equal(plan.filters.limit, 60);
   assert.equal(plan.offset, 599940);
-  assert.match(plan.orderBy, /MATCH\(l\.title,l\.description,l\.neighborhood,l\.city\)/);
-  assert.deepEqual(plan.orderParams, ['house in Mwanza']);
+  assert.match(plan.whereSql, /l\.title LIKE \?.*l\.description LIKE \?.*l\.neighborhood LIKE \?/s);
+  assert.doesNotMatch(plan.whereSql, /MATCH\(|AGAINST/);
+  assert.match(plan.orderBy, /CASE WHEN l\.title LIKE \? THEN 0 WHEN l\.neighborhood LIKE \? OR l\.city LIKE \? THEN 1/);
+  assert.deepEqual(plan.orderParams, ['%house in Mwanza%', '%house in Mwanza%', '%house in Mwanza%']);
+  assert.equal(plan.params.filter(value => value === '%house in Mwanza%').length, 9);
   assert.match(createDiscoveryPlan({ sort: 'price_low', pricePeriod: 'monthly' }).orderBy, /l\.monthly_price ASC, l\.id DESC/);
   assert.match(createDiscoveryPlan({ sort: 'price_high', pricePeriod: 'sale' }).orderBy, /l\.sale_price DESC, l\.id DESC/);
   assert.match(createDiscoveryPlan({ sort: 'unknown' }).error, /sort order/);
