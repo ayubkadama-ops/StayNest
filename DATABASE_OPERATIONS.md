@@ -61,3 +61,19 @@ changes. They do not prove DDL support or restoreability on the deployed
 TiDB cluster. No live database credentials are used by local validation.
 Stage 1 remains operationally pending until the staging run above has been
 completed and recorded by an operator with access to the target database.
+
+## 2026-11-08 deployment-gate check
+
+- **Status: blocked; backup and staging restore were not performed.** The
+  available workspace has no MySQL backup/client tools, TiDB Cloud or Render
+  CLI, configured `makazigo-prod` login path, or authenticated TiDB Cloud
+  console session. Production credential values were not inspected or
+  copied.
+- No production DDL, database restore, deployment, or Git push was attempted.
+- Read-only production checks returned `/api/ready` HTTP 200 and
+  `/api/listings/discover` HTTP 500. The fix is committed locally, but this
+  does not establish that its migration works on TiDB.
+- Do not deploy the migration until an authorized operator takes and records
+  a provider recovery point, makes a protected logical backup, restores it to
+  isolated staging, and completes the application migration and smoke tests
+  above.
