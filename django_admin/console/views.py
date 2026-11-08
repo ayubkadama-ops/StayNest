@@ -1,7 +1,9 @@
 import json
+import hashlib
 import ipaddress
 import os
 import re
+import secrets
 from functools import wraps
 from datetime import timedelta
 
@@ -328,7 +330,7 @@ def dashboard(request):
         elif section == 'bookings':
             data['rows'] = rows("SELECT b.id,b.guest_user_id,b.host_user_id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
-            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.created_at,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.created_at,(v.document_file_key IS NOT NULL) has_document,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
         elif section == 'reports':
             data['reports'] = rows("SELECT r.id,r.reporter_user_id,r.reported_user_id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
         elif section == 'audit':
@@ -901,6 +903,33 @@ def action(request, action):
                 verification_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'approved', 'rejected'}: raise ValueError('Invalid verification status')
                 execute('UPDATE identity_verifications SET status=%s, reviewed_at=UTC_TIMESTAMP(), rejection_reason=%s WHERE id=%s', [status, None if status == 'approved' else 'Rejected by administrator', verification_id]); audit(f'verification_{status}', 'identity_verification', verification_id)
+            elif action == 'verification-document':
+                verification_id = int(request.POST.get('id', '0'))
+                if verification_id < 1:
+                    raise ValueError('Choose a valid verification')
+                document_rows = rows(
+                    'SELECT id FROM identity_verifications WHERE id=%s AND document_file_key IS NOT NULL',
+                    [verification_id],
+                )
+                if not document_rows:
+                    raise ValueError('Verification document not found')
+                marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
+                marketplace_origin = urlparse(marketplace_url)
+                if (
+                    not marketplace_origin.netloc
+                    or marketplace_origin.scheme not in {'http', 'https'}
+                    or (os.getenv('NODE_ENV') == 'production' and marketplace_origin.scheme != 'https')
+                ):
+                    raise ValueError('A secure marketplace URL is required to review identity documents')
+                token = secrets.token_urlsafe(32)
+                with transaction.atomic():
+                    execute(
+                        'INSERT INTO identity_document_download_tokens (token_hash,verification_id,expires_at) VALUES (%s,%s,DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MINUTE))',
+                        [hashlib.sha256(token.encode('ascii')).digest(), verification_id],
+                    )
+                    audit('identity_document_access_granted', 'identity_verification', verification_id)
+                document_url = f'{marketplace_url}/api/admin/verifications/{verification_id}/document?{urlencode({"token": token})}'
+                return redirect(document_url)
             elif action == 'feature':
                 execute('UPDATE feature_flags SET enabled=%s WHERE feature_key=%s', [1 if request.POST.get('enabled') == '1' else 0, request.POST['key']]); audit('feature_updated', 'feature', None, {'key': request.POST['key']})
             elif action == 'email-template':

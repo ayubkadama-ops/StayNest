@@ -22,7 +22,7 @@
 			<p class="listing-facts">{{ listing.structureType|default:listing.propertyType|title }} · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms</p>
 		{% endif %}
 		{% if listing.amenityList %}<p class="listing-highlights">{% for amenity in listing.amenityList|slice:':3' %}{% if not forloop.first %} · {% endif %}{{ amenity }}{% endfor %}</p>{% endif %}
-		<p class="listing-price">{% if listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
+		<p class="listing-price">{% if listing.salePrice %}{{ listing.currency }} {{ listing.salePrice|floatformat:0 }} · For sale{% elif listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
 	</div>
 </article>
 {% empty %}<p class="empty-state">No published properties match this search yet. Try another category or location.</p>{% endfor %}

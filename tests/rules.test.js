@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, isActiveSubAgent, isListingAvailable, resolvePropertyType, verifyWebhookSignature } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateListingJourney, verifyWebhookSignature } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
+import { decryptBuffer, encryptBuffer } from '../server/crypto.js';
 import sharp from 'sharp';
+
+test('private document encryption preserves binary content and rejects tampering', () => {
+  const original = Buffer.from([0x00, 0xff, 0x89, 0x50, 0x4e, 0x47]);
+  const encrypted = encryptBuffer(original);
+  assert.deepEqual(decryptBuffer(encrypted), original);
+  encrypted[encrypted.length - 1] ^= 0xff;
+  assert.throws(() => decryptBuffer(encrypted));
+});
 
 test('date overlap detects intersecting stays but permits checkout/check-in boundary', () => {
   assert.equal(datesOverlap('2026-10-10', '2026-10-15', '2026-10-12', '2026-10-18'), true);
@@ -29,6 +38,25 @@ test('permissions require an exact assigned role', () => {
   assert.equal(hasRole(['tenant'], 'administrator'), false);
 });
 
+test('administrator IP rules match exact addresses and CIDR masks accurately', () => {
+  assert.equal(ipMatchesNetwork('192.0.2.19', '192.0.2.19'), true);
+  assert.equal(ipMatchesNetwork('192.0.2.20', '192.0.2.19'), false);
+  assert.equal(ipMatchesNetwork('192.168.1.129', '192.168.1.129/25'), true);
+  assert.equal(ipMatchesNetwork('192.168.1.127', '192.168.1.129/25'), false);
+  assert.equal(ipMatchesNetwork('::ffff:192.0.2.19', '192.0.2.0/24'), true);
+  assert.equal(ipMatchesNetwork('2001:db8:abcd::5', '2001:db8:abcd::/48'), true);
+  assert.equal(ipMatchesNetwork('2001:db8:abce::5', '2001:db8:abcd::/48'), false);
+});
+
+test('administrator IP rules reject malformed addresses and prefixes', () => {
+  assert.equal(isValidIpNetwork('192.0.2.1/32'), true);
+  assert.equal(isValidIpNetwork('2001:db8::1/128'), true);
+  assert.equal(isValidIpNetwork('192.0.2.1/33'), false);
+  assert.equal(isValidIpNetwork('2001:db8::1/129'), false);
+  assert.equal(isValidIpNetwork('192.0.2.1/not-a-prefix'), false);
+  assert.equal(ipMatchesNetwork('192.0.2.1', 'not-an-ip'), false);
+});
+
 test('agent actions honor sub-agent permissions while main agents retain access', () => {
   assert.equal(hasAgentPermission({ roles: ['agent'], isSubAgent: true, permissions: ['bookings.view'] }, 'bookings.view'), true);
   assert.equal(hasAgentPermission({ roles: ['agent'], isSubAgent: true, permissions: ['bookings.view'] }, 'bookings.manage'), false);
@@ -48,6 +76,90 @@ test('listing structures resolve to searchable property categories', () => {
   assert.equal(resolvePropertyType(undefined, 'hotel'), 'hotel');
   assert.equal(resolvePropertyType(undefined, 'commercial'), 'commercial');
   assert.equal(resolvePropertyType('hotel', 'guesthouse'), 'hotel');
+});
+
+test('listing journeys enforce dedicated sale, rental, and stay prices', () => {
+  assert.equal(validateListingJourney({
+    transactionType: 'sale',
+    structureType: 'house',
+    salePrice: '180000000'
+  }).transactionType, 'sale');
+  assert.equal(validateListingJourney({
+    transactionType: 'rent',
+    structureType: 'apartment',
+    monthlyPrice: '950000'
+  }).transactionType, 'rent');
+  assert.equal(validateListingJourney({
+    transactionType: 'stay',
+    structureType: 'hotel',
+    nightlyPrice: '120000',
+    rentalMode: 'short_term'
+  }).transactionType, 'stay');
+  assert.match(validateListingJourney({
+    transactionType: 'sale',
+    structureType: 'house',
+    salePrice: '180000000',
+    monthlyPrice: '950000'
+  }).error, /cannot include rental prices/);
+  assert.match(validateListingJourney({
+    transactionType: 'rent',
+    structureType: 'apartment',
+    nightlyPrice: '120000',
+    monthlyPrice: '950000'
+  }).error, /monthly or yearly price only/);
+  assert.match(validateListingJourney({
+    transactionType: 'stay',
+    structureType: 'land_plot',
+    nightlyPrice: '120000'
+  }).error, /only be listed for sale or long-term rent/);
+});
+
+test('land and commercial listings require structured category facts', () => {
+  const land = validateListingJourney({
+    transactionType: 'sale',
+    structureType: 'land_plot',
+    salePrice: '50000000',
+    plotSize: '600',
+    plotSizeUnit: 'sqm',
+    landUse: 'Residential',
+    titleStatus: 'unknown'
+  });
+  assert.equal(land.propertyType, 'land');
+  assert.equal(land.plotSize, 600);
+  assert.equal(land.titleStatus, 'unknown');
+
+  const commercial = validateListingJourney({
+    transactionType: 'rent',
+    structureType: 'commercial',
+    monthlyPrice: '2000000',
+    floorArea: '120',
+    commercialUse: 'retail'
+  });
+  assert.equal(commercial.propertyType, 'commercial');
+  assert.equal(commercial.floorArea, 120);
+  assert.equal(commercial.commercialUse, 'retail');
+  assert.match(validateListingJourney({
+    transactionType: 'sale',
+    structureType: 'land_plot',
+    salePrice: '50000000',
+    plotSize: '600',
+    plotSizeUnit: 'sqm',
+    titleStatus: 'title_deed'
+  }).error, /land use/);
+});
+
+test('legacy stay and combined-rental submissions remain classifiable', () => {
+  assert.equal(validateListingJourney({
+    rentalMode: 'short_term',
+    structureType: 'apartment',
+    nightlyPrice: '80000'
+  }).transactionType, 'stay');
+  assert.equal(validateListingJourney({
+    rentalMode: 'both',
+    structureType: 'house',
+    nightlyPrice: '80000',
+    monthlyPrice: '1000000'
+  }).transactionType, 'both');
 });
 
 test('public listing coordinates are rounded and invalid coordinates are omitted', () => {

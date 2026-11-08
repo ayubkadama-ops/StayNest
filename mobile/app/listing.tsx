@@ -70,14 +70,16 @@ export default function ListingScreen() {
   const listing = details?.listing;
   const mediaItems = details?.media.filter((item) => item.mediaType !== 'video') ?? [];
   const selectedImage = resolveMediaUrl(selectedMedia);
-  const price = listing?.nightlyPrice ?? listing?.monthlyPrice ?? listing?.yearlyPrice ?? null;
-  const period = listing?.nightlyPrice !== null && listing?.nightlyPrice !== undefined
-    ? 'night'
-    : listing?.monthlyPrice !== null && listing?.monthlyPrice !== undefined
-      ? 'month'
-      : listing?.yearlyPrice !== null && listing?.yearlyPrice !== undefined
-        ? 'year'
-        : null;
+  const price = listing?.salePrice ?? listing?.nightlyPrice ?? listing?.monthlyPrice ?? listing?.yearlyPrice ?? null;
+  const period = listing?.salePrice !== null && listing?.salePrice !== undefined
+    ? 'for sale'
+    : listing?.nightlyPrice !== null && listing?.nightlyPrice !== undefined
+      ? 'night'
+      : listing?.monthlyPrice !== null && listing?.monthlyPrice !== undefined
+        ? 'month'
+        : listing?.yearlyPrice !== null && listing?.yearlyPrice !== undefined
+          ? 'year'
+          : null;
   const amenities = listing?.amenities?.split(',').map((amenity) => amenity.trim()).filter(Boolean) ?? [];
   const agentName = [listing?.agentFirstName, listing?.agentLastName].filter(Boolean).join(' ');
 
@@ -167,6 +169,12 @@ export default function ListingScreen() {
 
             <View style={styles.factsCard}>
               <Fact label="Property" value={listing.propertyType} />
+              <Fact label="Journey" value={listing.transactionType} />
+              {listing.plotSize !== null ? <Fact label="Plot size" value={`${listing.plotSize} ${listing.plotSizeUnit || ''}`} /> : null}
+              {listing.landUse ? <Fact label="Land use" value={listing.landUse} /> : null}
+              {listing.titleStatus ? <Fact label="Advertiser-reported title status" value={listing.titleStatus.replace(/_/g, ' ')} /> : null}
+              {listing.floorArea !== null ? <Fact label="Floor area" value={`${listing.floorArea} m²`} /> : null}
+              {listing.commercialUse ? <Fact label="Commercial use" value={listing.commercialUse.replace(/_/g, ' ')} /> : null}
               <Fact label="Bedrooms" value={listing.bedrooms} />
               <Fact label="Bathrooms" value={listing.bathrooms} />
               <Fact label="Guests" value={listing.maxGuests} />

@@ -7,7 +7,10 @@ pymysql.install_as_MySQLdb()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / '.env', override=True)
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY') or os.getenv('SESSION_SECRET', 'change-this-django-secret')
+DJANGO_SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '').strip()
+if os.getenv('NODE_ENV') == 'production' and len(DJANGO_SECRET_KEY) < 32:
+    raise RuntimeError('DJANGO_SECRET_KEY must contain at least 32 characters in production')
+SECRET_KEY = DJANGO_SECRET_KEY or os.getenv('SESSION_SECRET', 'change-this-django-secret')
 DEBUG = os.getenv('DJANGO_DEBUG', 'false').lower() == 'true'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',') if host.strip()]
 ROOT_URLCONF = 'staynest_admin.urls'

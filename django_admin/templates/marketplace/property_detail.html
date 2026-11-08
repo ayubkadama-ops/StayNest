@@ -22,9 +22,9 @@
       {% elif listing.propertyType == 'apartment' %}
         <p class="detail-facts">Apartment · {{ listing.beds|default:listing.bedrooms|default:0 }} beds · {% if listing.privacyType == 'private_room' %}Private room{% elif listing.privacyType == 'shared_room' %}Shared room{% else %}Entire place{% endif %} · {{ listing.bathrooms|default:0 }} bathroom{{ listing.bathrooms|pluralize }}</p>
       {% elif listing.propertyType == 'land' %}
-        <p class="detail-facts">Land parcel · confirm plot size, access, and zoning with the agent.</p>
+        <p class="detail-facts">Land parcel{% if listing.plotSize %} · {{ listing.plotSize|floatformat:2 }} {{ listing.plotSizeUnit }}{% endif %}{% if listing.landUse %} · {{ listing.landUse }}{% endif %}{% if listing.titleStatus %} · Advertiser reports {{ listing.titleStatus|cut:'_' }} status{% endif %}</p>
       {% elif listing.propertyType == 'commercial' %}
-        <p class="detail-facts">Commercial space · confirm floor area, permitted use, and lease terms with the agent.</p>
+        <p class="detail-facts">Commercial space{% if listing.floorArea %} · {{ listing.floorArea|floatformat:2 }} m²{% endif %}{% if listing.commercialUse %} · {{ listing.commercialUse|cut:'_'|title }}{% endif %}</p>
       {% elif listing.propertyType == 'hotel' %}
         <p class="detail-facts">Hotel or guesthouse · capacity up to {{ listing.maxGuests|default:0 }} guests.</p>
       {% else %}
@@ -34,10 +34,10 @@
       {% if listing.amenityList %}<section class="detail-features"><h2>Features and amenities</h2><ul>{% for item in listing.amenityList %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
     </article>
     <aside class="detail-aside">
-      <p class="detail-price">{% if listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
-      {% if listing.propertyType == 'land' or listing.propertyType == 'commercial' %}
+      <p class="detail-price">{% if listing.salePrice %}{{ listing.currency }} {{ listing.salePrice|floatformat:0 }} · For sale{% elif listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
+      {% if listing.transactionType != 'stay' and listing.transactionType != 'both' %}
         <form data-message-form data-auth-required novalidate data-auth-message="Sign in or create a tenant account before contacting this property agent." data-auth-role="tenant" data-recipient-id="{{ listing.agentId }}">
-          <label>Ask the agent<textarea name="body" maxlength="2000" required placeholder="Ask about availability, area, or lease terms"></textarea></label>
+          <label>Ask the agent<textarea name="body" maxlength="2000" required placeholder="Ask about price, availability, or property details"></textarea></label>
           <p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send enquiry</button>
         </form>
       {% else %}

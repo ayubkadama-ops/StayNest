@@ -36,6 +36,7 @@ const initialFilters: DiscoveryFilters = {
   q: '',
   location: '',
   propertyType: '',
+  transactionType: '',
   rentalMode: '',
   sort: 'new',
 };
@@ -221,22 +222,27 @@ export default function ExploreScreen() {
                   value={draft.q}
                 />
               </View>
-              <Text style={styles.fieldLabel}>Rental term</Text>
+              <Text style={styles.fieldLabel}>Property journey</Text>
               <View style={styles.chipRow}>
                 <FilterChip
-                  label="Any term"
-                  selected={!draft.rentalMode}
-                  onPress={() => setDraft((current) => ({ ...current, rentalMode: '' }))}
+                  label="Any"
+                  selected={!draft.transactionType}
+                  onPress={() => setDraft((current) => ({ ...current, transactionType: '' }))}
                 />
                 <FilterChip
-                  label="Short stay"
-                  selected={draft.rentalMode === 'short_term'}
-                  onPress={() => setDraft((current) => ({ ...current, rentalMode: 'short_term' }))}
+                  label="Buy"
+                  selected={draft.transactionType === 'sale'}
+                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'sale' }))}
                 />
                 <FilterChip
-                  label="Long term"
-                  selected={draft.rentalMode === 'long_term'}
-                  onPress={() => setDraft((current) => ({ ...current, rentalMode: 'long_term' }))}
+                  label="Rent"
+                  selected={draft.transactionType === 'rent'}
+                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'rent' }))}
+                />
+                <FilterChip
+                  label="Stay"
+                  selected={draft.transactionType === 'stay'}
+                  onPress={() => setDraft((current) => ({ ...current, transactionType: 'stay' }))}
                 />
               </View>
               <Text style={[styles.fieldLabel, styles.sortLabel]}>Sort</Text>
@@ -517,14 +523,16 @@ function FilterChip({
 
 function ListingCard({ listing }: { listing: ListingSummary }) {
   const imageUri = resolveMediaUrl(listing.coverUrl);
-  const price = listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
-  const period = listing.nightlyPrice !== null
-    ? 'night'
-    : listing.monthlyPrice !== null
-      ? 'month'
-      : listing.yearlyPrice !== null
-        ? 'year'
-        : null;
+  const price = listing.salePrice ?? listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
+  const period = listing.salePrice !== null
+    ? 'for sale'
+    : listing.nightlyPrice !== null
+      ? 'night'
+      : listing.monthlyPrice !== null
+        ? 'month'
+        : listing.yearlyPrice !== null
+          ? 'year'
+          : null;
   const propertyLabel = listing.propertyType
     ? listing.propertyType.replace(/_/g, ' ')
     : 'Property';

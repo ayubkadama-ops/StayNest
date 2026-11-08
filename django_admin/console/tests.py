@@ -1,5 +1,7 @@
 import os
 import json
+import hashlib
+from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
 from unittest.mock import patch
 
@@ -663,6 +665,31 @@ class AdminConsoleAccessTests(SimpleTestCase):
         invalidate_sessions.assert_called_once_with(15)
         purge_user.assert_called_once_with(15)
         audit.assert_called_once_with('user_permanently_deleted', 'user', 15)
+
+    @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{'id': 42}])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_document_review_issues_only_a_short_lived_hashed_access_token(
+        self, atomic, rows, execute, audit
+    ):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/verification-document/', {
+            'id': '42',
+            'section': 'verifications',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        location = urlparse(response['Location'])
+        token = parse_qs(location.query)['token'][0]
+        self.assertEqual(location.scheme, 'https')
+        self.assertEqual(location.path, '/api/admin/verifications/42/document')
+        self.assertEqual(len(token), 43)
+        self.assertEqual(execute.call_args.args[1][0], hashlib.sha256(token.encode('ascii')).digest())
+        self.assertNotIn(token, execute.call_args.args[0])
+        audit.assert_called_once_with('identity_document_access_granted', 'identity_verification', 42)
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'user_status': 'pending', 'subaccount_id': 33, 'label': 'Bookings', 'subaccount_status': 'pending', 'name': 'Asha', 'main_agent': 'Neema'}])
     def test_agent_approval_page_renders_approve_and_reject_actions(self, rows):

@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#062b22">
   <title>Property listings | Makazi Go</title>
   <link rel="icon" href="/assets/makazi-go-icon.png" type="image/png">
-  <script src="/assets/cloudinary-images.js" defer></script>
+  <script type="module" src="/assets/cloudinary-images.js"></script>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/accessibility.css">
   <link rel="stylesheet" href="/assets/form-validation.css">
@@ -35,7 +35,7 @@
     <form class="listings-filter-bar" id="listingFilters">
       <label>Search<input name="q" placeholder="City, neighborhood, or property"></label>
       <label>Property type<select name="propertyType"><option value="">All properties</option><option value="house">Homes</option><option value="apartment">Apartments</option><option value="land">Land</option><option value="hotel">Hotels</option><option value="commercial">Commercial</option></select></label>
-      <label>Stay type<select name="rentalMode"><option value="">Any stay</option><option value="short_term">Short-term</option><option value="long_term">Long-term</option></select></label>
+      <label>Journey<select name="transactionType"><option value="">Any journey</option><option value="sale">Buy</option><option value="rent">Rent</option><option value="stay">Stay</option></select></label>
       <label>Sort<select name="sort"><option value="new">Newest</option><option value="popular">Most loved</option><option value="price_low">Price: low to high</option></select></label>
       <button class="primary" type="submit">Search properties</button>
     </form>

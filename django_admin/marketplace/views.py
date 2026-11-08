@@ -56,6 +56,14 @@ def _render(request, page, **context):
 def _listing_view_model(listing):
     amenities = listing.get('amenities') or ''
     listing['amenityList'] = amenities if isinstance(amenities, list) else [item.strip() for item in amenities.split(',') if item.strip()]
+    if not listing.get('transactionType'):
+        rental_mode = listing.get('rentalMode')
+        listing['transactionType'] = (
+            'rent' if listing.get('propertyType') in {'land', 'commercial'}
+            else 'both' if rental_mode == 'both'
+            else 'rent' if rental_mode == 'long_term'
+            else 'stay'
+        )
     listing.setdefault('propertyType', 'property')
     listing.setdefault('structureType', listing['propertyType'])
     listing.setdefault('bedrooms', 0)
@@ -74,7 +82,7 @@ def home(request):
 def properties(request):
     filters = {
         key: request.GET.get(key, '').strip()
-        for key in ('q', 'location', 'propertyType', 'rentalMode', 'sort')
+        for key in ('q', 'location', 'propertyType', 'transactionType', 'rentalMode', 'sort')
     }
     query = urlencode({key: value for key, value in filters.items() if value})
     result = _api_json(request, f'api/listings/discover?{query}')

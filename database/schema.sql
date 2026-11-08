@@ -114,7 +114,7 @@ CREATE TABLE user_profiles (
   avatar_url VARCHAR(2048) NULL,
   bio TEXT NULL,
   preferred_language VARCHAR(10) NOT NULL DEFAULT 'en',
-  preferred_currency CHAR(3) NOT NULL DEFAULT 'USD',
+  preferred_currency CHAR(3) NOT NULL DEFAULT 'TZS',
   timezone VARCHAR(64) NOT NULL DEFAULT 'UTC',
   address_line1 VARCHAR(190) NULL,
   address_line2 VARCHAR(190) NULL,
@@ -155,6 +155,7 @@ CREATE TABLE identity_verifications (
   document_country CHAR(2) NULL,
   document_last4 CHAR(4) NULL,
   document_file_key VARCHAR(512) NOT NULL,
+  encryption_version TINYINT UNSIGNED NOT NULL DEFAULT 0,
   status ENUM('pending','approved','rejected','expired') NOT NULL DEFAULT 'pending',
   reviewed_by BIGINT UNSIGNED NULL,
   reviewed_at DATETIME NULL,
@@ -165,6 +166,16 @@ CREATE TABLE identity_verifications (
   CONSTRAINT fk_verification_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id),
   INDEX idx_verifications_review (status, created_at),
   INDEX idx_verifications_user (user_id, status)
+) ENGINE=InnoDB;
+
+CREATE TABLE identity_document_download_tokens (
+  token_hash BINARY(32) PRIMARY KEY,
+  verification_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  consumed_at DATETIME NULL,
+  CONSTRAINT fk_identity_document_token_verification FOREIGN KEY (verification_id) REFERENCES identity_verifications(id) ON DELETE CASCADE,
+  INDEX idx_identity_document_token_expiry (expires_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE businesses (
@@ -203,10 +214,18 @@ CREATE TABLE listings (
   status ENUM('draft','pending_review','published','unpublished','rejected','archived') NOT NULL DEFAULT 'draft',
   booking_mode ENUM('request','instant') NOT NULL DEFAULT 'request',
   rental_mode ENUM('short_term','long_term','both') NOT NULL DEFAULT 'short_term',
-  currency CHAR(3) NOT NULL DEFAULT 'USD',
+  transaction_type ENUM('sale','rent','stay','both') NOT NULL DEFAULT 'stay',
+  currency CHAR(3) NOT NULL DEFAULT 'TZS',
+  sale_price DECIMAL(14,2) NULL,
   nightly_price DECIMAL(12,2) NULL,
   monthly_price DECIMAL(12,2) NULL,
   yearly_price DECIMAL(12,2) NULL,
+  plot_size DECIMAL(14,2) NULL,
+  plot_size_unit ENUM('sqm','acres','hectares') NULL,
+  land_use VARCHAR(120) NULL,
+  title_status ENUM('unknown','title_deed','offer','customary','other') NULL,
+  floor_area DECIMAL(14,2) NULL,
+  commercial_use ENUM('office','retail','hospitality','warehouse','mixed_use','other') NULL,
   cleaning_fee DECIMAL(12,2) NOT NULL DEFAULT 0,
   service_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
   bedrooms TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -235,8 +254,9 @@ CREATE TABLE listings (
   CONSTRAINT fk_listing_owner FOREIGN KEY (owner_user_id) REFERENCES users(id),
   CONSTRAINT fk_listing_agent FOREIGN KEY (agent_user_id) REFERENCES users(id),
   CONSTRAINT fk_listing_type FOREIGN KEY (property_type_id) REFERENCES property_types(id),
-  CONSTRAINT chk_listing_prices CHECK (nightly_price IS NOT NULL OR monthly_price IS NOT NULL OR yearly_price IS NOT NULL),
+  CONSTRAINT chk_listing_prices CHECK (sale_price IS NOT NULL OR nightly_price IS NOT NULL OR monthly_price IS NOT NULL OR yearly_price IS NOT NULL),
   INDEX idx_listings_discovery (status, city, property_type_id, rental_mode),
+  INDEX idx_listings_journey (transaction_type, status, property_type_id, city),
   INDEX idx_listings_geo (latitude, longitude),
   INDEX idx_listings_price (status, nightly_price, monthly_price, yearly_price),
   FULLTEXT KEY ft_listings_search (title, description, neighborhood, city)

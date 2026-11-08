@@ -1,7 +1,8 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import crypto from 'node:crypto';
 import { isCloudinaryConfigured, cloudinaryImageUrl, uploadCloudinaryImage } from './cloudinary.js';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { decryptBuffer, encryptBuffer } from './crypto.js';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -205,19 +206,61 @@ export async function storePrivateDocument(file, userId) {
   if (!isPdf && !isImage) throw new Error('Unsupported identity document');
   if (isImage) await sharp(file.buffer).metadata();
   const key = `identity/${userId}/${crypto.randomUUID()}.bin`;
+  const encrypted = encryptBuffer(file.buffer);
   if (!canUseObjectStorage) {
     const filePath = path.join(localPrivateRoot, key);
     await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, file.buffer);
-    return { key };
+    await writeFile(filePath, encrypted);
+    return { key, encryptionVersion: 1 };
   }
   await client.send(new PutObjectCommand({
     Bucket: process.env.S3_BUCKET,
     Key: key,
-    Body: file.buffer,
+    Body: encrypted,
     ContentType: 'application/octet-stream',
     ServerSideEncryption: 'AES256',
     Metadata: { private: 'true' }
   }));
-  return { key };
+  return { key, encryptionVersion: 1 };
+}
+
+export async function readPrivateDocument(key, encryptionVersion = 0) {
+  const safeKey = String(key || '');
+  if (!/^identity\/\d+\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.bin$/i.test(safeKey)) {
+    const error = new Error('Private document not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  const version = Number(encryptionVersion);
+  if (version !== 0 && version !== 1) throw new Error('Unsupported private document encryption version');
+  let contents;
+  try {
+    if (canUseObjectStorage) {
+      const result = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: safeKey }));
+      if (!result.Body) throw new Error('Private document storage returned an empty object');
+      const chunks = [];
+      for await (const chunk of result.Body) chunks.push(Buffer.from(chunk));
+      contents = Buffer.concat(chunks);
+    } else {
+      const filePath = path.resolve(localPrivateRoot, safeKey);
+      if (!filePath.startsWith(`${localPrivateRoot}${path.sep}`)) {
+        const error = new Error('Private document not found');
+        error.statusCode = 404;
+        throw error;
+      }
+      contents = await readFile(filePath);
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+      error.statusCode = 404;
+    }
+    throw error;
+  }
+  const buffer = version === 1 ? decryptBuffer(contents) : contents;
+  let contentType;
+  if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') contentType = 'application/pdf';
+  else if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) contentType = 'image/jpeg';
+  else if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) contentType = 'image/png';
+  else throw new Error('Private document content is invalid');
+  return { buffer, contentType };
 }

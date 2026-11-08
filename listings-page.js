@@ -27,6 +27,7 @@ function updateCategoryHeading() {
   document.title = `${label} | Makazi Go`;
 }
 const money = listing => {
+  if (listing.salePrice) return `${listing.currency || 'TZS'} ${Number(listing.salePrice).toLocaleString()} · For sale`;
   const value = listing.nightlyPrice || listing.monthlyPrice || listing.yearlyPrice || 0;
   const period = listing.nightlyPrice ? 'night' : listing.monthlyPrice ? 'month' : 'year';
   return `${listing.currency || 'TZS'} ${Number(value).toLocaleString()} / ${period}`;
@@ -54,7 +55,7 @@ function listingDetailUrl(id) {
 }
 function cardMarkup(listing) {
   const cover = imageUrl(listing.coverUrl);
-  const enquiryOnly = ['land', 'commercial'].includes(listing.propertyType);
+  const enquiryOnly = !['stay', 'both'].includes(listing.transactionType);
   const facts = enquiryOnly ? 'Contact agent for area and terms' : `${listing.bedrooms || 0} bedrooms · Up to ${listing.maxGuests || 0} guests`;
   const agentName = [listing.agentFirstName, listing.agentLastName].filter(Boolean).join(' ') || listing.agencyName || 'Makazi Go agent';
   const agent = listing.agentId ? `<a class="all-listing-agent" href="/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}" data-agent-link>${escapeHtml(agentName)}</a>` : `<span class="all-listing-agent">${escapeHtml(agentName)}</span>`;
@@ -145,10 +146,15 @@ function detailMarkup(result) {
   const media = Array.isArray(result.media) && result.media.length ? result.media : [{ mediaUrl: listing.coverUrl, mediaType: 'image' }];
   const amenities = String(listing.amenities || '').split(',').filter(Boolean);
   const agentName = `${listing.firstName || ''} ${listing.lastName || ''}`.trim() || listing.agencyName || 'Makazi Go agent';
+  const categoryFacts = listing.propertyType === 'land'
+    ? `<p class="listing-page-facts">${listing.plotSize ? `${escapeHtml(listing.plotSize)} ${escapeHtml(listing.plotSizeUnit || '')}` : 'Plot size not provided'} · ${escapeHtml(listing.landUse || 'Land use not provided')} · Advertiser-reported ${escapeHtml((listing.titleStatus || 'unknown').replaceAll('_', ' '))} title information</p>`
+    : listing.propertyType === 'commercial'
+      ? `<p class="listing-page-facts">${listing.floorArea ? `${escapeHtml(listing.floorArea)} m²` : 'Floor area not provided'} · ${escapeHtml((listing.commercialUse || 'Use not provided').replaceAll('_', ' '))}</p>`
+      : '';
   return `<button class="listing-back-button" type="button" id="backToListings">← All listings</button>
     <div class="listing-page-gallery">${detailMediaMarkup(media, listing.title)}</div>
     <div class="listing-page-layout">
-      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'Makazi Go home')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts"><span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span></div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented Makazi Go home in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Use the map and contact the responsible agent for more information about the area.</p></article>
+      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'Makazi Go home')} · ${escapeHtml(listing.transactionType || 'stay')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts"><span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span></div>${categoryFacts}<p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented Makazi Go home in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Use the map and contact the responsible agent for more information about the area.</p></article>
       <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(imageUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/staynest-mark.svg'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">Request to book <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }
@@ -167,10 +173,10 @@ function showListingResults({ historyMode = 'none' } = {}) {
 }
 function syncFiltersFromUrl() {
   const params = new URLSearchParams(location.search);
-  for (const name of ['q', 'propertyType', 'rentalMode', 'sort']) {
+  for (const name of ['q', 'propertyType', 'transactionType', 'rentalMode', 'sort']) {
     const control = filters.elements.namedItem(name);
     if (!control) continue;
-    const value = params.get(name) || '';
+    const value = params.has(name) ? params.get(name) : name === 'sort' ? 'new' : '';
     if (control instanceof HTMLSelectElement && ![...control.options].some(option => option.value === value)) continue;
     control.value = value;
   }
@@ -203,7 +209,11 @@ async function openDetail(id, { updateHistory = true } = {}) {
 function wireDetail(listing) {
   document.querySelector('#backToListings').onclick = () => showListingResults({ historyMode: 'push' });
   document.querySelector('#viewAgent').onclick = () => { if (listing.agentId) location.href = `/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}`; };
-  document.querySelector('#requestBooking').onclick = () => { location.href = `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`; };
+  document.querySelector('#requestBooking').onclick = () => {
+    location.href = ['stay', 'both'].includes(listing.transactionType)
+      ? `/index.html?listing=${encodeURIComponent(listing.id)}&book=1`
+      : `/index.html?messageAgent=${encodeURIComponent(listing.agentId || '')}`;
+  };
   document.querySelector('#shareListing').onclick = async () => { const url = location.href; if (navigator.share) await navigator.share({ title: listing.title, url }); else { await navigator.clipboard.writeText(url); showToast('Listing link copied'); } };
   document.querySelector('#compareListing').onclick = () => { const items = JSON.parse(localStorage.getItem('staynest.compareListings') || '[]').filter(item => String(item.id) !== String(listing.id)); items.push({ id: listing.id, title: listing.title, city: listing.city, price: listing.nightlyPrice || listing.monthlyPrice || listing.yearlyPrice }); localStorage.setItem('staynest.compareListings', JSON.stringify(items.slice(-3))); showToast('Listing added to comparison'); };
   document.querySelector('#saveListing').onclick = async event => { try { const csrf = await getCsrf(); const saved = event.currentTarget.textContent.trim() === 'Saved'; await api(`/api/listings/${listing.id}/save`, { method: saved ? 'DELETE' : 'POST', headers: { 'X-CSRF-Token': csrf } }); event.currentTarget.textContent = saved ? 'Save' : 'Saved'; showToast(saved ? 'Removed from saved homes' : 'Saved to your homes'); } catch (error) { showToast(error.message); } };

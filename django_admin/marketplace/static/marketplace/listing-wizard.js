@@ -15,10 +15,13 @@
   const submit = form.querySelector('[type="submit"]');
   const formMessage = form.querySelector('[data-form-message]');
   const category = field('structureType');
+  const journeyLabel = document.createElement('label');
+  journeyLabel.innerHTML = 'What are you offering?<select name="transactionType" required><option value="stay">Stay · short-term booking</option><option value="rent">Rent · long-term lease</option><option value="sale">Buy · property for sale</option></select>';
+  fieldLabels.set('transactionType', journeyLabel);
   let map;
   let locationMarker;
   const steps = [
-    { name: 'Property type', title: 'What are you listing?' },
+    { name: 'Journey and category', title: 'What are you listing?' },
     { name: 'Location', title: 'Where is the property?' },
     { name: 'Details and price', title: 'Tell customers what is available' },
     { name: 'Amenities', title: 'What makes this property stand out?' },
@@ -55,6 +58,7 @@
   const reviewPanel = panels[5];
 
   move(categoriesPanel, ['structureType']);
+  categoriesPanel.prepend(journeyLabel);
   const categoryHelp = document.createElement('p');
   categoryHelp.className = 'listing-wizard-help';
   categoryHelp.dataset.categoryHelp = '';
@@ -79,7 +83,7 @@
   landFields.className = 'listing-wizard-field-grid';
   landFields.dataset.landFields = '';
   landFields.hidden = true;
-  landFields.innerHTML = '<label>Plot size<input name="plotSize" type="number" min="1" step="0.01" placeholder="e.g. 600" data-category-detail><select name="plotSizeUnit" aria-label="Plot size unit"><option value="sqm">Square metres</option><option value="acres">Acres</option><option value="hectares">Hectares</option></select></label><label>Land use or zoning<input name="landUse" maxlength="120" placeholder="Residential, agricultural, mixed-use" data-category-detail></label>';
+  landFields.innerHTML = '<label>Plot size<input name="plotSize" type="number" min="1" step="0.01" placeholder="e.g. 600" data-category-detail><select name="plotSizeUnit" aria-label="Plot size unit"><option value="sqm">Square metres</option><option value="acres">Acres</option><option value="hectares">Hectares</option></select></label><label>Land use or zoning<input name="landUse" maxlength="120" placeholder="Residential, agricultural, mixed-use" data-category-detail></label><label>Title information<select name="titleStatus" data-category-detail required><option value="">Choose the information available</option><option value="unknown">Not confirmed</option><option value="title_deed">Title deed reported</option><option value="offer">Offer reported</option><option value="customary">Customary rights reported</option><option value="other">Other documentation</option></select><small>This is information supplied by the advertiser, not a legal verification.</small></label>';
   const commercialFields = document.createElement('div');
   commercialFields.className = 'listing-wizard-field-grid';
   commercialFields.dataset.commercialFields = '';
@@ -90,6 +94,10 @@
   const priceFields = document.createElement('div');
   priceFields.className = 'listing-wizard-field-grid';
   priceFields.dataset.priceFields = '';
+  const salePriceLabel = document.createElement('label');
+  salePriceLabel.innerHTML = 'Sale price (TZS)<input name="salePrice" type="number" min="1" step="0.01" placeholder="e.g. 150000000">';
+  fieldLabels.set('salePrice', salePriceLabel);
+  priceFields.append(salePriceLabel);
   move(priceFields, ['nightlyPrice', 'monthlyPrice', 'yearlyPrice']);
   detailsPanel.append(priceFields);
   const amenityOptions = {
@@ -145,8 +153,6 @@
   let currentStep = 0;
 
   form.querySelectorAll('[required]').forEach(control => { control.required = false; });
-  const isLease = () => ['land_plot', 'commercial'].includes(category.value);
-  let previousCategory = category.value;
   const setMapPin = (latitude, longitude, message = 'Pin placed') => {
     field('latitude').value = latitude;
     field('longitude').value = longitude;
@@ -174,35 +180,38 @@
     });
   }
   const updatePriceFields = () => {
-    const lease = isLease();
-    const rentalTerm = field('rentalMode').value;
-    label('nightlyPrice').hidden = lease || rentalTerm === 'long_term';
-    label('monthlyPrice').hidden = !lease && rentalTerm === 'short_term';
-    label('yearlyPrice').hidden = !lease && rentalTerm === 'short_term';
-    label('monthlyPrice').firstChild.textContent = lease ? 'Monthly lease price (TZS)' : 'Monthly rent (TZS)';
-    label('yearlyPrice').firstChild.textContent = lease ? 'Yearly lease price (TZS)' : 'Yearly rent (TZS)';
+    const transactionType = field('transactionType').value;
+    salePriceLabel.hidden = transactionType !== 'sale';
+    label('nightlyPrice').hidden = transactionType !== 'stay';
+    label('monthlyPrice').hidden = transactionType !== 'rent' && transactionType !== 'both';
+    label('yearlyPrice').hidden = transactionType !== 'rent' && transactionType !== 'both';
+    label('monthlyPrice').firstChild.textContent = 'Monthly rent (TZS)';
+    label('yearlyPrice').firstChild.textContent = 'Yearly rent (TZS)';
   };
   const updateCategory = () => {
-    const lease = isLease();
+    const transaction = field('transactionType').value;
     const isLand = category.value === 'land_plot';
     const isCommercial = category.value === 'commercial';
     const isApartment = category.value === 'apartment' || category.value === 'serviced_apartment';
-    stayFields.hidden = lease;
+    const isLeaseCategory = isLand || isCommercial;
+    const stayOption = [...field('transactionType').options].find(option => option.value === 'stay');
+    stayOption.disabled = isLeaseCategory;
+    if (isLeaseCategory && transaction === 'stay') field('transactionType').value = 'sale';
+    stayFields.hidden = isLeaseCategory;
+    label('rentalMode').hidden = true;
     apartmentBedsLabel.hidden = !isApartment;
     landFields.hidden = !isLand;
     commercialFields.hidden = !isCommercial;
-    const changedFromLease = ['land_plot', 'commercial'].includes(previousCategory) && !lease;
-    field('rentalMode').value = lease ? 'long_term' : changedFromLease ? 'short_term' : field('rentalMode').value || 'short_term';
-    field('bookingMode').value = lease ? 'request' : field('bookingMode').value || 'request';
-    field('privacyType').value = lease ? '' : field('privacyType').value || 'entire_place';
-    previousCategory = category.value;
-    if (lease) field('nightlyPrice').value = '';
+    field('rentalMode').value = field('transactionType').value === 'stay' ? 'short_term' : 'long_term';
+    field('bookingMode').value = field('transactionType').value === 'stay' ? field('bookingMode').value || 'request' : 'request';
+    field('privacyType').value = isLeaseCategory ? '' : field('privacyType').value || 'entire_place';
     updatePriceFields();
     categoryHelp.textContent = isLand
-      ? 'Add plot size and land use. Land listings use monthly or yearly lease pricing.'
+      ? 'Add plot size, land use, and the title information reported by the advertiser. Land is available to buy or rent.'
       : isCommercial
-        ? 'Add floor area and intended business use. Commercial listings use monthly or yearly lease pricing.'
-        : 'Choose a stay category. You will add privacy, capacity, booking, and rent details next.';
+        ? 'Add floor area and intended business use. Commercial properties are available to buy or rent.'
+        : 'Choose Buy, Rent, or Stay, then add the details and matching price for that journey.';
+    if (isLeaseCategory && transaction === 'stay') categoryHelp.textContent = 'Land and commercial properties cannot be listed as short stays. Choose Buy or Rent.';
   };
   const addItem = (name, value) => {
     const row = document.createElement('div');
@@ -216,12 +225,15 @@
   const updateSummary = () => {
     summary.replaceChildren();
     const categoryLabel = category.selectedOptions[0]?.textContent || 'Choose a property type';
+    const transactionLabel = field('transactionType').selectedOptions[0]?.textContent || 'Choose a journey';
     addItem('Property type', categoryLabel);
+    addItem('Journey', transactionLabel);
     addItem('Location', [field('addressLine1').value, field('city').value].filter(Boolean).join(', '));
     addItem('Title', field('title').value);
     if (category.value === 'land_plot') {
       addItem('Plot size', `${field('plotSize').value || 'Not provided'} ${field('plotSizeUnit').selectedOptions[0]?.textContent || ''}`.trim());
       addItem('Land use', field('landUse').value);
+      addItem('Title information', field('titleStatus').selectedOptions[0]?.textContent);
     } else if (category.value === 'commercial') {
       addItem('Floor area', field('floorArea').value);
       addItem('Commercial use', field('commercialUse').selectedOptions[0]?.textContent || 'Not selected');
@@ -231,7 +243,7 @@
       if (category.value === 'apartment' || category.value === 'serviced_apartment') addItem('Beds', field('beds').value);
       addItem('Privacy', field('privacyType').selectedOptions[0]?.textContent);
     }
-    addItem('Pricing', [field('nightlyPrice').value && `TZS ${field('nightlyPrice').value} nightly`, field('monthlyPrice').value && `TZS ${field('monthlyPrice').value} monthly`, field('yearlyPrice').value && `TZS ${field('yearlyPrice').value} yearly`].filter(Boolean).join(' · '));
+    addItem('Pricing', [field('salePrice').value && `TZS ${field('salePrice').value} sale`, field('nightlyPrice').value && `TZS ${field('nightlyPrice').value} nightly`, field('monthlyPrice').value && `TZS ${field('monthlyPrice').value} monthly`, field('yearlyPrice').value && `TZS ${field('yearlyPrice').value} yearly`].filter(Boolean).join(' · '));
     addItem('Amenities and features', amenitiesField.value);
     addItem('Registration document', field('document').files[0]?.name);
     addItem('Photos or videos', `${field('media').files.length} selected · at least 5 required`);
@@ -250,11 +262,11 @@
     wizard.scrollIntoView({ block: 'nearest', behavior: 'auto' });
   };
   const requiredNames = index => {
-    if (index === 0) return ['structureType'];
+    if (index === 0) return ['transactionType', 'structureType'];
     if (index === 1) return ['city', 'addressLine1'];
     if (index === 2) {
       const names = ['title', 'description'];
-      if (category.value === 'land_plot') names.push('plotSize');
+      if (category.value === 'land_plot') names.push('plotSize', 'landUse', 'titleStatus');
       if (category.value === 'commercial') names.push('floorArea', 'commercialUse');
       return names;
     }
@@ -276,7 +288,6 @@
       }
     }
     if (index === 2) {
-      const rentalTerm = isLease() ? 'long_term' : field('rentalMode').value;
       const requirePositive = name => {
         const control = field(name);
         if (Number(control.value) > 0) return true;
@@ -287,20 +298,25 @@
       };
       if (category.value === 'land_plot' && !requirePositive('plotSize')) return false;
       if (category.value === 'commercial' && !requirePositive('floorArea')) return false;
-      const priceFields = rentalTerm === 'short_term'
-        ? ['nightlyPrice']
-        : rentalTerm === 'long_term'
-          ? ['monthlyPrice', 'yearlyPrice']
-          : ['nightlyPrice', 'monthlyPrice', 'yearlyPrice'];
-      const hasPrice = rentalTerm === 'both'
-        ? Number(field('nightlyPrice').value) > 0 && ['monthlyPrice', 'yearlyPrice'].some(name => Number(field(name).value) > 0)
-        : priceFields.some(name => Number(field(name).value) > 0);
+      const transactionType = field('transactionType').value;
+      const priceFields = transactionType === 'sale'
+        ? ['salePrice']
+        : transactionType === 'stay'
+          ? ['nightlyPrice']
+          : ['monthlyPrice', 'yearlyPrice'];
+      const hasPrice = transactionType === 'rent'
+        ? priceFields.some(name => Number(field(name).value) > 0)
+        : Number(field(priceFields[0]).value) > 0;
       if (!hasPrice) {
         const control = field(priceFields[0]);
         control.setCustomValidity('Enter a price greater than zero.');
         control.reportValidity();
         control.addEventListener('input', () => control.setCustomValidity(''), { once: true });
-        formMessage.textContent = 'Enter a rent or lease price to continue.';
+        formMessage.textContent = transactionType === 'sale'
+          ? 'Enter a sale price to continue.'
+          : transactionType === 'stay'
+            ? 'Enter a nightly stay price to continue.'
+            : 'Enter a monthly or yearly rent price to continue.';
         return false;
       }
     }
@@ -314,22 +330,8 @@
     if (formMessage) formMessage.textContent = '';
     return true;
   };
-  const storeCategoryDetails = () => {
-    const marker = '\n\nProperty details:\n';
-    const description = field('description').value.split(marker)[0].trim();
-    const details = [];
-    if (category.value === 'land_plot') {
-      details.push(`Plot size: ${field('plotSize').value} ${field('plotSizeUnit').value}`);
-      if (field('landUse').value.trim()) details.push(`Land use: ${field('landUse').value.trim()}`);
-    } else if (category.value === 'commercial') {
-      details.push(`Floor area: ${field('floorArea').value} square metres`);
-      details.push(`Commercial use: ${field('commercialUse').selectedOptions[0]?.textContent}`);
-    }
-    field('description').value = details.length ? `${description}${marker}${details.join('\n')}` : description;
-    field('rentalMode').value = isLease() ? 'long_term' : field('rentalMode').value;
-  };
-
   category.addEventListener('change', updateCategory);
+  field('transactionType').addEventListener('change', updateCategory);
   field('rentalMode').addEventListener('change', updatePriceFields);
   next.addEventListener('click', () => {
     if (!validateStep(currentStep)) return;
@@ -342,7 +344,6 @@
       event.stopImmediatePropagation();
       return;
     }
-    storeCategoryDetails();
   }, true);
 
   updateCategory();

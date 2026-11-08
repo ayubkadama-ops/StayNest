@@ -13,14 +13,15 @@ import { pool, assertDatabaseConnection } from './db.js';
 import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudinary.js';
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
-import { MAX_IMAGE_UPLOAD_BYTES, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, resolvePropertyType, approximateListingCoordinates } from './rules.js';
+import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
+import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, approximateListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
 import { sendBrandedEmail } from './email.js';
 import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
+import { applySchemaMigrations } from './schema-migrations.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -144,70 +145,7 @@ async function loadRuntimeConfig() {
   }
 }
 async function ensureSchemaMigrations() {
-  const migrationFiles = [
-    'admin-access-migration.sql',
-    'admin-username-migration.sql',
-    'admin-control-migration.sql',
-    'email-verification-migration.sql',
-    'footer-social-migration.sql',
-    'agent-migration.sql',
-    'agent-search-migration.sql',
-    'founder-approval-migration.sql',
-    'google-oauth-migration.sql',
-    'listing-beds-migration.sql',
-    'listing-wizard-migration.sql',
-    'password-recovery-migration.sql',
-    'posts-badges-migration.sql',
-    'posts-migration.sql',
-    'security-hardening-migration.sql',
-    'sub-agent-migration.sql',
-    'tenant-experience-migration.sql'
-  ];
-  for (const file of migrationFiles) {
-    const source = await readFile(path.resolve(process.cwd(), 'database', file), 'utf8');
-    const statements = source.split(/;\s*(?:\r?\n|$)/).map(statement => statement.replace(/^(?:--.*\r?\n|\s)+/gm, '').trim()).filter(Boolean);
-    for (const statement of statements) {
-      try {
-        await pool.query(statement);
-      } catch (error) {
-        if (/ALTER TABLE listings\s+ADD COLUMN structure_type/i.test(statement)) {
-          try { await pool.query('ALTER TABLE listings ADD COLUMN structure_type VARCHAR(40) NULL'); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          try { await pool.query('ALTER TABLE listings ADD COLUMN privacy_type VARCHAR(30) NULL'); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          continue;
-        }
-        if (/ALTER TABLE listings\s+ADD COLUMN beds/i.test(statement)) {
-          try { await pool.query('ALTER TABLE listings ADD COLUMN beds TINYINT UNSIGNED NULL'); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          continue;
-        }
-        if (/ALTER TABLE bookings\s+ADD COLUMN booking_kind/i.test(statement)) {
-          try { await pool.query('ALTER TABLE bookings ADD COLUMN booking_kind ENUM(\'stay\',\'viewing\') NOT NULL DEFAULT \'stay\''); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          try { await pool.query('ALTER TABLE bookings ADD COLUMN appointment_at DATETIME NULL'); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          continue;
-        }
-        if (/ALTER TABLE users\s+ADD COLUMN google_id/i.test(statement) && /unsupported add column|unique key/i.test(error.message || '')) {
-          try { await pool.query('ALTER TABLE users ADD COLUMN google_id VARCHAR(255) NULL'); } catch (columnError) {
-            if (columnError.code !== 'ER_DUP_FIELDNAME') throw columnError;
-          }
-          try { await pool.query('CREATE UNIQUE INDEX uq_users_google_id_runtime ON users (google_id)'); } catch (indexError) {
-            if (!['ER_DUP_KEYNAME', 'ER_DUP_ENTRY'].includes(indexError.code)) throw indexError;
-          }
-          continue;
-        }
-        if (!['ER_TABLE_EXISTS_ERROR', 'ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME'].includes(error.code)) throw error;
-      }
-    }
-  }
-  await pool.query("INSERT IGNORE INTO property_types (name) VALUES ('apartment'), ('house'), ('room'), ('commercial'), ('short_stay'), ('land'), ('hotel')");
+  await applySchemaMigrations(pool);
 }
 async function ensureListingPricePrecision() {
   const priceColumns = ['nightly_price', 'monthly_price', 'yearly_price'];
@@ -680,11 +618,10 @@ const requireRole = (role) => (req, res, next) =>
   hasRole(req.session.user?.roles, role) ? next() : res.status(403).json({ error: 'Insufficient permissions' });
 async function adminIpAllowed(ip) {
   const [rules] = await pool.query('SELECT rule_type, cidr FROM admin_ip_rules WHERE enabled=TRUE');
-  const normalized = String(ip || '').replace(/^::ffff:/, '');
-  const matches = rule => rule === normalized || (rule.includes('/') && normalized.startsWith(rule.split('/')[0].split('.').slice(0, 3).join('.')));
-  const denied = rules.some(rule => rule.rule_type === 'deny' && matches(rule.cidr));
+  const matches = rule => ipMatchesNetwork(ip, rule.cidr);
+  const denied = rules.some(rule => rule.rule_type === 'deny' && matches(rule));
   const allowRules = rules.filter(rule => rule.rule_type === 'allow');
-  return !denied && (!allowRules.length || allowRules.some(rule => matches(rule.cidr)));
+  return !denied && (!allowRules.length || allowRules.some(matches));
 }
 const requireAdminAccess = (feature) => async (req, res, next) => {
   if (!(req.session.user?.roles?.includes('administrator') || req.session.adminGate === true)) return res.status(403).json({ error: 'Administrator access required' });
@@ -1334,6 +1271,10 @@ app.get('/api/listings/discover', async (req, res, next) => {
     const query = String(req.query.q || '').trim().slice(0, 100);
     const location = String(req.query.location || '').trim().slice(0, 100);
     const rentalMode = ['short_term', 'long_term'].includes(req.query.rentalMode) ? req.query.rentalMode : null;
+    const transactionType = req.query.transactionType ? String(req.query.transactionType).trim().toLowerCase() : null;
+    if (transactionType && !['sale', 'rent', 'stay', 'both'].includes(transactionType)) {
+      return res.status(400).json({ error: 'Choose a valid property journey' });
+    }
     const propertyType = String(req.query.propertyType || '').trim().slice(0, 50);
     const minPrice = Number(req.query.minPrice);
     const maxPrice = Number(req.query.maxPrice);
@@ -1350,20 +1291,26 @@ app.get('/api/listings/discover', async (req, res, next) => {
       params.push(like, like, like, like);
     }
     if (rentalMode) where.push('(l.rental_mode=? OR l.rental_mode="both")'), params.push(rentalMode);
+    if (transactionType) {
+      where.push(transactionType === 'rent' || transactionType === 'stay'
+        ? '(l.transaction_type=? OR l.transaction_type="both")'
+        : 'l.transaction_type=?');
+      params.push(transactionType);
+    }
     if (propertyType) where.push('pt.name=?'), params.push(propertyType);
     if (Number.isFinite(minPrice) && minPrice >= 0) {
-      where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) >= ?)');
+      where.push('(COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) >= ?)');
       params.push(minPrice);
     }
     if (Number.isFinite(maxPrice) && maxPrice >= 0) {
-      where.push('(COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
+      where.push('(COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) <= ?)');
       params.push(maxPrice);
     }
     const savedUserId = Number(req.session.user?.id) || 0;
     const order = !req.query.sort || req.query.sort === 'new'
       ? 'l.published_at DESC, l.created_at DESC'
       : req.query.sort === 'price_low'
-        ? 'COALESCE(l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
+        ? 'COALESCE(l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price) ASC, l.updated_at DESC'
         : req.query.sort === 'popular'
           ? 'l.average_rating DESC, l.review_count DESC, l.updated_at DESC'
           : 'l.updated_at DESC, l.published_at DESC';
@@ -1386,7 +1333,7 @@ app.get('/api/listings/discover', async (req, res, next) => {
        LIMIT 40`,
       [savedUserId, ...params]
     );
-    res.json({ listings, filters: { query, location, rentalMode, propertyType, minPrice: Number.isFinite(minPrice) ? minPrice : null, maxPrice: Number.isFinite(maxPrice) ? maxPrice : null } });
+    res.json({ listings, filters: { query, location, rentalMode, propertyType, transactionType, minPrice: Number.isFinite(minPrice) ? minPrice : null, maxPrice: Number.isFinite(maxPrice) ? maxPrice : null } });
   } catch (error) { next(error); }
 });
 
@@ -1807,7 +1754,7 @@ app.get('/api/account/summary', requireAuth, requireRole('tenant'), async (req, 
 app.get('/api/host/listings', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT id, title, slug, status, rental_mode, currency, nightly_price, monthly_price, yearly_price, average_rating, review_count, updated_at FROM listings WHERE owner_user_id=? OR agent_user_id=? ORDER BY updated_at DESC',
+      'SELECT id, title, slug, status, rental_mode, transaction_type, currency, sale_price, nightly_price, monthly_price, yearly_price, average_rating, review_count, updated_at FROM listings WHERE owner_user_id=? OR agent_user_id=? ORDER BY updated_at DESC',
       [agentOwnerId(req), agentOwnerId(req)]
     );
     res.json({ listings: rows });
@@ -1996,8 +1943,23 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
   let savePhase = 'validate_listing';
   let numericFields = [];
   try {
-    const { title, description, city, addressLine1, countryCode = 'TZ', structureType, privacyType, nightlyPrice, monthlyPrice, yearlyPrice, rentalMode = 'short_term', bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
-    const propertyType = resolvePropertyType(req.body.propertyType, structureType);
+    const { title, description, city, addressLine1, countryCode = 'TZ', structureType, privacyType, bookingMode = 'request', documentType = 'business_license', documentCountry = 'TZ', documentLast4 } = req.body;
+    const journey = validateListingJourney({
+      transactionType: req.body.transactionType,
+      propertyType: req.body.propertyType,
+      structureType,
+      rentalMode: req.body.rentalMode,
+      salePrice: req.body.salePrice,
+      nightlyPrice: req.body.nightlyPrice,
+      monthlyPrice: req.body.monthlyPrice,
+      yearlyPrice: req.body.yearlyPrice,
+      plotSize: req.body.plotSize,
+      plotSizeUnit: req.body.plotSizeUnit,
+      landUse: req.body.landUse,
+      titleStatus: req.body.titleStatus,
+      floorArea: req.body.floorArea,
+      commercialUse: req.body.commercialUse
+    });
     const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
     const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
@@ -2005,26 +1967,28 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const amenities = String(req.body.amenities || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 20);
     const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
     const document = req.files?.document?.[0], media = req.files?.media || [];
-    if (!title || !description || !city || !addressLine1 || (!nightlyPrice && !monthlyPrice && !yearlyPrice)) return res.status(400).json({ error: 'Title, description, address, city, and a price are required' });
+    if (!title || !description || !city || !addressLine1) return res.status(400).json({ error: 'Title, description, address, and city are required' });
+    if (journey.error) return res.status(400).json({ error: journey.error });
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return res.status(400).json({ error: 'Choose the listing location on the OpenStreetMap preview' });
     if (!document) return res.status(400).json({ error: 'Agent registration document is required before publishing a property' });
     if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
-    if (!['short_term', 'long_term', 'both'].includes(rentalMode)) return res.status(400).json({ error: 'Choose a valid rental duration' });
     if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
     if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
+    if (journey.transactionType !== 'stay' && journey.transactionType !== 'both' && bookingMode !== 'request') return res.status(400).json({ error: 'Only short stays can use instant booking' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
     savePhase = 'lookup_property_type';
-    const [types] = await pool.execute('SELECT id FROM property_types WHERE name=?', [propertyType]);
+    const [types] = await pool.execute('SELECT id FROM property_types WHERE name=?', [journey.propertyType]);
     if (!types.length) return res.status(400).json({ error: 'Invalid property type' });
     numericFields = [
       ['propertyTypeId', Number(types[0].id)],
       ['bedrooms', bedrooms],
       ['beds', beds],
       ['maxGuests', maxGuests],
-      ['nightlyPrice', Number(nightlyPrice) || 0],
-      ['monthlyPrice', Number(monthlyPrice) || 0],
-      ['yearlyPrice', Number(yearlyPrice) || 0]
+      ['salePrice', journey.prices.salePrice || 0],
+      ['nightlyPrice', journey.prices.nightlyPrice || 0],
+      ['monthlyPrice', journey.prices.monthlyPrice || 0],
+      ['yearlyPrice', journey.prices.yearlyPrice || 0]
     ];
     const slug = `${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
     savePhase = 'store_identity_document';
@@ -2050,22 +2014,27 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     connection = await pool.getConnection();
     await connection.beginTransaction();
     let result;
-    try {
-      savePhase = 'insert_listing';
-      [result] = await connection.execute(
-        'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null, title, slug, description, bookingMode, rentalMode, bedrooms, beds, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
-      );
-    } catch (error) {
-      if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
-      savePhase = 'insert_listing_compatibility';
-      [result] = await connection.execute(
-        'INSERT INTO listings (owner_user_id, agent_user_id, property_type_id, title, slug, description, status, booking_mode, rental_mode, currency, bedrooms, bathrooms, max_guests, city, address_line1, country_code, latitude, longitude, nightly_price, monthly_price, yearly_price) VALUES (?, ?, ?, ?, ?, ?, "pending_review", ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [agentOwnerId(req), agentOwnerId(req), types[0].id, title, slug, description, bookingMode, rentalMode, bedrooms, bathrooms, maxGuests, city, addressLine1, countryCode, latitude, longitude, nightlyPrice || null, monthlyPrice || null, yearlyPrice || null]
-      );
-    }
+    savePhase = 'insert_listing';
+    [result] = await connection.execute(
+      `INSERT INTO listings (
+        owner_user_id, agent_user_id, property_type_id, structure_type, privacy_type,
+        title, slug, description, status, booking_mode, rental_mode, transaction_type,
+        currency, sale_price, nightly_price, monthly_price, yearly_price,
+        plot_size, plot_size_unit, land_use, title_status, floor_area, commercial_use,
+        bedrooms, beds, bathrooms, max_guests, city, address_line1, country_code,
+        latitude, longitude
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null,
+        title, slug, description, bookingMode, journey.rentalMode, journey.transactionType,
+        journey.prices.salePrice, journey.prices.nightlyPrice, journey.prices.monthlyPrice, journey.prices.yearlyPrice,
+        journey.plotSize, journey.plotSizeUnit, journey.landUse, journey.titleStatus,
+        journey.floorArea, journey.commercialUse, bedrooms, beds, bathrooms, maxGuests,
+        city, addressLine1, countryCode, latitude, longitude
+      ]
+    );
     savePhase = 'insert_identity_verification';
-    await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key]);
+    await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key, encryption_version) VALUES (?, ?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key, storedDocument.encryptionVersion]);
     for (const [index, { file, stored, isVideo }] of storedMedia.entries()) {
       savePhase = 'insert_listing_media';
       await connection.execute('INSERT INTO listing_media (listing_id, media_type, storage_key, public_url, caption, sort_order, is_cover) VALUES (?, ?, ?, ?, ?, ?, ?)', [result.insertId, isVideo ? 'video' : 'image', stored.key, stored.url, String(req.body[`caption${index}`] || '').slice(0, 255), index, index === 0]);
@@ -2256,9 +2225,12 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
     const [[listing]] = await pool.query(
       `SELECT l.id, l.title, l.description, l.neighborhood, l.city, l.region,
         l.approximate_latitude, l.approximate_longitude, l.latitude, l.longitude,
-        l.currency, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        l.currency, l.transaction_type transactionType, l.sale_price salePrice,
+        l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
+        l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
+        l.floor_area floorArea, l.commercial_use commercialUse,
         l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
@@ -2536,7 +2508,7 @@ app.post('/api/admin/ip-rules', requireAuth, requireAdminAccess('settings'), asy
     const type = ['allow', 'deny'].includes(req.body.ruleType) ? req.body.ruleType : null;
     const cidr = String(req.body.cidr || '').trim().slice(0, 64);
     const label = String(req.body.label || '').trim().slice(0, 120) || null;
-    if (!type || !/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(cidr)) return res.status(400).json({ error: 'Enter a valid IP address or CIDR range' });
+    if (!type || !isValidIpNetwork(cidr)) return res.status(400).json({ error: 'Enter a valid IP address or CIDR range' });
     await pool.execute('INSERT INTO admin_ip_rules (rule_type, cidr, label, created_by) VALUES (?, ?, ?, ?)', [type, cidr, label, req.session.user.id || null]);
     await audit(req, 'admin_ip_rule_created', 'admin_ip_rule', null, { type, cidr });
     res.status(201).json({ ok: true });
@@ -2848,6 +2820,51 @@ app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess('verif
       FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
       JOIN user_profiles p ON p.user_id=u.id
       WHERE r.name='agent' AND u.status IN ('pending','active','suspended')
+app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
+  const verificationId = positiveId(req.params.id);
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  if (!verificationId || !/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(404).json({ error: 'Document access link is invalid or expired' });
+  const tokenHash = crypto.createHash('sha256').update(token).digest();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[grant]] = await connection.execute(
+      'SELECT verification_id FROM identity_document_download_tokens WHERE token_hash=? AND verification_id=? AND consumed_at IS NULL AND expires_at>UTC_TIMESTAMP() FOR UPDATE',
+      [tokenHash, verificationId]
+    );
+    if (!grant) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Document access link is invalid or expired' });
+    }
+    const [[document]] = await connection.execute(
+      'SELECT document_file_key, encryption_version FROM identity_verifications WHERE id=?',
+      [verificationId]
+    );
+    if (!document) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Verification document not found' });
+    }
+    await connection.execute(
+      'UPDATE identity_document_download_tokens SET consumed_at=UTC_TIMESTAMP() WHERE token_hash=? AND consumed_at IS NULL',
+      [tokenHash]
+    );
+    await connection.commit();
+    const { buffer, contentType } = await readPrivateDocument(document.document_file_key, document.encryption_version);
+    await audit(req, 'identity_document_downloaded', 'identity_verification', verificationId);
+    const extension = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }[contentType];
+    res.set({
+      'Cache-Control': 'private, no-store, max-age=0',
+      'Content-Disposition': `attachment; filename="verification-${verificationId}.${extension}"`,
+      'Content-Type': contentType,
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff'
+    }).send(buffer);
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally { connection.release(); }
+});
+
     `);
     const [subagents] = await pool.query(`
       SELECT u.id, 'subagent' verification_type,
@@ -3118,8 +3135,8 @@ app.post('/api/identity-documents', requireAuth, requireAgentAccess('identity.ma
     if (documentLast4 && !/^\d{4}$/.test(documentLast4)) return res.status(400).json({ error: 'Document suffix must contain four digits' });
     const stored = await storePrivateDocument(req.file, req.session.user.id);
     const [result] = await pool.execute(
-      'INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key) VALUES (?, ?, ?, ?, ?)',
-      [req.session.user.id, documentType, documentCountry || null, documentLast4 || null, stored.key]
+      'INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key, encryption_version) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.session.user.id, documentType, documentCountry || null, documentLast4 || null, stored.key, stored.encryptionVersion]
     );
     await audit(req, 'identity_document_uploaded', 'identity_verification', result.insertId);
     res.status(201).json({ id: result.insertId, status: 'pending' });
@@ -3145,7 +3162,7 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
         return res.status(200).json(JSON.parse(prior[0].response_json));
       }
     }
-    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, title, currency, nightly_price, cleaning_fee, min_stay_nights FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
+    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
     const listing = listingRows[0];
     if (!listing) {
       await connection.rollback();
@@ -3162,6 +3179,10 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
     } catch {
       await connection.rollback();
       return res.status(400).json({ error: 'Invalid dates or minimum stay not met' });
+    if (!['stay', 'both'].includes(listing.transaction_type)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
+    }
     }
     const bookingCode = `SN${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     const { nights, subtotal, total } = booking;

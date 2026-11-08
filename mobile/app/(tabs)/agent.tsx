@@ -322,14 +322,16 @@ function StatCard({
 }
 
 function AgentListingCard({ listing }: { listing: AgentListing }) {
-  const price = listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
-  const period = listing.nightlyPrice !== null
-    ? 'night'
-    : listing.monthlyPrice !== null
-      ? 'month'
-      : listing.yearlyPrice !== null
-        ? 'year'
-        : null;
+  const price = listing.salePrice ?? listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
+  const period = listing.salePrice !== null
+    ? 'for sale'
+    : listing.nightlyPrice !== null
+      ? 'night'
+      : listing.monthlyPrice !== null
+        ? 'month'
+        : listing.yearlyPrice !== null
+          ? 'year'
+          : null;
 
   return (
     <View style={styles.itemCard}>

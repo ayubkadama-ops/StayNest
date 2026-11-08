@@ -1,10 +1,12 @@
 export type RentalMode = '' | 'short_term' | 'long_term';
+export type ListingTransaction = '' | 'sale' | 'rent' | 'stay';
 export type ListingSort = 'new' | 'price_low' | 'popular';
 
 export type DiscoveryFilters = {
   q: string;
   location: string;
   propertyType: string;
+  transactionType: ListingTransaction;
   rentalMode: RentalMode;
   sort: ListingSort;
 };
@@ -17,6 +19,8 @@ export type ListingSummary = {
   neighborhood: string | null;
   region: string | null;
   currency: string | null;
+  transactionType: string | null;
+  salePrice: number | null;
   nightlyPrice: number | null;
   monthlyPrice: number | null;
   yearlyPrice: number | null;
@@ -24,6 +28,12 @@ export type ListingSummary = {
   propertyType: string | null;
   structureType: string | null;
   privacyType: string | null;
+  plotSize: number | null;
+  plotSizeUnit: string | null;
+  landUse: string | null;
+  titleStatus: string | null;
+  floorArea: number | null;
+  commercialUse: string | null;
   beds: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -87,7 +97,9 @@ export type AgentListing = {
   title: string;
   status: string;
   rentalMode: string | null;
+  transactionType: string | null;
   currency: string | null;
+  salePrice: number | null;
   nightlyPrice: number | null;
   monthlyPrice: number | null;
   yearlyPrice: number | null;
@@ -358,6 +370,8 @@ function parseListing(value: unknown): ListingSummary {
     neighborhood: nullableString(value.neighborhood, 'neighborhood'),
     region: nullableString(value.region, 'region'),
     currency: nullableString(value.currency, 'currency'),
+    transactionType: nullableString(value.transactionType, 'transaction type'),
+    salePrice: nullableNumber(value.salePrice, 'sale price'),
     nightlyPrice: nullableNumber(value.nightlyPrice, 'nightly price'),
     monthlyPrice: nullableNumber(value.monthlyPrice, 'monthly price'),
     yearlyPrice: nullableNumber(value.yearlyPrice, 'yearly price'),
@@ -365,6 +379,12 @@ function parseListing(value: unknown): ListingSummary {
     propertyType: nullableString(value.propertyType, 'property type'),
     structureType: nullableString(value.structureType, 'structure type'),
     privacyType: nullableString(value.privacyType, 'privacy type'),
+    plotSize: nullableNumber(value.plotSize, 'plot size'),
+    plotSizeUnit: nullableString(value.plotSizeUnit, 'plot size unit'),
+    landUse: nullableString(value.landUse, 'land use'),
+    titleStatus: nullableString(value.titleStatus, 'title status'),
+    floorArea: nullableNumber(value.floorArea, 'floor area'),
+    commercialUse: nullableString(value.commercialUse, 'commercial use'),
     beds: nullableNumber(value.beds, 'beds'),
     bedrooms: nullableNumber(value.bedrooms, 'bedrooms'),
     bathrooms: nullableNumber(value.bathrooms, 'bathrooms'),
@@ -405,7 +425,9 @@ function parseAgentListing(value: unknown): AgentListing {
     title,
     status,
     rentalMode: nullableString(value.rental_mode, 'rental term'),
+    transactionType: nullableString(value.transaction_type, 'transaction type'),
     currency: nullableString(value.currency, 'currency'),
+    salePrice: nullableNumber(value.sale_price, 'sale price'),
     nightlyPrice: nullableNumber(value.nightly_price, 'nightly price'),
     monthlyPrice: nullableNumber(value.monthly_price, 'monthly price'),
     yearlyPrice: nullableNumber(value.yearly_price, 'yearly price'),
@@ -912,6 +934,7 @@ export async function discoverListings(filters: DiscoveryFilters): Promise<Listi
   if (query) params.set('q', query);
   if (location) params.set('location', location);
   if (filters.propertyType) params.set('propertyType', filters.propertyType);
+  if (filters.transactionType) params.set('transactionType', filters.transactionType);
   if (filters.rentalMode) params.set('rentalMode', filters.rentalMode);
   params.set('sort', filters.sort);
 
