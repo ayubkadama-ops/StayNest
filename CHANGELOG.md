@@ -5,6 +5,49 @@ commit history or release notes.
 
 ## Unreleased
 
+### Professional workspace, search, avatars, and Stage 14
+
+- Added the authenticated professional-profile read route that the workspace
+  already depended on. Reworked the profile and analytics view into a
+  responsive, wider workspace with listing metrics, verification states,
+  editable specializations/service areas, organization review status, explicit
+  retry/error states, and admin-configured plan previews.
+- Professional analytics now separates published listing guest reviews from
+  agent reviews. If the gated reputation migration is not installed yet, the
+  other analytics still load and the unavailable agent-review metric is
+  clearly identified.
+- Added audience-scoped, admin-enabled plan previews to professional accounts.
+  Plan prices and benefits come from the configured catalog; the preview does
+  not activate subscriptions or expose checkout/payment actions.
+- Search results now remain visible when a search URL is reopened, explicit
+  searches scroll to the results, and discovery failures provide an inline
+  retry instead of looking like an empty result set.
+- Listing-detail agent portraits now use a valid Makazi Go fallback and
+  register image-error handling through JavaScript rather than CSP-blocked
+  inline handlers.
+- Legacy `/ai` and `/makazi-go-ai` paths now resolve to marketplace discovery
+  with a clear message that AI recommendations are not available yet. No AI
+  provider or recommendation system is configured; that remains future work.
+- Local verification: 78 Node tests, 100 Django tests, Django system checks,
+  production Vite build, mobile TypeScript check, JavaScript syntax checks, and
+  `git diff --check` pass. Local browser verification could not complete because
+  the preview was unreachable through the browser bridge; production behavior
+  and deployment database state remain unverified.
+
+### Admin document previews, TiDB moderation, and signup verification setting
+
+- Identity documents now preview through the authenticated admin origin. The
+  preview streams only supported PDF/JPEG/PNG content, keeps the audited
+  single-use grant, and shows a clear admin error if the upstream link is
+  invalid or the file cannot be retrieved instead of displaying a JSON error.
+- Reworked listing moderation's latest identity-document joins to use
+  pre-aggregated user/document IDs rather than correlated `ON` subqueries,
+  which TiDB does not support. Agent-related listing links now open the
+  detailed admin moderation page, including its review actions.
+- Added an audited admin setting to require email verification after signup.
+  When disabled, new accounts are marked verified and existing unverified
+  accounts may sign in; verification remains required by default.
+
 ### Stages 12–13 — Administration security and mobile performance
 
 - Removed the public homepage admin shortcut and hidden brand double-click

@@ -1,7 +1,10 @@
 import os
 import json
 import hashlib
+import io
+from email.message import Message
 from decimal import Decimal
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
 from unittest.mock import patch
@@ -268,6 +271,10 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertIn('l.status=%s', query)
         self.assertIn('ORDER BY l.updated_at DESC', query)
         self.assertEqual(params, ['published', '%Arusha%', '%Arusha%', '%Arusha%', '%Arusha%'])
+        self.assertEqual(rows.call_count, 2)
+        self.assertIn('listing_duplicate_reviews', rows.call_args_list[0].args[0])
+        self.assertNotIn('ON iv.id=(', query)
+        self.assertIn('MAX(id) latest_id', query)
 
     @patch('console.views.audit')
     @patch('console.views.execute')
@@ -555,7 +562,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
             [{'name': 'agent'}],
             [{'phone': '+255700000001', 'agency_name': 'Amani Homes', 'bio': 'Local agent',
               'followers_count': 2, 'following_count': 1, 'created_at': '2026-10-01', 'updated_at': '2026-10-02'}],
-            [],
+            [{'id': 88, 'title': 'Garden house', 'city': 'Arusha', 'status': 'published',
+              'updated_at': '2026-11-01'}],
             [],
             [],
             [],
@@ -570,6 +578,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '>Approve<')
         self.assertContains(response, '>Reject<')
         self.assertContains(response, 'return_to')
+        self.assertContains(response, 'href="/admin/listings/88/"')
+        self.assertNotContains(response, '/listings.html?listing=88')
 
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.bcrypt.checkpw', return_value=True)
@@ -625,6 +635,37 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(dashboard.status_code, 200)
         self.assertContains(dashboard, 'Your administrator account is active')
         self.assertNotContains(dashboard, 'Founder profile')
+
+    @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.execute')
+    @patch('console.views.rows')
+    @patch('console.views.bcrypt.checkpw', return_value=True)
+    @patch('console.views.load_founder_profile', return_value=None)
+    def test_unverified_admin_can_sign_in_when_email_verification_is_disabled(
+        self, founder_profile, checkpw, rows, execute, scalar
+    ):
+        rows.side_effect = [
+            [{
+                'id': 42,
+                'username': 'asha.admin',
+                'email': 'asha@example.test',
+                'password_hash': 'created-account-hash',
+                'email_verified_at': None,
+                'mfa_enabled': False,
+                'display_name': 'Asha Mrema',
+            }],
+            [{'setting_value': '0'}],
+        ]
+
+        response = self.client.post('/admin/login/', {
+            'username': 'asha.admin',
+            'password': 'StrongPass123!',
+        })
+
+        self.assertRedirects(response, '/admin/', fetch_redirect_response=False)
+        self.assertTrue(self.client.session['admin_authenticated'])
+        execute.assert_called_once_with('UPDATE users SET last_login_at=UTC_TIMESTAMP() WHERE id=%s', [42])
 
     @patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'})
     @patch('console.views.scalar', return_value=1)
@@ -977,6 +1018,30 @@ class AdminConsoleAccessTests(SimpleTestCase):
         )
         audit.assert_called_once()
 
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_admin_can_disable_email_verification_after_signup(self, atomic, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/setting/', {
+            'key': 'require_email_verification',
+            'value': '0',
+            'section': 'settings',
+        })
+
+        self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
+            ['require_email_verification', '0'],
+        )
+        audit.assert_called_once_with(
+            'admin_setting_updated',
+            'app_setting',
+            None,
+            {'key': 'require_email_verification'},
+        )
+
     @patch('console.views.execute')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
     def test_admin_rejects_insecure_social_footer_links(self, atomic, execute):
@@ -1002,6 +1067,24 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'type="url"')
         self.assertContains(response, 'adminEmailTemplatesData')
         self.assertContains(response, 'Welcome')
+
+    @patch('console.views.rows', side_effect=[
+        [{'setting_key': 'require_email_verification', 'setting_value': '0'}],
+        [],
+        [],
+        [],
+    ])
+    def test_admin_settings_show_email_verification_state_and_enable_action(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=settings')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['require_email_verification'], '0')
+        self.assertContains(response, 'Email verification after signup')
+        self.assertContains(response, 'Current setting:</strong> Not required')
+        self.assertContains(response, 'name="value" value="1"')
+        self.assertContains(response, 'Require email verification after signup')
 
     @patch('console.views.rows', return_value=[{
         'id': 8, 'plan_key': 'agency-growth', 'name': 'Agency Growth', 'audience': 'agencies',
@@ -1293,8 +1376,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         location = urlparse(response['Location'])
         token = parse_qs(location.query)['token'][0]
-        self.assertEqual(location.scheme, 'https')
-        self.assertEqual(location.path, '/api/admin/verifications/42/document')
+        self.assertEqual(location.path, '/admin/identity-documents/42/')
         self.assertEqual(len(token), 43)
         self.assertEqual(execute.call_args.args[1][0], hashlib.sha256(token.encode('ascii')).digest())
         self.assertNotIn(token, execute.call_args.args[0])
@@ -1304,6 +1386,39 @@ class AdminConsoleAccessTests(SimpleTestCase):
             42,
             {'source': 'identity_queue'},
         )
+
+    @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
+    @patch('console.views.urlopen')
+    def test_identity_document_preview_streams_inline_pdf_inside_admin(self, urlopen):
+        response_body = b'%PDF-1.7 private document'
+        headers = Message()
+        headers['Content-Type'] = 'application/pdf'
+        upstream = io.BytesIO(response_body)
+        upstream.headers = headers
+        urlopen.return_value.__enter__.return_value = upstream
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/identity-documents/42/?token=' + ('a' * 43))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('inline; filename="verification-42.pdf"', response['Content-Disposition'])
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertEqual(response['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(response.content, response_body)
+        called_request = urlopen.call_args.args[0]
+        self.assertEqual(called_request.full_url, 'https://makazigo.example/api/admin/verifications/42/document?token=' + ('a' * 43))
+
+    @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
+    @patch('console.views.urlopen', side_effect=HTTPError('https://makazigo.example/document', 404, 'Not found', {}, io.BytesIO(b'{"error":"expired"}')))
+    def test_expired_identity_document_link_has_clear_admin_error_not_json(self, urlopen):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/identity-documents/42/?token=' + ('a' * 43))
+
+        self.assertEqual(response.status_code, 410)
+        self.assertContains(response, 'Reopen it from the admin queue.', status_code=410)
+        self.assertEqual(response['Content-Type'], 'text/html; charset=utf-8')
 
     @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
     @patch('console.views.audit')
@@ -1324,7 +1439,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         query = rows.call_args.args[0]
         self.assertIn('l.agent_user_id', query)
         self.assertEqual(rows.call_args.args[1], [17])
-        self.assertIn('/api/admin/verifications/42/document', response['Location'])
+        self.assertIn('/admin/identity-documents/42/', response['Location'])
         audit.assert_called_once_with(
             'identity_document_access_granted',
             'identity_verification',

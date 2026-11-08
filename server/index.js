@@ -28,6 +28,7 @@ import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
 import { securityHeaders } from './security-headers.js';
+import { isEmailVerificationRequired } from './email-verification-policy.js';
 import {
   nextPropertyVerificationCheck,
   resetPropertyLocationChecks,
@@ -133,7 +134,8 @@ let runtimeConfig = {
   contactPhone: '0794 442 907',
   timezone: 'Africa/Dar_es_Salaam',
   maintenanceMode: false,
-  maintenanceMessage: 'Makazi Go is being updated. Please check back shortly.'
+  maintenanceMessage: 'Makazi Go is being updated. Please check back shortly.',
+  requireEmailVerification: true
 };
 const adminSettingKeys = {
   site_name: 'siteName',
@@ -148,7 +150,8 @@ const adminSettingKeys = {
   social_youtube_url: 'socialYoutubeUrl',
   timezone: 'timezone',
   maintenance_mode: 'maintenanceMode',
-  maintenance_message: 'maintenanceMessage'
+  maintenance_message: 'maintenanceMessage',
+  require_email_verification: 'requireEmailVerification'
 };
 async function loadRuntimeConfig() {
   try {
@@ -156,7 +159,9 @@ async function loadRuntimeConfig() {
     for (const row of rows) {
       const key = adminSettingKeys[row.setting_key];
       if (!key) continue;
-      runtimeConfig[key] = row.setting_key === 'maintenance_mode' ? row.setting_value === '1' : row.setting_value;
+      runtimeConfig[key] = ['maintenance_mode', 'require_email_verification'].includes(row.setting_key)
+        ? row.setting_value !== '0'
+        : row.setting_value;
     }
   } catch (error) {
     console.warn('Runtime settings unavailable; using defaults:', error.code || error.message);
@@ -266,6 +271,13 @@ async function isFeatureEnabled(featureKey) {
     console.warn('Feature flags unavailable; allowing the requested operation:', error.code || error.message);
     return true;
   }
+}
+async function requiresEmailVerification() {
+  const [settings] = await pool.query(
+    'SELECT setting_value FROM app_settings WHERE setting_key=?',
+    ['require_email_verification']
+  );
+  return isEmailVerificationRequired(settings[0]?.setting_value);
 }
 const strongPassword = password => typeof password === 'string'
   && password.length >= 12
@@ -714,9 +726,14 @@ app.post('/api/auth/register', async (req, res, next) => {
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (!['tenant', 'property_owner', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant, Property owner, or Agent' });
     if (details.error) return res.status(400).json({ error: details.error });
+    const verificationRequired = await requiresEmailVerification();
     await connection.beginTransaction();
     const initialStatus = role === 'agent' ? 'pending' : 'active';
-    const [result] = await connection.execute('INSERT INTO users (email, phone, password_hash, status) VALUES (?, ?, ?, ?)', [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus]);
+    const [result] = await connection.execute(
+      `INSERT INTO users (email,phone,password_hash,status,email_verified_at)
+       VALUES (?,?,?,?,IF(?=1,NULL,UTC_TIMESTAMP()))`,
+      [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus, verificationRequired ? 1 : 0]
+    );
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url, city, bio) VALUES (?, ?, ?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR, details.city || null, details.bio || null]);
     if (role === 'property_owner') {
       await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name IN ("tenant", "property_owner")', [result.insertId]);
@@ -731,10 +748,12 @@ app.post('/api/auth/register', async (req, res, next) => {
     }
     await connection.commit();
     let emailVerificationSent = false;
-    try {
-      emailVerificationSent = await sendEmailVerification(result.insertId, email, req.ip);
-    } catch (emailError) {
-      console.error('Account verification email failed:', emailError.message);
+    if (verificationRequired) {
+      try {
+        emailVerificationSent = await sendEmailVerification(result.insertId, email, req.ip);
+      } catch (emailError) {
+        console.error('Account verification email failed:', emailError.message);
+      }
     }
     if (role === 'agent') {
       void notifyAdministrators({
@@ -769,7 +788,9 @@ app.post('/api/auth/login', async (req, res, next) => {
     if (user.status === 'pending') {
       return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
     }
-    if (!user.email_verified_at) return res.status(403).json({ emailVerificationRequired: true, error: 'Verify your email address before signing in.' });
+    if (!user.email_verified_at && await requiresEmailVerification()) {
+      return res.status(403).json({ emailVerificationRequired: true, error: 'Verify your email address before signing in.' });
+    }
     if (!roles.some(isSupportedRole)) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
     if (user.mfa_enabled) {
       if (!req.body.mfaCode) return res.json({ mfaRequired: true });
@@ -2974,7 +2995,17 @@ app.patch('/api/admin/settings', requireAuth, requireAdminAccess('settings'), as
     const allowed = Object.keys(adminSettingKeys);
     for (const key of allowed) {
       if (values[key] === undefined) continue;
-      const value = key === 'maintenance_mode' ? (values[key] ? '1' : '0') : String(values[key]).trim().slice(0, 5000);
+      let value;
+      if (key === 'maintenance_mode') {
+        value = values[key] ? '1' : '0';
+      } else if (key === 'require_email_verification') {
+        if (![true, false, 0, 1, '0', '1'].includes(values[key])) {
+          return res.status(400).json({ error: 'Email verification requirement must be enabled or disabled' });
+        }
+        value = isEmailVerificationRequired(values[key]) ? '1' : '0';
+      } else {
+        value = String(values[key]).trim().slice(0, 5000);
+      }
       if (key === 'site_name' && (!value || value.length > 120)) return res.status(400).json({ error: 'Site name is required and must be shorter than 120 characters' });
       await pool.execute('INSERT INTO app_settings (setting_key, setting_value, updated_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)', [key, value, req.session.user.id || null]);
     }
@@ -3965,6 +3996,9 @@ app.use('/api', createAgentEcosystemRouter({
   agentOwnerId,
   audit
 }));
+app.get(['/ai', '/ai/', '/makazi-go-ai', '/makazi-go-ai/'], (_req, res) => {
+  res.redirect(302, '/?feature=makazi-go-ai#explore');
+});
 app.get(['/', '/index.html', '/listings.html'], async (req, res, next) => {
   try {
     const fileName = req.path === '/listings.html' ? 'listings.html' : 'index.html';

@@ -1,6 +1,7 @@
 import json
 import hashlib
 import ipaddress
+import logging
 import os
 import re
 import secrets
@@ -13,16 +14,18 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.contrib import messages
 from django.db import IntegrityError, connection, transaction
-from django.http import Http404, HttpResponseForbidden
+from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from urllib.parse import urlencode, unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as URLRequest, urlopen
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reviews', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
-SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
+SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message', 'require_email_verification'}
 ROLES = {'tenant', 'property_owner', 'agent', 'agency', 'developer', 'verification_officer', 'administrator'}
 ADMIN_FEATURES = [
     ('overview', 'Overview', 'View marketplace summary metrics.'),
@@ -96,6 +99,14 @@ ADMIN_ACTION_FEATURES = {
     'monetization-plan': 'monetization',
 }
 FOUNDER_ONLY_ACTIONS = {'admin-create', 'admin-access-save', 'admin-delete'}
+logger = logging.getLogger(__name__)
+
+def email_verification_required():
+    settings = rows(
+        'SELECT setting_value FROM app_settings WHERE setting_key=%s',
+        ['require_email_verification'],
+    )
+    return not settings or settings[0]['setting_value'] != '0'
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -356,7 +367,11 @@ def login_view(request):
                 )
             except (TypeError, ValueError):
                 account_valid = False
-            if account_valid and not account.get('email_verified_at'):
+            if (
+                account_valid
+                and not account.get('email_verified_at')
+                and email_verification_required()
+            ):
                 messages.error(request, 'Verify the email address on this administrator account before signing in.')
             elif account_valid and account.get('mfa_enabled'):
                 messages.error(request, 'This administrator account requires multi-factor authentication. Contact the Founder Console for assistance.')
@@ -384,6 +399,67 @@ def login_view(request):
 def logout_view(request):
     request.session.flush()
     return redirect('/admin/login/')
+
+@admin_required
+@never_cache
+@require_http_methods(['GET'])
+def document_preview(request, verification_id):
+    if not (
+        admin_has_feature_access(request, 'verifications')
+        or admin_has_feature_access(request, 'listings')
+    ):
+        return HttpResponseForbidden('You do not have access to review identity documents.')
+
+    token = request.GET.get('token', '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{43}', token):
+        return HttpResponse('The secure document link is invalid or expired. Reopen it from the admin queue.', status=404)
+
+    marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
+    origin = urlparse(marketplace_url)
+    if (
+        not origin.netloc
+        or origin.scheme not in {'http', 'https'}
+        or origin.username
+        or origin.password
+        or (os.getenv('NODE_ENV') == 'production' and origin.scheme != 'https')
+    ):
+        logger.error('Identity document preview is unavailable because MARKETPLACE_URL is invalid.')
+        return HttpResponse('Document preview is unavailable. Contact the system administrator.', status=502)
+
+    document_url = (
+        f'{marketplace_url}/api/admin/verifications/{verification_id}/document'
+        f'?{urlencode({"token": token})}'
+    )
+    upstream_request = URLRequest(
+        document_url,
+        headers={'Accept': 'application/pdf,image/jpeg,image/png'},
+    )
+    try:
+        with urlopen(upstream_request, timeout=20) as upstream:
+            content_type = upstream.headers.get_content_type()
+            if content_type not in {'application/pdf', 'image/jpeg', 'image/png'}:
+                logger.error('Identity document endpoint returned unsupported content type for verification %s.', verification_id)
+                return HttpResponse('The stored document format cannot be previewed.', status=502)
+            content = upstream.read(8 * 1024 * 1024 + 1)
+            if len(content) > 8 * 1024 * 1024:
+                logger.error('Identity document exceeds the preview size limit for verification %s.', verification_id)
+                return HttpResponse('The stored document exceeds the preview size limit.', status=413)
+    except HTTPError as error:
+        logger.warning('Identity document preview request failed for verification %s with HTTP %s.', verification_id, error.code)
+        if error.code == 404:
+            return HttpResponse('The secure document link expired or the document is unavailable. Reopen it from the admin queue.', status=410)
+        return HttpResponse('Document preview is temporarily unavailable. Reopen it from the admin queue.', status=502)
+    except (URLError, TimeoutError, OSError) as error:
+        logger.warning('Identity document preview request failed for verification %s: %s', verification_id, error)
+        return HttpResponse('Document preview is temporarily unavailable. Reopen it from the admin queue.', status=502)
+
+    extension = {'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png'}[content_type]
+    response = HttpResponse(content, content_type=content_type)
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['Content-Disposition'] = f'inline; filename="verification-{verification_id}.{extension}"'
+    response['Referrer-Policy'] = 'no-referrer'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 @admin_required
 @never_cache
@@ -531,19 +607,25 @@ def dashboard(request):
                           COALESCE(v.authority_status,'not_reviewed') authority_status,
                           COALESCE(v.documents_status,'not_reviewed') documents_status,
                           v.verified_at,v.expires_at,
-                          iv.id owner_document_id,iv.user_id owner_document_user_id,iv.document_type owner_document_type,
-                          iv.status owner_document_status,iv.created_at owner_document_created_at,
+                          COALESCE(agent_doc.id,owner_doc.id) owner_document_id,
+                          COALESCE(agent_doc.user_id,owner_doc.user_id) owner_document_user_id,
+                          COALESCE(agent_doc.document_type,owner_doc.document_type) owner_document_type,
+                          COALESCE(agent_doc.status,owner_doc.status) owner_document_status,
+                          COALESCE(agent_doc.created_at,owner_doc.created_at) owner_document_created_at,
                           COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name
                    FROM listings l JOIN users u ON u.id=l.owner_user_id
                    LEFT JOIN user_profiles p ON p.user_id=u.id
                    LEFT JOIN listing_verifications v ON v.listing_id=l.id
-                   LEFT JOIN identity_verifications iv ON iv.id=(
-                     SELECT latest.id FROM identity_verifications latest
-                     WHERE latest.user_id IN (l.owner_user_id,l.agent_user_id)
-                       AND latest.document_file_key IS NOT NULL
-                     ORDER BY CASE WHEN latest.user_id=l.agent_user_id THEN 0 ELSE 1 END,
-                       latest.created_at DESC,latest.id DESC LIMIT 1
-                   )
+                   LEFT JOIN (
+                     SELECT user_id,MAX(id) latest_id FROM identity_verifications
+                     WHERE document_file_key IS NOT NULL GROUP BY user_id
+                   ) agent_latest ON agent_latest.user_id=l.agent_user_id
+                   LEFT JOIN identity_verifications agent_doc ON agent_doc.id=agent_latest.latest_id
+                   LEFT JOIN (
+                     SELECT user_id,MAX(id) latest_id FROM identity_verifications
+                     WHERE document_file_key IS NOT NULL GROUP BY user_id
+                   ) owner_latest ON owner_latest.user_id=l.owner_user_id
+                   LEFT JOIN identity_verifications owner_doc ON owner_doc.id=owner_latest.latest_id
                    WHERE {' AND '.join(listing_where)}
                    ORDER BY {listing_sorts[listing_sort]} LIMIT 200""",
                 listing_params,
@@ -596,6 +678,13 @@ def dashboard(request):
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
             all_settings = rows('SELECT setting_key,setting_value,updated_at FROM app_settings ORDER BY setting_key')
+            verification_setting = next(
+                (setting for setting in all_settings if setting['setting_key'] == 'require_email_verification'),
+                None,
+            )
+            data['require_email_verification'] = (
+                '0' if verification_setting and verification_setting['setting_value'] == '0' else '1'
+            )
             footer_labels = {
                 'contact_email': 'Public contact email',
                 'contact_phone': 'Public contact phone',
@@ -610,6 +699,8 @@ def dashboard(request):
             data['settings'] = []
             for setting in all_settings:
                 key = setting['setting_key']
+                if key == 'require_email_verification':
+                    continue
                 if key in footer_labels:
                     setting['setting_label'] = footer_labels[key]
                     data['footer_settings'].append(setting)
@@ -892,6 +983,7 @@ def user_detail(request, user_id):
         'section': 'user-detail',
         'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
         'is_founder': is_founder_session(request),
+        'can_manage_listings': admin_has_feature_access(request, 'listings'),
         'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')],
         'user': user,
         'user_roles': roles,
@@ -1672,8 +1764,9 @@ def action(request, action):
                     audit('identity_document_access_granted', 'identity_verification', verification_id, {
                         'source': 'listing_review' if action == 'listing-document' else 'identity_queue',
                     })
-                document_url = f'{marketplace_url}/api/admin/verifications/{verification_id}/document?{urlencode({"token": token})}'
-                return redirect(document_url)
+                return redirect(
+                    f'/admin/identity-documents/{verification_id}/?{urlencode({"token": token})}'
+                )
             elif action == 'feature':
                 execute('UPDATE feature_flags SET enabled=%s WHERE feature_key=%s', [1 if request.POST.get('enabled') == '1' else 0, request.POST['key']]); audit('feature_updated', 'feature', None, {'key': request.POST['key']})
             elif action == 'email-template':
@@ -1706,6 +1799,8 @@ def action(request, action):
                 value = request.POST.get('value', '').strip()
                 if key not in SETTING_KEYS: raise ValueError('Unknown marketplace setting')
                 if key == 'maintenance_mode' and value not in {'0', '1'}: raise ValueError('Invalid maintenance mode value')
+                if key == 'require_email_verification' and value not in {'0', '1'}:
+                    raise ValueError('Choose whether email verification is required')
                 if len(value) > 5000: raise ValueError('Setting value is too long')
                 if key.startswith('social_') and value and (urlparse(value).scheme != 'https' or not urlparse(value).netloc): raise ValueError('Social links must use a secure https URL')
                 execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})

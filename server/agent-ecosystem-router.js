@@ -50,10 +50,40 @@ export function createAgentEcosystemRouter({
       res.json({
         profile: {
           ...profile,
-          identityVerified: Boolean(profile.identityVerified),
-          agencyVerified: Boolean(profile.agencyVerified),
+          identityVerified: Number(profile.identityVerified) === 1,
+          agencyVerified: Number(profile.agencyVerified) === 1,
           specializations: parseAgentProfileList(profile.specializations),
           serviceAreas: parseAgentProfileList(profile.serviceAreas)
+        }
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/agent/professional-profile', requireAuth, requireAgentAccess('profile.manage'), async (req, res, next) => {
+    try {
+      const [[profile]] = await pool.execute(
+        `SELECT ap.specializations, ap.service_areas serviceAreas,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM identity_verifications iv
+            WHERE iv.user_id=u.id AND iv.status='approved'
+              AND (iv.expires_at IS NULL OR iv.expires_at>=UTC_DATE())
+          ) THEN TRUE ELSE FALSE END identityVerified,
+          b.status businessStatus, b.business_type businessType, b.legal_name businessName
+         FROM users u
+         LEFT JOIN agent_profiles ap ON ap.user_id=u.id
+         LEFT JOIN businesses b ON b.id=ap.business_id
+         WHERE u.id=? AND u.status='active'`,
+        [agentOwnerId(req)]
+      );
+      if (!profile) return res.status(404).json({ error: 'Professional profile not found' });
+      res.json({
+        profile: {
+          specializations: parseAgentProfileList(profile?.specializations),
+          serviceAreas: parseAgentProfileList(profile?.serviceAreas),
+          identityVerified: Number(profile.identityVerified) === 1,
+          businessStatus: profile.businessStatus || null,
+          businessType: profile.businessType || null,
+          businessName: profile.businessName || null
         }
       });
     } catch (error) { next(error); }
@@ -105,14 +135,30 @@ export function createAgentEcosystemRouter({
          WHERE host_user_id=? AND status<>'cancelled'`,
         [ownerId]
       );
-      const [[reviews]] = await pool.execute(
-        `SELECT COUNT(*) reviewCount, AVG(r.rating) averageRating
-         FROM agent_reviews r
-         WHERE r.agent_user_id=? AND r.status='published'`,
-        [ownerId]
-      );
+      let agentReviews = null;
+      let agentReviewAnalyticsAvailable = true;
+      try {
+        const [[reviews]] = await pool.execute(
+          `SELECT COUNT(*) reviewCount, AVG(r.rating) averageRating
+           FROM agent_reviews r
+           WHERE r.agent_user_id=? AND r.status='published'`,
+          [ownerId]
+        );
+        agentReviews = reviews;
+      } catch (error) {
+        if (error.code !== 'ER_NO_SUCH_TABLE' || !/agent_reviews/i.test(error.message || '')) throw error;
+        agentReviewAnalyticsAvailable = false;
+        console.warn('Professional analytics: agent review metrics are unavailable until the reputation migration is installed.');
+      }
       const eligibleRequests = Number(requests.eligibleRequests || 0);
       const respondedRequests = Number(requests.respondedRequests || 0);
+      const [[listingReviews]] = await pool.execute(
+        `SELECT COUNT(DISTINCT r.id) reviewCount, AVG(r.rating) averageRating
+         FROM reviews r
+         JOIN bookings b ON b.id=r.booking_id
+         WHERE b.host_user_id=? AND r.status='published'`,
+        [ownerId]
+      );
       res.json({
         analytics: {
           totalListings: Number(listings.totalListings || 0),
@@ -120,12 +166,52 @@ export function createAgentEcosystemRouter({
           listingViews: Number(listings.listingViews || 0),
           listingLikes: Number(listings.listingLikes || 0),
           pendingRequests: Number(requests.pendingRequests || 0),
-          reviewCount: Number(reviews.reviewCount || 0),
-          averageRating: reviews.averageRating === null ? null : Number(reviews.averageRating),
+          listingReviewCount: Number(listingReviews.reviewCount || 0),
+          listingAverageRating: listingReviews.averageRating === null ? null : Number(listingReviews.averageRating),
+          agentReviewAnalyticsAvailable,
+          agentReviewCount: agentReviewAnalyticsAvailable ? Number(agentReviews.reviewCount || 0) : null,
+          agentAverageRating: agentReviewAnalyticsAvailable && agentReviews.averageRating !== null
+            ? Number(agentReviews.averageRating)
+            : null,
           responseRate: eligibleRequests ? Math.round((respondedRequests / eligibleRequests) * 100) : null,
           eligibleRequests
         }
       });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/agent/monetization-plans', requireAuth, requireAgentAccess('profile.manage'), async (req, res, next) => {
+    try {
+      const ownerId = agentOwnerId(req);
+      const [roleRows] = await pool.execute(
+        `SELECT r.name
+         FROM user_roles ur
+         JOIN roles r ON r.id=ur.role_id
+         WHERE ur.user_id=?`,
+        [ownerId]
+      );
+      const audienceByRole = {
+        agent: 'agents',
+        agency: 'agencies',
+        developer: 'developers',
+        property_owner: 'owners'
+      };
+      const audiences = [...new Set(roleRows.map(row => audienceByRole[row.name]).filter(Boolean))];
+      if (!audiences.length) return res.status(403).json({ error: 'Your account does not have a professional plan audience' });
+      const placeholders = audiences.map(() => '?').join(', ');
+      const [rows] = await pool.execute(
+        `SELECT plan_key planKey, name, audience, description,
+          price_amount priceAmount, currency, billing_interval billingInterval, features_json features
+         FROM monetization_plans
+         WHERE is_enabled=TRUE AND audience IN (${placeholders})
+         ORDER BY audience, price_amount, name`,
+        audiences
+      );
+      const plans = rows.map(plan => ({
+        ...plan,
+        features: typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features
+      }));
+      res.json({ plans, checkoutAvailable: false });
     } catch (error) { next(error); }
   });
 

@@ -355,6 +355,22 @@ surgical and preserve current tenant bookings and agent approval behavior.
   verified. Native Android performance and real-network measurements remain
   outstanding.
 
+### Stage 14 — Monetization architecture
+
+- [x] Configure plan concepts by audience, price, currency, interval, and
+  administrator-defined benefits through the protected admin catalog.
+- [x] Show enabled plan concepts to eligible professional accounts using the
+  catalog data; do not hardcode prices or benefit limits in client code.
+- [x] Keep the architecture non-transactional: no subscription activation,
+  checkout, or payment collection is available.
+- [ ] Complete provider integration, reconciliation, legal review, and
+  regulatory approval before offering real subscriptions or sponsored
+  placement.
+- **Stage status:** The configurable plan catalog and professional read-only
+  preview are implemented. Subscription activation and payments remain
+  intentionally disabled; schema deployment remains subject to the backup
+  and isolated-staging restore gate in `DATABASE_OPERATIONS.md`.
+
 Stage 8/9 verification:
 
 - Production `https://staynest-fb9b.onrender.com/sitemap.xml`,

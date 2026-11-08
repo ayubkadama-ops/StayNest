@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { canAccessAdminFeature } from '../server/admin-access.js';
+import { isEmailVerificationRequired } from '../server/email-verification-policy.js';
 import { securityHeaders } from '../server/security-headers.js';
 
 test('founder retains full access independently of delegated grants', () => {
@@ -30,6 +31,15 @@ test('restricted administrators receive only explicitly granted features', () =>
   assert.equal(canAccessAdminFeature(permissions, 'listings'), true);
   assert.equal(canAccessAdminFeature(permissions, 'users'), false);
   assert.equal(canAccessAdminFeature(permissions, 'unknown'), false);
+});
+
+test('email verification defaults to required and accepts explicit disable values', () => {
+  assert.equal(isEmailVerificationRequired(undefined), true);
+  assert.equal(isEmailVerificationRequired(null), true);
+  assert.equal(isEmailVerificationRequired('1'), true);
+  assert.equal(isEmailVerificationRequired('0'), false);
+  assert.equal(isEmailVerificationRequired(0), false);
+  assert.equal(isEmailVerificationRequired(false), false);
 });
 
 test('public homepage does not expose an administrator navigation shortcut', async () => {
