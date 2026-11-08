@@ -5,6 +5,17 @@ commit history or release notes.
 
 ## Unreleased
 
+### Admin document preview and listing review details
+
+- Identity-verification documents now open inline in a separate admin tab
+  using the existing audited, short-lived, single-use access grant; the admin
+  queue identifies the applicant, document suffix, and submission date.
+- Listing moderation now links directly to the review page. That page shows
+  listing media plus full location, transaction/pricing, land/commercial,
+  advertiser-authorization, amenities, and category-specific details.
+- Validation: 82 Django console/marketplace tests, 63 Node tests, Django
+  system checks, JavaScript/Python syntax checks, and `git diff --check` pass.
+
 ### Delegated administrator sign-in and TiDB listing migration recovery
 
 - The Django operations console previously authenticated only the protected

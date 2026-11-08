@@ -3243,7 +3243,7 @@ app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
     const extension = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }[contentType];
     res.set({
       'Cache-Control': 'private, no-store, max-age=0',
-      'Content-Disposition': `attachment; filename="verification-${verificationId}.${extension}"`,
+      'Content-Disposition': `inline; filename="verification-${verificationId}.${extension}"`,
       'Content-Type': contentType,
       'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff'

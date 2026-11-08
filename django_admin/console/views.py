@@ -539,7 +539,7 @@ def dashboard(request):
         elif section == 'bookings':
             data['rows'] = rows("SELECT b.id,b.guest_user_id,b.host_user_id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
-            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.created_at,(v.document_file_key IS NOT NULL) has_document,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.document_last4,v.created_at,(v.document_file_key IS NOT NULL) has_document,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
         elif section == 'reports':
             data['reports'] = rows("SELECT r.id,r.reporter_user_id,r.reported_user_id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
         elif section == 'audit':
@@ -894,9 +894,18 @@ def user_detail(request, user_id):
 @never_cache
 def listing_detail(request, listing_id):
     listing_rows = rows(
-        """SELECT l.id,l.title,l.description,l.status,l.currency,l.nightly_price,l.monthly_price,
-                  l.yearly_price,l.city,l.region,l.country_code,l.bedrooms,l.beds,l.bathrooms,
-                  l.max_guests,l.created_at,l.updated_at,u.id owner_user_id,
+        """SELECT l.id,l.title,l.description,l.status,l.currency,l.transaction_type,l.rental_mode,
+                  l.sale_price,l.nightly_price,l.monthly_price,l.yearly_price,
+                  l.address_line1,l.neighborhood,l.district,l.ward,l.city,l.region,l.country_code,
+                  l.property_size,l.furnished,l.plot_size,l.plot_size_unit,l.land_use,l.title_status,
+                  l.floor_area,l.commercial_use,l.category_details,l.advertising_authorization,
+                  l.authorization_notes,l.authorization_attested_at,l.structure_type,l.privacy_type,
+                  l.bedrooms,l.beds,l.bathrooms,l.max_guests,l.created_at,l.updated_at,
+                  pt.name property_type,
+                  (SELECT GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ')
+                   FROM listing_amenity_map am JOIN listing_amenities a ON a.id=am.amenity_id
+                   WHERE am.listing_id=l.id) amenities,
+                  u.id owner_user_id,
                   CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
                        ELSE COALESCE(v.verification_status,'unverified') END verification_status,
                   COALESCE(v.identity_status,'not_reviewed') identity_status,
@@ -907,6 +916,7 @@ def listing_detail(request, listing_id):
                   COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
                   u.email owner_email
            FROM listings l JOIN users u ON u.id=l.owner_user_id
+           JOIN property_types pt ON pt.id=l.property_type_id
            LEFT JOIN user_profiles p ON p.user_id=u.id
            LEFT JOIN listing_verifications v ON v.listing_id=l.id
            WHERE l.id=%s""",
@@ -914,12 +924,30 @@ def listing_detail(request, listing_id):
     )
     if not listing_rows:
         raise Http404('Listing not found')
+    listing = listing_rows[0]
+    category_details = listing.get('category_details')
+    if isinstance(category_details, str):
+        try:
+            category_details = json.loads(category_details)
+        except (TypeError, ValueError):
+            category_details = {}
+    if not isinstance(category_details, dict):
+        category_details = {}
+    category_detail_rows = [
+        {
+            'label': str(key).replace('_', ' ').strip().title(),
+            'value': value if isinstance(value, (str, int, float, bool)) else json.dumps(value, ensure_ascii=False),
+        }
+        for key, value in category_details.items()
+        if value is not None and value != ''
+    ]
     return render(request, 'content_detail.html', {
         'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
         'is_founder': is_founder_session(request),
         'content_type': 'Listing',
-        'page_title': listing_rows[0]['title'],
-        'content': listing_rows[0],
+        'page_title': listing['title'],
+        'content': listing,
+        'category_detail_rows': category_detail_rows,
         'media': rows('SELECT media_type media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id', [listing_id]),
         'verification_events': rows(
             """SELECT check_name,previous_status,new_status,reason,created_at,actor_user_id,actor_label

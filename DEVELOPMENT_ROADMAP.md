@@ -362,6 +362,9 @@ Stage 7 verification:
   while the Django health endpoint and updated username/email login form both
   return HTTP 200. Direct production login using a real administrator account
   was not attempted because no account credentials were provided.
+- Admin review now opens identity evidence inline in a separate tab using the
+  existing audited, expiring, single-use grant. Listing moderation links to a
+  detail page with property media and structured location/category facts.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.

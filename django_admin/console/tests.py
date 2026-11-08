@@ -97,6 +97,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'adminListingLinksData')
         self.assertContains(response, '"id": "17", "row": 0, "cell": 0')
         self.assertContains(response, '"id": "42", "row": 0, "cell": 1')
+        self.assertContains(response, 'href="/admin/listings/17/"')
         self.assertContains(response, '/admin/listings/${encodeURIComponent(record.id)}/')
 
     @patch('console.views.rows', return_value=[])
@@ -286,6 +287,56 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Garden flat')
         self.assertContains(response, '/admin/users/42/')
         self.assertContains(response, '/media/listings/17/cover.webp')
+        self.assertContains(response, 'Address and area')
+        self.assertContains(response, 'Property type · journey')
+
+    @patch('console.views.rows', side_effect=[
+        [{
+            'id': 17,
+            'title': 'Serviced plot',
+            'description': 'A surveyed residential plot.',
+            'status': 'pending_review',
+            'currency': 'TZS',
+            'transaction_type': 'sale',
+            'sale_price': 45000000,
+            'address_line1': 'Mji Mpya Road',
+            'neighborhood': 'Kigamboni',
+            'district': 'Temeke',
+            'ward': 'Kibada',
+            'city': 'Dar es Salaam',
+            'region': 'Dar es Salaam',
+            'country_code': 'TZ',
+            'plot_size': 600,
+            'plot_size_unit': 'sqm',
+            'land_use': 'Residential',
+            'title_status': 'title_deed',
+            'category_details': '{"access_road":"Yes","utilities":"Water and power"}',
+            'advertising_authorization': 'owner',
+            'owner_user_id': 42,
+            'owner_name': 'Asha Mrema',
+            'owner_email': 'asha@example.test',
+            'property_type': 'land',
+            'verification_status': 'submitted',
+            'identity_status': 'not_reviewed',
+            'location_status': 'not_reviewed',
+            'authority_status': 'not_reviewed',
+            'documents_status': 'not_reviewed',
+        }],
+        [{'media_type': 'image', 'public_url': '/media/listings/17/plot.webp', 'caption': 'Plot access road', 'is_cover': True}],
+        [],
+    ])
+    def test_listing_review_shows_land_details_category_facts_and_photos(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/listings/17/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '45000000')
+        self.assertContains(response, '600 sqm')
+        self.assertContains(response, 'Residential')
+        self.assertContains(response, 'Access Road')
+        self.assertContains(response, 'Water and power')
+        self.assertContains(response, '/media/listings/17/plot.webp')
 
     @patch('console.views.rows', return_value=[{
         'id': 8, 'listing_id': 17, 'post_type': 'new_listing', 'caption': 'Now available',
@@ -926,6 +977,28 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(execute.call_args.args[1][0], hashlib.sha256(token.encode('ascii')).digest())
         self.assertNotIn(token, execute.call_args.args[0])
         audit.assert_called_once_with('identity_document_access_granted', 'identity_verification', 42)
+
+    @patch('console.views.rows', return_value=[{
+        'id': 42,
+        'user_id': 15,
+        'status': 'pending',
+        'document_type': 'national_id',
+        'document_last4': '1234',
+        'created_at': '2026-11-08 09:00:00',
+        'has_document': 1,
+        'email': 'asha@example.test',
+        'applicant_name': 'Asha Mrema',
+    }])
+    def test_verification_queue_opens_private_documents_in_a_new_tab(self, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=verifications')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'View secure document')
+        self.assertContains(response, 'target="_blank"')
+        self.assertContains(response, 'Ending 1234')
+        self.assertContains(response, '2026-11-08 09:00:00')
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'user_status': 'pending', 'subaccount_id': 33, 'label': 'Bookings', 'subaccount_status': 'pending', 'name': 'Asha', 'main_agent': 'Neema'}])
     def test_agent_approval_page_renders_approve_and_reject_actions(self, rows):
