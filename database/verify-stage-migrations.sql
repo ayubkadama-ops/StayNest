@@ -6,8 +6,11 @@ WHERE table_schema=DATABASE()
     OR (table_name='listings' AND column_name IN (
       'transaction_type', 'sale_price', 'plot_size', 'plot_size_unit',
       'land_use', 'title_status', 'floor_area', 'commercial_use',
-      'district', 'ward', 'property_size', 'furnished'
+      'district', 'ward', 'property_size', 'furnished', 'category_details',
+      'advertising_authorization', 'authorization_notes', 'authorization_attested_at'
     ))
+    OR (table_name='agent_profiles' AND column_name IN ('specializations','service_areas','business_id'))
+    OR (table_name='businesses' AND column_name='business_type')
   );
 
 SELECT 'required_indexes' AS check_name, COUNT(DISTINCT index_name) AS present_count
@@ -32,6 +35,18 @@ FROM information_schema.tables
 WHERE table_schema=DATABASE()
   AND table_name IN ('listing_verifications', 'listing_verification_events');
 
+SELECT 'agent_ecosystem' AS check_name, COUNT(*) AS present_count
+FROM information_schema.columns
+WHERE table_schema=DATABASE()
+  AND ((table_name='agent_profiles' AND column_name IN ('specializations','service_areas','business_id'))
+    OR (table_name='businesses' AND column_name='business_type'));
+
+SELECT 'structured_listing_details' AS check_name, COUNT(*) AS present_count
+FROM information_schema.columns
+WHERE table_schema=DATABASE()
+  AND table_name='listings'
+  AND column_name IN ('category_details','advertising_authorization','authorization_notes','authorization_attested_at');
+
 SELECT 'property_verification_actor_label' AS check_name, COUNT(*) AS present_count
 FROM information_schema.columns
 WHERE table_schema=DATABASE()
@@ -55,6 +70,7 @@ WHERE migration_name IN (
   'property-journeys-migration.sql',
   'property-search-migration.sql',
   'property-verification-migration.sql'
+  ,'listing-category-details-migration.sql'
 )
 ORDER BY migration_name;
 

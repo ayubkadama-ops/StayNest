@@ -20,14 +20,15 @@ from django.views.decorators.cache import never_cache
 from urllib.parse import urlencode, urlparse
 from django.views.decorators.http import require_http_methods
 
-SECTIONS = {'overview', 'users', 'access', 'agents', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
+SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reports', 'audit', 'settings', 'analytics'}
 SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
-ROLES = {'tenant', 'agent', 'administrator'}
+ROLES = {'tenant', 'property_owner', 'agent', 'agency', 'developer', 'verification_officer', 'administrator'}
 ADMIN_FEATURES = [
     ('overview', 'Overview', 'View marketplace summary metrics.'),
     ('users', 'People and accounts', 'View and manage non-administrator accounts.'),
     ('access', 'Roles and access', 'Assign non-administrator roles to accounts.'),
     ('agents', 'Agent approvals', 'Review agent and sub-agent applications.'),
+    ('businesses', 'Organizations', 'Review agency and developer verification applications.'),
     ('listings', 'Listings', 'Review and moderate property listings.'),
     ('posts', 'Posts', 'Review and moderate marketplace posts.'),
     ('badges', 'Agent badges', 'Assign or remove agent badges.'),
@@ -41,7 +42,7 @@ ADMIN_FEATURES = [
 ADMIN_FEATURE_GROUPS = [
     ('Dashboard', ('overview',)),
     ('People and access', ('users', 'access')),
-    ('Marketplace operations', ('agents', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
+    ('Marketplace operations', ('agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications')),
     ('Safety and platform', ('reports', 'audit', 'settings', 'analytics')),
 ]
 
@@ -236,7 +237,7 @@ def dashboard(request):
     section = request.GET.get('section', 'overview')
     if section not in SECTIONS:
         section = 'overview'
-    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': [('overview', 'Founder dashboard'), ('users', 'People and access'), ('access', 'Roles and security'), ('agents', 'Agent approvals'), ('businesses', 'Organizations'), ('listings', 'Listings moderation'), ('posts', 'Posts moderation'), ('badges', 'Agent badges'), ('bookings', 'Reservations'), ('verifications', 'Identity checks'), ('reports', 'Safety reports'), ('audit', 'Audit and security'), ('settings', 'Settings and controls'), ('analytics', 'Analytics')], 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -274,6 +275,16 @@ def dashboard(request):
             )
         elif section == 'agents':
             data['agents'] = rows("SELECT u.id,u.email,u.status user_status,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name,sa.id subaccount_id,sa.label,sa.status subaccount_status,main.id main_agent_user_id,COALESCE(mp.display_name,CONCAT(mp.first_name,' ',mp.last_name),main.email) main_agent FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_subaccounts sa ON sa.subagent_user_id=u.id LEFT JOIN users main ON main.id=sa.main_agent_user_id LEFT JOIN user_profiles mp ON mp.user_id=main.id WHERE r.name='agent' AND (u.status='pending' OR sa.status IN ('pending','active','suspended','revoked')) ORDER BY u.created_at DESC LIMIT 200")
+        elif section == 'businesses':
+            data['businesses'] = rows(
+                """SELECT b.id,b.business_type,b.legal_name,b.registration_number,b.status,b.created_at,
+                          u.id owner_user_id,u.email,
+                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name
+                   FROM businesses b JOIN users u ON u.id=b.owner_user_id
+                   LEFT JOIN user_profiles p ON p.user_id=u.id
+                   WHERE b.business_type IN ('agency','developer')
+                   ORDER BY b.status='pending' DESC,b.created_at DESC LIMIT 200"""
+            )
         elif section == 'listings':
             listing_tab = request.GET.get('listing_tab', 'review')
             if listing_tab not in {'review', 'available'}:
@@ -312,6 +323,7 @@ def dashboard(request):
             data['rows'] = rows(
                 f"""SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.yearly_price,
                           l.updated_at,l.created_at,u.id owner_user_id,
+                          l.advertising_authorization,l.authorization_notes,l.authorization_attested_at,
                           CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
                                ELSE COALESCE(v.verification_status,'unverified') END verification_status,
                           COALESCE(v.identity_status,'not_reviewed') identity_status,
@@ -399,6 +411,9 @@ def dashboard(request):
         for row_index, row in enumerate(data['agents']):
             add_user_link(row.get('id'), row_index, 0, row.get('name'), row.get('email'))
             add_user_link(row.get('main_agent_user_id'), row_index, 2, row.get('main_agent'))
+    elif section == 'businesses':
+        for row_index, row in enumerate(data['businesses']):
+            add_user_link(row.get('owner_user_id'), row_index, 1, row.get('owner_name'), row.get('email'))
     elif section == 'listings':
         for row_index, row in enumerate(data['rows']):
             add_user_link(row.get('owner_user_id'), row_index, 1, row.get('owner_name'))
@@ -871,12 +886,19 @@ def action(request, action):
                         raise ValueError('The last active administrator cannot be removed')
                     execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name=%s', [user_id, role])
                 else:
-                    if role in {'tenant', 'agent'}:
-                        execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name IN (\'tenant\',\'agent\')', [user_id])
-                    execute('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [user_id, role_rows[0]['id']])
+                    if role in {'tenant', 'property_owner', 'agent'}:
+                        execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=%s AND r.name IN (\'tenant\',\'agent\',\'property_owner\')', [user_id])
+                    if role == 'property_owner':
+                        execute(
+                            "INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) SELECT %s,id,NULL FROM roles WHERE name IN ('tenant','property_owner')",
+                            [user_id],
+                        )
+                    else:
+                        execute('INSERT IGNORE INTO user_roles (user_id,role_id,assigned_by) VALUES (%s,%s,NULL)', [user_id, role_rows[0]['id']])
                     if role == 'administrator' and not was_administrator:
                         execute('INSERT IGNORE INTO admin_access_profiles (user_id,managed_by) VALUES (%s,NULL)', [user_id])
-                    if role == 'agent': execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [user_id])
+                    if role in {'agent', 'property_owner', 'agency', 'developer'}:
+                        execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (%s)', [user_id])
                 invalidate_api_sessions(user_id)
                 audit(f'user_role_{operation}', 'user', user_id, {'role': role})
             elif action == 'mfa-reset':
@@ -895,6 +917,24 @@ def action(request, action):
                 if agent_rows[0]['subaccount_id']:
                     execute('UPDATE agent_subaccounts SET status=%s WHERE id=%s', ['active' if status == 'approved' else 'revoked', agent_rows[0]['subaccount_id']])
                 audit(f'agent_{status}', 'user', user_id)
+            elif action == 'business-status':
+                business_id = int(request.POST.get('id', '0'))
+                status = request.POST.get('status', '')
+                reason = request.POST.get('reason', '').strip()[:500]
+                if business_id < 1 or status not in {'verified', 'rejected'}:
+                    raise ValueError('Choose a valid organization review decision')
+                if status == 'rejected' and not reason:
+                    raise ValueError('Enter a reason when rejecting an organization')
+                if not rows(
+                    "SELECT id FROM businesses WHERE id=%s AND business_type IN ('agency','developer') FOR UPDATE",
+                    [business_id],
+                ):
+                    raise ValueError('Organization application not found')
+                execute(
+                    "UPDATE businesses SET status=%s WHERE id=%s AND business_type IN ('agency','developer')",
+                    [status, business_id],
+                )
+                audit(f'business_verification_{status}', 'business', business_id, {'reason': reason or None})
             elif action == 'badge':
                 user_id = int(request.POST['id']); duration = request.POST.get('duration', '30'); label = request.POST.get('label', 'Featured agent').strip()[:80] or 'Featured agent'
                 if user_id < 1 or duration not in {'7', '30', '90', '365', 'forever', 'remove'}: raise ValueError('Choose a valid badge duration')

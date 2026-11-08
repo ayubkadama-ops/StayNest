@@ -52,11 +52,11 @@ provide additional but not exhaustive evidence.
 | Database schema and relationships | **Present, incrementally extended** | The baseline schema defines relational tables for accounts, roles, listings, media, bookings, payments, reviews, messaging, notifications, verification, reports, and audit. Listings now model sale/rent/stay intent and structured land/commercial facts. Runtime migrations use an ordered checksum ledger; production-engine compatibility and data recovery still need operational verification. |
 | Authentication and authorization | **Present** | Email/username login, bcrypt, Google OAuth, email verification, password recovery, MFA, MySQL-backed Express sessions, CSRF checks, request limits, role checks, sub-agent permissions, and delegated administrator features exist. The Founder Console is separate from ordinary administrators. Django signed-cookie sessions and Express database sessions have different revocation behavior and should remain clearly separated. |
 | Registration and login | **Present** | Tenant and agent registration flows and the recent homepage username-login fix exist. Agent applications are approval-gated. Test suites cover selected auth/console behaviors but do not constitute a complete cross-client authentication test. |
-| Property listings | **Partial** | Agents can create a listing and upload media; admins can moderate listing status. Public details include amenities, agent attribution, reviews, similar listings, and approximate public coordinates. The inspected API has create/list/media endpoints but no corresponding agent listing edit/archive/delete endpoints. |
+| Property listings | **Implemented for the current listing workflow** | Owners and agents can create listings using sale, long-term rental, or stay journeys, add bounded category-specific facts and an advertiser-authority declaration, and manage listing edits/archives. Verification remains a separate administrator-reviewed process; organization-team access and some category-specific validation remain future work. |
 | Property details | **Present for current listing model** | Numeric listing URLs and API detail responses support accommodation/property fields and structured sale, land, and commercial data. Advertiser-reported title information is explicitly not legal verification. |
 | Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` now uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
 | Booking functionality | **Present for request-based stays/viewings** | Booking requests validate dates, apply transaction/idempotency logic, and use booking date locks. Preserve this path for stay bookings while separating it from purchase/rental inquiries and future payments. |
-| Host and agent functionality | **Partial** | Agent profiles, follows, badges, sub-agents, booking handling, and listing creation exist. Agency/business records are not yet a full marketplace organization model; agent reviews, verified performance, listing lifecycle management, and richer analytics need scoped implementation. |
+| Host and agent functionality | **Implemented foundation** | Agent/property-owner profiles support bounded specializations and service areas, agency/developer applications, a role-gated verification-officer queue, and listing/request/review metrics derived from existing records. Organization verification is not legal certification; team membership, subscription management, and agent reviews remain future work. |
 | User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view currently requests agent bookings twice, duplicating a backend call. |
 | Administrator dashboard | **Present** | Founder/delegated admin roles, feature permissions, moderation, reports, verification decisions, audit logs, and settings are represented. Django and Express have separate admin entry/session logic; maintain one explicit permission contract and test every mutation across both. |
 | Image/video uploads | **Present, operational risks** | File signatures are checked and images are resized/encoded with Sharp; listing videos and local/S3/Cloudinary storage paths exist. Public-media fallback to local disk after object-storage failure can lose uploaded media on ephemeral deployments. New identity documents are app-encrypted in private local/S3 storage, and Founder Console review now uses a short-lived single-use token; legacy unencrypted documents remain readable and require a future re-encryption plan. |
@@ -181,16 +181,34 @@ surgical and preserve current tenant bookings and agent approval behavior.
   migration execution against deployed TiDB/MySQL, backup/restore, and live
   document-storage checks remain required before production rollout.
 
-### Stage 5 — Agent and organization ecosystem
+### Stage 5 — Professional agent ecosystem
 
-- Define owner, agent, agency, developer, and verification-officer relations
-  before introducing new role powers.
-- Add confirmed profile specializations/areas, review eligibility and
-  response metrics only where data supports them.
-- Acceptance: role matrix, cross-agent isolation tests, and no fabricated
-  performance claims.
+- [x] Add property-owner, agent, agency, developer, and verification-officer
+  role paths with server-side permission checks; elevated roles remain
+  Founder-assigned.
+- [x] Add professional profile specializations/service areas, agency and
+  developer application/review, verification-officer review queue, and
+  listing/request/review analytics from recorded data only.
+- [x] Expose profile and review controls in the public web experience and
+  organization review/role controls in the Founder Console.
+- Acceptance: focused role/profile tests pass. Organization team membership,
+  production migration execution, and end-to-end multi-user isolation testing
+  remain outstanding; no unverified sales statistics are shown.
 
-### Stage 6 — Posts, reviews, reporting, and fraud triage
+### Stage 6 — Structured property listing management
+
+- [x] Extend the existing wizard with category, sale/rent/stay intent,
+  journey-specific pricing, and bounded category-specific property details.
+- [x] Require a clear advertiser-authority declaration while keeping
+  administrator property verification independent.
+- [x] Validate and persist listing details server-side and expose safe
+  category facts on public property details across web surfaces.
+- [x] Permit property owners and approved organization roles to use the
+  existing listing workspace without changing existing agent flows.
+- Acceptance: focused validation and role tests pass; live database migration
+  execution and complete browser submission testing remain outstanding.
+
+### Stage 7 — Posts, reviews, reporting, and fraud triage
 
 - Expand listing announcement posts into moderated editorial content only
   after authoring, moderation, URL, and media rules are agreed.
@@ -200,7 +218,7 @@ surgical and preserve current tenant bookings and agent approval behavior.
   or penalize a user.
 - Acceptance: moderation/audit tests and documented report-resolution paths.
 
-### Stage 7 — Map, SEO, mobile performance, and parity
+### Stage 8 — Map, SEO, mobile performance, and parity
 
 - Preserve approximate public coordinates; never expose private addresses.
 - Add canonical SEO metadata/sitemap entries for useful unique inventory.
@@ -212,7 +230,7 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - Acceptance: responsive/browser/native smoke tests and cross-client
   persistence checks for each completed slice.
 
-### Stage 8 — Monetization and future modules
+### Stage 9 — Monetization and future modules
 
 - Design configurable subscription/featured-placement concepts only after
   the property and account model stabilizes.
@@ -258,7 +276,7 @@ Stage 3 verification on the current working tree:
 - TiDB/MySQL `EXPLAIN`, migration execution, backup restore, and live API
   behavior — **not run**; a controlled database environment is still needed.
 
-Stage 4 verification on the current working tree:
+Stage 4 verification on the earlier working tree:
 
 - `npm test` — **45 passed**
 - `npm run test:django` — **73 passed**; Django system checks clean
@@ -268,9 +286,23 @@ Stage 4 verification on the current working tree:
 - TiDB/MySQL migration execution, query plans, backup/restore, and private
   storage end-to-end checks — **not run**; production access was unavailable.
 
+Stage 5/6 verification on the current working tree:
+
+- `npm test` — **51 passed**, including 12 focused agent, listing-detail, and
+  migration checks.
+- `npm run test:django` — **73 passed**; Django system checks clean.
+- `npm run build` — **passed**.
+- `npm run typecheck --prefix mobile` — **passed**.
+- Modified JavaScript/Python syntax checks, listing INSERT column/placeholder/
+  argument counts (**42/39/39 plus three SQL literals**), and
+  `git diff --check` — **passed**.
+- Production TiDB/MySQL migration execution, backup/restore, and end-to-end
+  listing submissions against a controlled database remain outstanding.
+
 ## Current handoff for the next development session
 
-- Stages 1–4 are implemented locally. The saved
+- Stages 1–6 are implemented locally and local test/build checks pass. The
+  saved
   master prompt reference is `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Node,
   Django, web build, and mobile type-check pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
@@ -284,7 +316,8 @@ Stage 4 verification on the current working tree:
 - Django issues two-minute SHA-256-hashed review grants; Express consumes
   each grant once and never returns storage keys. Confirm `MARKETPLACE_URL`
   points to the Express API host in deployment.
-- Next: verify migration bootstrap, Stage 3 query plans, and private storage
+- Next: verify migration bootstrap, Stage 3 query plans, Stage 5/6 schema
+  changes, and private storage
   against TiDB/S3 in a controlled environment; execute a backup/restore test
   before production rollout. Stage 4 migration:
   `database/property-verification-migration.sql`. Preserve unrelated worktree

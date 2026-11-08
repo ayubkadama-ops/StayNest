@@ -193,6 +193,16 @@ export default function SignupScreen() {
                     Share listings and respond to customer enquiries.
                   </Text>
                 </Pressable>
+                <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: form.role === 'property_owner' }}
+                  onPress={() => setForm((current) => ({ ...current, role: 'property_owner' }))}
+                  style={[styles.roleOption, form.role === 'property_owner' && styles.roleOptionSelected]}>
+                  <Text style={styles.roleTitle}>Property owner</Text>
+                  <Text style={styles.roleDescription}>
+                    Advertise your own property and manage enquiries.
+                  </Text>
+                </Pressable>
                 <View style={styles.nameFields}>
                   <View style={styles.nameField}>
                     <Text style={styles.fieldLabel}>First name</Text>
@@ -302,7 +312,7 @@ export default function SignupScreen() {
                     {[form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(' ') || 'Your account'}
                   </Text>
                   <Text style={styles.bodyText}>
-                    {form.role === 'agent' ? 'Property agent' : 'Tenant'} · {form.city.trim()}
+                    {form.role === 'agent' ? 'Property agent' : form.role === 'property_owner' ? 'Property owner' : 'Tenant'} · {form.city.trim()}
                   </Text>
                 </View>
                 <Text style={styles.fieldLabel}>Password</Text>

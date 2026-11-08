@@ -10,6 +10,39 @@ const money = listing => {
   const period = listing.nightlyPrice ? 'night' : listing.monthlyPrice ? 'month' : 'year';
   return `${listing.currency || 'TZS'} ${Number(value).toLocaleString()} / ${period}`;
 };
+const categoryDetailLabels = {
+  homeStyle: 'Home style',
+  outdoorSpace: 'Outdoor space',
+  parking: 'Parking',
+  apartmentStyle: 'Apartment style',
+  floorLevel: 'Floor level',
+  buildingAccess: 'Building access',
+  balcony: 'Private balcony',
+  roomFurnishing: 'Furnishing',
+  sharedSpaces: 'Shared spaces',
+  roomAccess: 'Room access',
+  guestRooms: 'Guest rooms',
+  mealService: 'Meal service',
+  receptionHours: 'Reception',
+  housekeeping: 'Housekeeping',
+  utilitiesIncluded: 'Utilities',
+  kitchenSetup: 'Kitchen',
+  hotelRooms: 'Guest rooms',
+  customerAccess: 'Customer access',
+  loadingAccess: 'Loading access',
+};
+function categoryDetailsMarkup(value) {
+  let details = value;
+  if (typeof details === 'string') {
+    try { details = JSON.parse(details); } catch { return ''; }
+  }
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return '';
+  const rows = Object.entries(details)
+    .filter(([key, detail]) => categoryDetailLabels[key] && detail !== null && detail !== '')
+    .map(([key, detail]) => `<span><strong>${categoryDetailLabels[key]}:</strong> ${escapeHtml(String(detail).replaceAll('_', ' '))}</span>`)
+    .join('');
+  return rows ? `<div class="listing-page-facts listing-category-details">${rows}</div>` : '';
+}
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...options });
   const text = await response.text();
@@ -124,6 +157,7 @@ export function markup(result) {
     : listing.propertyType === 'commercial'
       ? `<span>${listing.floorArea ? `${escapeHtml(listing.floorArea)} m²` : 'Floor area not provided'}</span><span>${escapeHtml((listing.commercialUse || 'Use not provided').replaceAll('_', ' '))}</span>`
       : '';
+  const extraCategoryFacts = categoryDetailsMarkup(listing.categoryDetails);
   const verification = listing.propertyVerification || {};
   const verificationChecks = [
     ['Identity', verification.identity],
@@ -135,7 +169,7 @@ export function markup(result) {
   return `<button class="listing-back-button" type="button" id="backToListings">← All listings</button>
     <div class="listing-page-gallery">${mediaMarkup(media, listing.title)}</div>
     <div class="listing-page-layout">
-      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'property')} · ${listing.verifiedAgent ? 'Identity-checked agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts">${propertyFacts}${categoryFacts}</div><p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented property in Tanzania.')}</p>${verificationMarkup}${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>Guest reviews <span class="listing-review-count">${reviewCount}</span></h2><div class="listing-reviews">${reviewsMarkup}</div>${reviewFormMarkup}<h2>Location</h2>${Number.isFinite(Number(listing.locationLatitude)) && Number.isFinite(Number(listing.locationLongitude)) ? `<div id="listingLocationMap" class="listing-page-map" role="application" aria-label="Approximate map location for ${escapeHtml(listing.title)}"></div><p class="listing-page-description">Approximate area shown to protect the exact address, which remains private until booking.</p>` : `<p class="listing-page-description">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', ') || 'Location details are available from the responsible agent.')}. The exact address remains private until booking.</p>`}</article>
+      <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'property')} · ${listing.verifiedAgent ? 'Identity-checked agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts">${propertyFacts}${categoryFacts}</div>${extraCategoryFacts}<p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented property in Tanzania.')}</p>${verificationMarkup}${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>Guest reviews <span class="listing-review-count">${reviewCount}</span></h2><div class="listing-reviews">${reviewsMarkup}</div>${reviewFormMarkup}<h2>Location</h2>${Number.isFinite(Number(listing.locationLatitude)) && Number.isFinite(Number(listing.locationLongitude)) ? `<div id="listingLocationMap" class="listing-page-map" role="application" aria-label="Approximate map location for ${escapeHtml(listing.title)}"></div><p class="listing-page-description">Approximate area shown to protect the exact address, which remains private until booking.</p>` : `<p class="listing-page-description">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', ') || 'Location details are available from the responsible agent.')}. The exact address remains private until booking.</p>`}</article>
       <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(mediaUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/makazi-go-icon.png'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">${enquiryOnly ? 'Enquire about property' : 'Request to book'} <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing" aria-pressed="${readComparedListings().some(item => String(item.id) === String(listing.id))}">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }

@@ -27,7 +27,7 @@ window.showMakaziAuthPrompt=showAuthPrompt;
 dialog?.querySelector('[data-auth-prompt-close]')?.addEventListener('click',()=>dialog.close());
 dialog?.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
 
-document.querySelector('[data-auth-gate-link]')?.addEventListener('click',async event=>{
+document.querySelectorAll('[data-auth-gate-link]').forEach(link=>link.addEventListener('click',async event=>{
   event.preventDefault();
   const link=event.currentTarget;
   try{
@@ -35,7 +35,7 @@ document.querySelector('[data-auth-gate-link]')?.addEventListener('click',async 
     if(user){location.assign(link.href);return}
   }catch{}
   showAuthPrompt('Create or sign in to a property agent account to list and manage properties.',link.dataset.authRole||'agent');
-});
+}));
 
 document.querySelectorAll('form[data-auth-required]').forEach(form=>{
   let approvedSubmit=false;
@@ -65,7 +65,7 @@ if(loginForm){
       const result=await authRequest('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await authCsrf()},body:JSON.stringify(values)});
       if(result.mfaRequired){const field=loginForm.querySelector('[data-mfa-field]');field.hidden=false;field.querySelector('input').required=true;field.querySelector('input').focus();message.textContent='Enter the authenticator code for this account.';return}
       const roles=result.roles||[];
-      location.assign(values.next|| (roles.includes('agent')?'/agent/':roles.includes('tenant')?'/account/dashboard/':'/'));
+      location.assign(values.next|| (roles.some(role=>['agent','property_owner','agency','developer'].includes(role))?'/agent/':roles.includes('tenant')?'/account/dashboard/':'/'));
     }catch(error){message.textContent=error.message}
     finally{submit.disabled=false}
   });
@@ -104,7 +104,7 @@ if(signupForm){
     const role=signupForm.elements.role.value;
     const name=[signupForm.elements.firstName.value.trim(),signupForm.elements.lastName.value.trim()].filter(Boolean).join(' ');
     summary.querySelector('strong').textContent=name||'Your account';
-    summary.querySelector('span').textContent=`${role==='agent'?'Property agent':'Tenant'} · ${signupForm.elements.city.value.trim()}`;
+    summary.querySelector('span').textContent=`${role==='agent'?'Property agent':role==='property_owner'?'Property owner':'Tenant'} · ${signupForm.elements.city.value.trim()}`;
   });
   signupForm.addEventListener('submit',async event=>{
     event.preventDefault();

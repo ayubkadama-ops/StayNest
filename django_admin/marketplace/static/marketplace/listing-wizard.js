@@ -142,7 +142,13 @@
   move(uploadPanel, ['document', 'media']);
   const documentTypeLabel = document.createElement('label');
   documentTypeLabel.innerHTML = 'Registration document type<select name="documentType" required><option value="business_license">Business or property registration</option><option value="national_id">National ID</option><option value="passport">Passport</option><option value="drivers_license">Driver license</option></select>';
-  uploadPanel.prepend(documentTypeLabel);
+  const authorizationFields = document.createElement('div');
+  authorizationFields.className = 'listing-wizard-field-grid';
+  authorizationFields.innerHTML = '<label>Ownership or advertising authority<select name="advertisingAuthorization" required><option value="">Choose your authority</option><option value="owner">Property owner</option><option value="authorized_agent">Authorized by the owner</option><option value="agency">Advertising for an agency</option><option value="other">Other documented authority</option></select></label><label>Authorization notes (optional)<textarea name="authorizationNotes" maxlength="500" placeholder="Briefly describe your authority to advertise this property"></textarea></label><label class="form-wide"><input name="authorizationAttested" type="checkbox" value="true" required> I confirm I own or am authorized to advertise this property.</label>';
+  const categoryDetailsField = document.createElement('input');
+  categoryDetailsField.type = 'hidden';
+  categoryDetailsField.name = 'categoryDetails';
+  uploadPanel.prepend(authorizationFields, documentTypeLabel, categoryDetailsField);
 
   const summary = document.createElement('dl');
   summary.className = 'listing-wizard-summary';
@@ -260,6 +266,8 @@
     }
     addItem('Pricing', [field('salePrice').value && `TZS ${field('salePrice').value} sale`, field('nightlyPrice').value && `TZS ${field('nightlyPrice').value} nightly`, field('monthlyPrice').value && `TZS ${field('monthlyPrice').value} monthly`, field('yearlyPrice').value && `TZS ${field('yearlyPrice').value} yearly`].filter(Boolean).join(' · '));
     addItem('Amenities and features', amenitiesField.value);
+    addItem('Advertiser authority', field('advertisingAuthorization').selectedOptions[0]?.textContent);
+    addItem('Authorization notes', field('authorizationNotes').value);
     addItem('Registration document', field('document').files[0]?.name);
     addItem('Photos or videos', `${field('media').files.length} selected · at least 5 required`);
   };
@@ -281,11 +289,11 @@
     if (index === 1) return ['city', 'addressLine1'];
     if (index === 2) {
       const names = ['title', 'description'];
-      if (category.value === 'land_plot') names.push('plotSize', 'landUse', 'titleStatus');
+      if (category.value === 'land_plot') names.push('plotSize', 'plotSizeUnit', 'landUse', 'titleStatus');
       if (category.value === 'commercial') names.push('floorArea', 'commercialUse');
       return names;
     }
-    if (index === 4) return ['document'];
+    if (index === 4) return ['document', 'advertisingAuthorization'];
     return [];
   };
   const validateStep = index => {
@@ -336,6 +344,10 @@
       }
     }
     if (index === 4) {
+      if (!field('authorizationAttested').checked) {
+        formMessage.textContent = 'Confirm that you own or are authorized to advertise this property.';
+        return false;
+      }
       if (!field('document').files.length) return false;
       if (field('media').files.length < 5) {
         formMessage.textContent = 'Add at least five property photos or videos to continue.';
@@ -359,6 +371,10 @@
       event.stopImmediatePropagation();
       return;
     }
+    const details = Object.fromEntries([...form.querySelectorAll('[data-category-detail]')]
+      .filter(control => control.value !== '')
+      .map(control => [control.name, control.value]));
+    categoryDetailsField.value = JSON.stringify(details);
   }, true);
 
   updateCategory();

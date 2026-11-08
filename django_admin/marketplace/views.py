@@ -191,7 +191,10 @@ def tenant_dashboard(request):
     user = _api_json(request, 'api/auth/me').get('user')
     if not user:
         return redirect(f'/account/?next={quote("/account/dashboard/")}')
-    if 'tenant' not in user.get('roles', []):
+    roles = set(user.get('roles', []))
+    if roles.intersection({'agent', 'property_owner', 'agency', 'developer'}):
+        return redirect('/agent/')
+    if 'tenant' not in roles:
         return redirect('/agent/')
     summary = _api_json(request, 'api/account/summary')
     bookings = _api_json(request, 'api/account/bookings').get('bookings', [])
@@ -209,17 +212,15 @@ def agent_workspace(request):
     user = _api_json(request, 'api/auth/me').get('user')
     if not user:
         return redirect(f'/account/?next={quote("/agent/")}')
-    if 'agent' not in user.get('roles', []):
+    if not set(user.get('roles', [])).intersection({'agent', 'property_owner', 'agency', 'developer'}):
         return redirect('/account/dashboard/')
     listings = _api_json(request, 'api/host/listings').get('listings', [])
     summary = _api_json(request, 'api/agent/summary')
-    bookings = _api_json(request, 'api/agent/bookings').get('bookings', [])
     bookings = _api_json(request, 'api/agent/bookings').get('bookings', [])
     return render(request, 'marketplace/agent_workspace.html', {
         'user': user,
         'listings': listings,
         'summary': summary,
-        'bookings': bookings,
         'bookings': bookings,
         'property_types': PROPERTY_TYPES,
     })

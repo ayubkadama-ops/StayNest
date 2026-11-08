@@ -18,7 +18,7 @@
       if (element.dataset.cloudinaryFallbackApplied) return;
       const attribute = element.tagName === 'IMG' ? 'src' : 'href';
       const source = element.getAttribute(attribute);
-      if (source === '/assets/makazi-go-icon.png') return;
+      if (source === '/assets/makazi-go-icon.png' || source === '/assets/default-avatar.svg') return;
       const optimized = cloudinaryAssetUrl(source);
       if (optimized !== source) {
         if (element.tagName === 'IMG') {

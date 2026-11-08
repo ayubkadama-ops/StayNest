@@ -20,7 +20,7 @@ CREATE TABLE roles (
 ) ENGINE=InnoDB;
 
 INSERT IGNORE INTO roles (name)
-VALUES ('tenant'), ('agent'), ('administrator');
+VALUES ('tenant'), ('property_owner'), ('agent'), ('agency'), ('developer'), ('verification_officer'), ('administrator');
 
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -130,12 +130,16 @@ CREATE TABLE agent_profiles (
   phone VARCHAR(32) NULL,
   bio TEXT NULL,
   agency_name VARCHAR(160) NULL,
+  specializations JSON NULL,
+  service_areas JSON NULL,
+  business_id BIGINT UNSIGNED NULL,
   profile_image_url VARCHAR(2048) NULL,
   followers_count INT UNSIGNED NOT NULL DEFAULT 0,
   following_count INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_agent_profile_user FOREIGN KEY (user_id) REFERENCES users(id)
+  CONSTRAINT fk_agent_profile_user FOREIGN KEY (user_id) REFERENCES users(id),
+  INDEX idx_agent_profiles_business (business_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE agent_follows (
@@ -180,6 +184,7 @@ CREATE TABLE identity_document_download_tokens (
 
 CREATE TABLE businesses (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  business_type ENUM('owner','agency','developer') NOT NULL DEFAULT 'owner',
   owner_user_id BIGINT UNSIGNED NOT NULL,
   legal_name VARCHAR(190) NOT NULL,
   registration_number VARCHAR(100) NULL,
@@ -226,6 +231,10 @@ CREATE TABLE listings (
   title_status ENUM('unknown','title_deed','offer','customary','other') NULL,
   floor_area DECIMAL(14,2) NULL,
   commercial_use ENUM('office','retail','hospitality','warehouse','mixed_use','other') NULL,
+  category_details JSON NULL,
+  advertising_authorization ENUM('owner','authorized_agent','agency','other') NULL,
+  authorization_notes VARCHAR(500) NULL,
+  authorization_attested_at DATETIME NULL,
   cleaning_fee DECIMAL(12,2) NOT NULL DEFAULT 0,
   service_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
   bedrooms TINYINT UNSIGNED NOT NULL DEFAULT 0,

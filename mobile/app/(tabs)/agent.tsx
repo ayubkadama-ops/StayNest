@@ -40,14 +40,14 @@ export default function AgentWorkspaceScreen() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [busyBookingId, setBusyBookingId] = useState<number | null>(null);
 
-  const isAgent = user?.roles.includes('agent') === true;
-  const canManageListings = isAgent && (!user.isSubAgent || user.permissions.includes('listings.manage'));
-  const canViewBookings = isAgent && (!user.isSubAgent || user.permissions.includes('bookings.view'));
-  const canManageBookings = isAgent && (!user.isSubAgent || user.permissions.includes('bookings.manage'));
+  const canUseWorkspace = user?.roles.some((role) => ['agent', 'property_owner', 'agency', 'developer'].includes(role)) === true;
+  const canManageListings = canUseWorkspace && (!user.isSubAgent || user.permissions.includes('listings.manage'));
+  const canViewBookings = canUseWorkspace && (!user.isSubAgent || user.permissions.includes('bookings.view'));
+  const canManageBookings = canUseWorkspace && (!user.isSubAgent || user.permissions.includes('bookings.manage'));
 
   useEffect(() => {
     if (sessionLoading) return;
-    if (!isAgent) {
+    if (!canUseWorkspace) {
       setSummaryLoading(false);
       setListingsLoading(false);
       setBookingsLoading(false);
@@ -119,10 +119,10 @@ export default function AgentWorkspaceScreen() {
     return () => {
       active = false;
     };
-  }, [canManageListings, canViewBookings, isAgent, refreshKey, sessionLoading]);
+  }, [canManageListings, canViewBookings, canUseWorkspace, refreshKey, sessionLoading]);
 
   const refreshWorkspace = () => {
-    if (!isAgent) return;
+    if (!canUseWorkspace) return;
     setRefreshing(true);
     setRefreshKey((key) => key + 1);
   };
@@ -176,7 +176,7 @@ export default function AgentWorkspaceScreen() {
           </Pressable>
         </Link>
         <View style={styles.pageHeading}>
-          <Text style={styles.eyebrow}>Agent workspace</Text>
+          <Text style={styles.eyebrow}>{user?.roles.includes('agent') ? 'Agent workspace' : 'Property workspace'}</Text>
           <Text accessibilityRole="header" style={styles.title}>
             {user ? `Good to see you, ${user.firstName || 'there'}.` : 'Your workspace'}
           </Text>
@@ -191,7 +191,7 @@ export default function AgentWorkspaceScreen() {
           <View style={styles.noticeCard}>
             <Text style={styles.noticeTitle}>Sign in to continue</Text>
             <Text style={styles.bodyText}>
-              {sessionError || 'Agent workspace access requires an approved agent account.'}
+              {sessionError || 'Workspace access requires an active agent, owner, or organization account.'}
             </Text>
             <Link href="/(tabs)/account" asChild>
               <Pressable accessibilityRole="button" style={styles.primaryButton}>
@@ -199,11 +199,11 @@ export default function AgentWorkspaceScreen() {
               </Pressable>
             </Link>
           </View>
-        ) : !isAgent ? (
+        ) : !canUseWorkspace ? (
           <View style={styles.noticeCard}>
             <Text style={styles.noticeTitle}>Agent access required</Text>
             <Text style={styles.bodyText}>
-              This workspace is available to agent accounts. Your current role is {user.roles.join(', ') || 'account'}.
+              This workspace is available to property professionals and owners. Your current role is {user.roles.join(', ') || 'account'}.
             </Text>
           </View>
         ) : (

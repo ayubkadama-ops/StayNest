@@ -5,6 +5,33 @@ commit history or release notes.
 
 ## Unreleased
 
+### Professional agent ecosystem
+
+- Added property-owner, agency, developer, and verification-officer role
+  paths while keeping elevated-role assignment Founder-only and enforcing
+  listing permissions on the server.
+- Added bounded professional specializations and service areas, agency and
+  developer verification applications, a role-gated verification-officer
+  queue, and Founder Console review controls.
+- Added listing, booking-request, and published-review metrics based on
+  existing records; missing data is not presented as a fabricated score.
+- Validation: 50 Node tests, 73 Django tests/system checks, web production
+  build, mobile type-check, and syntax checks pass.
+- Production migration execution and complete multi-user role-isolation
+  testing remain outstanding.
+
+### Structured property listing management
+
+- Extended the existing listing flow with property category, sale/rent/stay
+  journeys, corresponding pricing, and bounded category-specific details.
+- Added an advertiser-authority declaration and server-side validation while
+  keeping property verification independent and administrator-reviewed.
+- Added owner/organization access to the existing listing workspace and
+  category-specific facts to public property details.
+- Added additive migrations for professional profiles/business records and
+  structured listing details. Production TiDB/MySQL migration execution and
+  complete browser submission testing remain outstanding.
+
 ### Listing lifecycle and property verification
 
 - Added independent property identity, location, authorization, and document
@@ -61,6 +88,10 @@ commit history or release notes.
 
 ### Security
 
+- Confirmed the username migration adds the nullable column separately from
+  its unique index for TiDB compatibility; added a regression test for the
+  previously reported startup migration failure. The deployed database still
+  needs a fresh migration run to verify recovery.
 - Corrected administrator IP allow/deny matching to use validated IPv4/IPv6
   CIDR ranges instead of a string-prefix approximation.
 - Made Django startup reject missing or short `DJANGO_SECRET_KEY` values in

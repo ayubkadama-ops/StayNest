@@ -23,6 +23,9 @@ import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
 import { createDiscoveryPlan } from './discovery.js';
+import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
+import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
+import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
 import {
   resetPropertyLocationChecks,
   resolvePropertyVerificationStatus,
@@ -176,7 +179,6 @@ async function ensureListingPricePrecision() {
     }));
   }
 }
-
 async function ensureListingAmenityIdPrecision() {
   const [columns] = await pool.query(
     `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, DATA_TYPE
@@ -495,7 +497,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
         'SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=?',
         [user.id]
       );
-      const roles = roleRows.map(row => row.name).filter(role => ['tenant', 'agent', 'administrator'].includes(role));
+      const roles = roleRows.map(row => row.name).filter(isSupportedRole);
       if (!roles.length) {
         await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name="tenant"', [user.id]);
         roles.push('tenant');
@@ -525,7 +527,7 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
   const confirmPassword = typeof req.body.confirmPassword === 'string' ? req.body.confirmPassword : '';
   if (!/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number.' });
   if (!location || location.length > 100) return res.status(400).json({ error: 'Enter your city or location.' });
-  if (!['tenant', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant or Agent.' });
+  if (!['tenant', 'property_owner', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant, Property owner, or Agent.' });
   if (!strongPassword(password)) return res.status(400).json({ error: 'Choose a strong password with at least 12 characters, including three character types.' });
   if (password !== confirmPassword) return res.status(400).json({ error: 'Passwords do not match.' });
   const connection = await pool.getConnection();
@@ -546,8 +548,12 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
       'INSERT INTO user_profiles (user_id, first_name, last_name, display_name, avatar_url, city) VALUES (?, ?, ?, ?, ?, ?)',
       [result.insertId, pending.firstName, pending.lastName, `${pending.firstName} ${pending.lastName}`.slice(0, 160), pending.avatarUrl || DEFAULT_PROFILE_AVATAR, location]
     );
-    await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name=?', [result.insertId, role]);
-    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id, phone) VALUES (?, ?)', [result.insertId, phone]);
+    if (role === 'property_owner') {
+      await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name IN ("tenant", "property_owner")', [result.insertId]);
+    } else {
+      await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name=?', [result.insertId, role]);
+    }
+    if (['agent', 'property_owner'].includes(role)) await connection.execute('INSERT INTO agent_profiles (user_id, phone) VALUES (?, ?)', [result.insertId, phone]);
     await connection.commit();
     delete req.session.googlePending;
     if (role === 'agent') {
@@ -611,7 +617,7 @@ const requireAuth = async (req, res, next) => {
       req.session.destroy(() => {});
       return res.status(403).json({ error: account?.status === 'pending' ? 'Your account is awaiting founder approval' : 'Your account is not active' });
     }
-    const roles = String(account.roles || '').split(',').filter(role => ['tenant', 'agent', 'administrator'].includes(role));
+    const roles = String(account.roles || '').split(',').filter(isSupportedRole);
     if (!roles.length) {
       req.session.destroy(() => {});
       return res.status(403).json({ error: 'Your account has no active role' });
@@ -674,7 +680,8 @@ const apiLimiter = rateLimit({
 app.use('/api', apiLimiter);
 const requireAgentAccess = (permission) => (req, res, next) => {
   if (hasAgentPermission(req.session.user, permission)) return next();
-  if (!req.session.user?.roles?.includes('agent')) return res.status(403).json({ error: 'Agent permissions required' });
+  if (hasListingRolePermission(req.session.user, permission)) return next();
+  if (!req.session.user?.roles?.some(role => ['agent', 'property_owner', 'agency', 'developer'].includes(role))) return res.status(403).json({ error: 'Agent or property-owner permissions required' });
   return res.status(403).json({ error: `Your sub-agent account is not allowed to perform: ${permission}` });
 };
 const requireMessagePermission = (req, res, next) => {
@@ -713,14 +720,23 @@ app.post('/api/auth/register', async (req, res, next) => {
     const details = registrationDetails(req.body);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !strongPassword(password)) return res.status(400).json({ error: 'Enter a valid email and a strong password with at least 12 characters, including three character types' });
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
-    if (!['tenant', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose either Tenant or Agent' });
+    if (!['tenant', 'property_owner', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant, Property owner, or Agent' });
     if (details.error) return res.status(400).json({ error: details.error });
     await connection.beginTransaction();
     const initialStatus = role === 'agent' ? 'pending' : 'active';
     const [result] = await connection.execute('INSERT INTO users (email, phone, password_hash, status) VALUES (?, ?, ?, ?)', [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus]);
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url, city, bio) VALUES (?, ?, ?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR, details.city || null, details.bio || null]);
-    await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?', [result.insertId, role]);
-    if (role === 'agent') await connection.execute('INSERT INTO agent_profiles (user_id, phone, bio, agency_name) VALUES (?, ?, ?, ?)', [result.insertId, details.phone || null, details.bio || null, details.agencyName || null]);
+    if (role === 'property_owner') {
+      await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name IN ("tenant", "property_owner")', [result.insertId]);
+    } else {
+      await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name = ?', [result.insertId, role]);
+    }
+    if (['agent', 'property_owner'].includes(role)) {
+      await connection.execute(
+        'INSERT INTO agent_profiles (user_id, phone, bio, agency_name) VALUES (?, ?, ?, ?)',
+        [result.insertId, details.phone || null, details.bio || null, role === 'agent' ? details.agencyName || null : null]
+      );
+    }
     await connection.commit();
     let emailVerificationSent = false;
     try {
@@ -757,12 +773,12 @@ app.post('/api/auth/login', async (req, res, next) => {
       await pool.execute('INSERT INTO security_events (event_type, ip_address, metadata) VALUES ("failed_login", INET6_ATON(?), ?)', [req.ip, JSON.stringify({ email: identifier.slice(0, 254) })]);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const roles = user.roles ? user.roles.split(',') : [];
+    const roles = user.roles ? user.roles.split(',').filter(isSupportedRole) : [];
     if (user.status === 'pending') {
       return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
     }
     if (!user.email_verified_at) return res.status(403).json({ emailVerificationRequired: true, error: 'Verify your email address before signing in.' });
-    if (!roles.some(role => ['tenant', 'agent', 'administrator'].includes(role))) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
+    if (!roles.some(isSupportedRole)) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
     if (user.mfa_enabled) {
       if (!req.body.mfaCode) return res.json({ mfaRequired: true });
       if (!user.mfa_secret_encrypted || !(await verify({ token: req.body.mfaCode, secret: decryptSecret(user.mfa_secret_encrypted) })).valid) return res.status(401).json({ error: 'Invalid MFA code' });
@@ -1022,7 +1038,7 @@ app.get('/api/agents/:id/profile', async (req, res, next) => {
        FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN agent_profiles ap ON ap.user_id=u.id
        LEFT JOIN agent_badges ab ON ab.agent_user_id=u.id AND ab.starts_at<=UTC_TIMESTAMP() AND (ab.expires_at IS NULL OR ab.expires_at>UTC_TIMESTAMP())
        JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
-       WHERE u.id=? AND u.status="active" AND r.name="agent"
+       WHERE u.id=? AND u.status="active" AND r.name IN ("agent","property_owner","agency","developer")
        ORDER BY ab.created_at DESC LIMIT 1`,
       [req.params.id]
     );
@@ -1295,19 +1311,19 @@ app.get('/api/listings/discover', async (req, res, next) => {
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
         l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
-        l.floor_area floorArea, l.commercial_use commercialUse,
+        l.floor_area floorArea, l.commercial_use commercialUse, l.category_details categoryDetails,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
+        l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
         CASE WHEN lv.verification_status='verified' AND lv.expires_at<CURRENT_DATE() THEN 'expired'
              ELSE COALESCE(lv.verification_status, 'unverified') END propertyVerificationStatus,
-        l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
         EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved,
         up.first_name agentFirstName, up.last_name agentLastName, ap.agency_name agencyName,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
        FROM listings l
-       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        JOIN property_types pt ON pt.id=l.property_type_id
+       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        LEFT JOIN user_profiles up ON up.user_id=l.agent_user_id
        LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
        WHERE ${plan.whereSql}
@@ -1752,7 +1768,8 @@ app.get('/api/host/listings', requireAuth, requireAgentAccess('listings.manage')
               l.review_count, l.updated_at, l.description, l.address_line1, l.neighborhood,
               l.district, l.ward, l.city, l.region, l.property_size, l.furnished,
               l.plot_size, l.plot_size_unit, l.land_use, l.title_status, l.floor_area,
-              l.commercial_use, l.bedrooms, l.beds, l.bathrooms, l.max_guests,
+              l.commercial_use, l.category_details, l.advertising_authorization,
+              l.authorization_notes, l.authorization_attested_at, l.bedrooms, l.beds, l.bathrooms, l.max_guests,
               l.structure_type, l.privacy_type, pt.name property_type,
               CASE WHEN v.verification_status='verified' AND v.expires_at<CURRENT_DATE() THEN 'expired'
                    ELSE COALESCE(v.verification_status, 'unverified') END property_verification_status
@@ -1766,6 +1783,7 @@ app.get('/api/host/listings', requireAuth, requireAgentAccess('listings.manage')
     res.json({ listings: rows });
   } catch (error) { next(error); }
 });
+
 app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
@@ -1821,6 +1839,19 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
       floorArea: categoryValue('floorArea', listing.floor_area),
       commercialUse: categoryValue('commercialUse', listing.commercial_use)
     });
+    const categoryDetailsInput = Object.hasOwn(input, 'categoryDetails')
+      ? input.categoryDetails
+      : categoryChanged ? {} : listing.category_details;
+    const categoryDetails = normalizeListingCategoryDetails(categoryDetailsInput);
+    const hasAuthorizationInput = ['advertisingAuthorization', 'authorizationNotes', 'authorizationAttested']
+      .some(key => Object.hasOwn(input, key));
+    const authorization = hasAuthorizationInput
+      ? validateAdvertisingAuthorization({
+        authorization: value('advertisingAuthorization', listing.advertising_authorization),
+        notes: value('authorizationNotes', listing.authorization_notes),
+        attested: value('authorizationAttested', false)
+      })
+      : { value: { authorization: listing.advertising_authorization, notes: listing.authorization_notes } };
     if (!title || !description || !city || !addressLine1) {
       await connection.rollback();
       return res.status(400).json({ error: 'Title, description, address, and city are required' });
@@ -1828,6 +1859,10 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
     if (journey.error) {
       await connection.rollback();
       return res.status(400).json({ error: journey.error });
+    }
+    if (categoryDetails.error || authorization.error) {
+      await connection.rollback();
+      return res.status(400).json({ error: categoryDetails.error || authorization.error });
     }
     const neighborhood = String(value('neighborhood', listing.neighborhood) || '').trim().slice(0, 120) || null;
     const district = String(value('district', listing.district) || '').trim().slice(0, 100) || null;
@@ -1889,6 +1924,8 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
       `UPDATE listings SET property_type_id=?, structure_type=?, privacy_type=?, title=?, description=?,
        transaction_type=?, rental_mode=?, sale_price=?, nightly_price=?, monthly_price=?, yearly_price=?,
        plot_size=?, plot_size_unit=?, land_use=?, title_status=?, floor_area=?, commercial_use=?,
+       category_details=?, advertising_authorization=?, authorization_notes=?,
+       authorization_attested_at=IF(?, UTC_TIMESTAMP(), authorization_attested_at),
        bedrooms=?, beds=?, bathrooms=?, max_guests=?, address_line1=?, neighborhood=?, district=?, ward=?,
        city=?, region=?, property_size=?, furnished=?, latitude=?, longitude=?,
        status=?
@@ -1898,6 +1935,8 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
         journey.transactionType, journey.rentalMode, journey.prices.salePrice, journey.prices.nightlyPrice,
         journey.prices.monthlyPrice, journey.prices.yearlyPrice, journey.plotSize, journey.plotSizeUnit,
         journey.landUse, journey.titleStatus, journey.floorArea, journey.commercialUse,
+        JSON.stringify(categoryDetails.value), authorization.value.authorization, authorization.value.notes,
+        hasAuthorizationInput,
         bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished, latitude, longitude,
         nextListingStatus, listingId
@@ -1961,8 +2000,7 @@ app.delete('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.
   } catch (error) { next(error); }
 });
 
-
-app.get('/api/agent/summary', requireAuth, requireRole('agent'), async (req, res, next) => {
+app.get('/api/agent/summary', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
     const ownerId = agentOwnerId(req);
     const [[counts]] = await pool.query(
@@ -1980,7 +2018,7 @@ app.post('/api/presence/ping', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get('/api/agent/attention', requireAuth, requireRole('agent'), async (req, res, next) => {
+app.get('/api/agent/attention', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
     const ownerId = agentOwnerId(req);
     const [[counts]] = await pool.query(
@@ -2161,6 +2199,12 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
       floorArea: req.body.floorArea,
       commercialUse: req.body.commercialUse
     });
+    const categoryDetails = normalizeListingCategoryDetails(req.body.categoryDetails);
+    const authorization = validateAdvertisingAuthorization({
+      authorization: req.body.advertisingAuthorization,
+      notes: req.body.authorizationNotes,
+      attested: req.body.authorizationAttested
+    });
     const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
     const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
     const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
@@ -2177,6 +2221,8 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const document = req.files?.document?.[0], media = req.files?.media || [];
     if (!title || !description || !city || !addressLine1) return res.status(400).json({ error: 'Title, description, address, and city are required' });
     if (journey.error) return res.status(400).json({ error: journey.error });
+    if (categoryDetails.error) return res.status(400).json({ error: categoryDetails.error });
+    if (authorization.error) return res.status(400).json({ error: authorization.error });
     if (propertySize !== null && (!Number.isFinite(propertySize) || propertySize <= 0)) return res.status(400).json({ error: 'Enter a valid property size in square metres' });
     if (furnished && !['furnished', 'unfurnished', 'partially_furnished'].includes(furnished)) return res.status(400).json({ error: 'Choose a valid furnishing option' });
     if (['land', 'commercial'].includes(journey.propertyType) && (propertySize !== null || furnished)) return res.status(400).json({ error: 'Use the category-specific land or commercial area fields for this property' });
@@ -2212,12 +2258,12 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         const index = nextMediaIndex++;
         const file = media[index];
         const isVideo = file.mimetype.startsWith('video/');
-        const stored = isVideo ? await storeListingVideo(file, uploadBatchId) : await storeListingImage(file, uploadBatchId);
         savePhase = 'store_listing_media';
+        const stored = isVideo ? await storeListingVideo(file, uploadBatchId) : await storeListingImage(file, uploadBatchId);
         storedMedia[index] = { file, stored, isVideo };
       }
     };
-    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(2, media.length) }, storeMediaBatch));
+    const mediaUploadResults = await Promise.allSettled(Array.from({ length: Math.min(1, media.length) }, storeMediaBatch));
     const failedUpload = mediaUploadResults.find(upload => upload.status === 'rejected');
     if (failedUpload) throw failedUpload.reason;
 
@@ -2232,18 +2278,27 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         title, slug, description, status, booking_mode, rental_mode, transaction_type,
         currency, sale_price, nightly_price, monthly_price, yearly_price,
         plot_size, plot_size_unit, land_use, title_status, floor_area, commercial_use,
+        category_details, advertising_authorization, authorization_notes, authorization_attested_at,
         bedrooms, beds, bathrooms, max_guests, address_line1, neighborhood,
         district, ward, city, region, property_size, furnished, country_code, latitude, longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_review", ?, ?, ?, "TZS", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, "pending_review",
+        ?, ?, ?, "TZS",
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        UTC_TIMESTAMP(),
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )`,
       [
         agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null,
         title, slug, description, bookingMode, journey.rentalMode, journey.transactionType,
         journey.prices.salePrice, journey.prices.nightlyPrice, journey.prices.monthlyPrice, journey.prices.yearlyPrice,
         journey.plotSize, journey.plotSizeUnit, journey.landUse, journey.titleStatus,
-        journey.floorArea, journey.commercialUse, bedrooms, beds, bathrooms, maxGuests,
+        journey.floorArea, journey.commercialUse, JSON.stringify(categoryDetails.value),
+        authorization.value.authorization, authorization.value.notes, bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
         countryCode, latitude, longitude
       ]
+    );
     await connection.execute(
       'INSERT INTO listing_verifications (listing_id, verification_status, submitted_at) VALUES (?, "submitted", UTC_TIMESTAMP())',
       [result.insertId]
@@ -2253,7 +2308,6 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
        (listing_id, actor_user_id, actor_label, check_name, previous_status, new_status, reason)
        VALUES (?, ?, ?, 'listing', NULL, 'submitted', 'Property submitted for independent review')`,
       [result.insertId, req.session.user.id, `${req.session.user.firstName || ''} ${req.session.user.lastName || ''}`.trim() || 'Makazi Go agent']
-    );
     );
     savePhase = 'insert_identity_verification';
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key, encryption_version) VALUES (?, ?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key, storedDocument.encryptionVersion]);
@@ -2452,10 +2506,11 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
         l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
         l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
-        l.floor_area floorArea, l.commercial_use commercialUse,
+        l.floor_area floorArea, l.commercial_use commercialUse, l.category_details categoryDetails,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
+        ap.profile_image_url profileImageUrl, ap.followers_count followers,
         CASE WHEN lv.verification_status='verified' AND lv.expires_at<CURRENT_DATE() THEN 'expired'
              ELSE COALESCE(lv.verification_status, 'unverified') END propertyVerificationStatus,
         COALESCE(lv.identity_status, 'not_reviewed') identityVerificationStatus,
@@ -2463,7 +2518,6 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         COALESCE(lv.authority_status, 'not_reviewed') authorityVerificationStatus,
         COALESCE(lv.documents_status, 'not_reviewed') documentReviewStatus,
         lv.verified_at propertyVerifiedAt, lv.expires_at propertyVerificationExpiresAt,
-        ap.profile_image_url profileImageUrl, ap.followers_count followers,
         EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
         (SELECT AVG(TIMESTAMPDIFF(MINUTE, b.created_at, b.confirmed_at))/60 FROM bookings b WHERE b.host_user_id=l.agent_user_id AND b.confirmed_at IS NOT NULL) responseHours,
@@ -2471,8 +2525,8 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved
        FROM listings l JOIN property_types pt ON pt.id=l.property_type_id
        LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
-       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        LEFT JOIN user_profiles p ON p.user_id=l.agent_user_id
+       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        WHERE l.id=? AND l.status="published" AND l.deleted_at IS NULL`,
       [req.session.user?.id || 0, req.params.id]
     );
@@ -2621,13 +2675,13 @@ app.post('/api/listings/:id/reviews', requireAuth, async (req, res, next) => {
     const [[existingReview]] = await pool.execute('SELECT id FROM reviews WHERE booking_id=? AND author_user_id=?', [bookingId, req.session.user.id]);
     if (existingReview) return res.status(409).json({ error: 'You have already reviewed this completed booking' });
     const [result] = await pool.execute('INSERT INTO reviews (booking_id, author_user_id, listing_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [bookingId, req.session.user.id, req.params.id, rating, String(req.body.comment || '').slice(0, 5000)]);
+    await pool.execute('UPDATE listings SET average_rating=(SELECT AVG(rating) FROM reviews WHERE listing_id=? AND status="published"), review_count=(SELECT COUNT(*) FROM reviews WHERE listing_id=? AND status="published") WHERE id=?', [req.params.id, req.params.id, req.params.id]);
     void notifyUser(eligible[0].agentId, {
       type: 'listing_review_received',
       title: 'New guest review',
       body: `A guest rated ${eligible[0].title} ${rating} out of 5.`,
       data: { listingId: Number(req.params.id), reviewId: result.insertId }
     }).catch(error => console.error('Agent review notification failed:', error.message));
-    await pool.execute('UPDATE listings SET average_rating=(SELECT AVG(rating) FROM reviews WHERE listing_id=? AND status="published"), review_count=(SELECT COUNT(*) FROM reviews WHERE listing_id=? AND status="published") WHERE id=?', [req.params.id, req.params.id, req.params.id]);
     res.status(201).json({ id: result.insertId });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'You have already reviewed this completed booking' });
@@ -2869,24 +2923,34 @@ app.post('/api/admin/impersonation/stop', requireAuth, async (req, res, next) =>
 
 app.get('/api/admin/overview', requireAuth, requireAdminAccess('overview'), async (_req, res, next) => {
   try {
-    const count = async query => { try { const [[row]] = await pool.query(query); return Number(Object.values(row || {})[0] || 0); } catch (error) { console.warn('Admin overview count unavailable:', error.code || error.message); return 0; } };
-    const stats = {
-      totalUsers: await count("SELECT COUNT(*) FROM users WHERE status != 'deleted'"),
-      activeUsers: await count("SELECT COUNT(*) FROM users WHERE status='active'"),
-      suspendedUsers: await count("SELECT COUNT(*) FROM users WHERE status='suspended'"),
-      activeAgents: await count("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='agent' AND u.status='active'"),
-      activeTenants: await count("SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='tenant' AND u.status='active'"),
-      activeSubagents: await count("SELECT COUNT(*) FROM agent_subaccounts sa JOIN users u ON u.id=sa.subagent_user_id WHERE sa.status='active' AND u.status='active'"),
-      activeListings: await count("SELECT COUNT(*) FROM listings WHERE status='published'"),
-      listingsNeedingReview: await count("SELECT COUNT(*) FROM listings WHERE status IN ('pending_review','draft')"),
-      pendingVerifications: await count("SELECT COUNT(*) FROM identity_verifications WHERE status='pending'"),
-      pendingBookings: await count("SELECT COUNT(*) FROM bookings WHERE status='pending'"),
-      unreadNotifications: await count('SELECT COUNT(*) FROM notifications WHERE read_at IS NULL'),
-      todaysBookings: await count('SELECT COUNT(*) FROM bookings WHERE created_at >= UTC_DATE()'),
-      grossBookingVolume: await count("SELECT COALESCE(SUM(total_amount),0) FROM bookings WHERE status IN ('confirmed','completed')"),
-      todaysAuditEvents: await count('SELECT COUNT(*) FROM audit_logs WHERE created_at >= UTC_DATE()')
+    const unavailableMetrics = [];
+    const count = async (metric, query) => {
+      try {
+        const [[row]] = await pool.query(query);
+        return Number(Object.values(row || {})[0] || 0);
+      } catch (error) {
+        console.warn('Admin overview count unavailable:', error.code || error.message);
+        unavailableMetrics.push(metric);
+        return 0;
+      }
     };
-    res.json(stats);
+    const stats = {
+      totalUsers: await count('totalUsers', "SELECT COUNT(*) FROM users WHERE status != 'deleted'"),
+      activeUsers: await count('activeUsers', "SELECT COUNT(*) FROM users WHERE status='active'"),
+      suspendedUsers: await count('suspendedUsers', "SELECT COUNT(*) FROM users WHERE status='suspended'"),
+      activeAgents: await count('activeAgents', "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='agent' AND u.status='active'"),
+      activeTenants: await count('activeTenants', "SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id=ur.role_id JOIN users u ON u.id=ur.user_id WHERE r.name='tenant' AND u.status='active'"),
+      activeSubagents: await count('activeSubagents', "SELECT COUNT(*) FROM agent_subaccounts sa JOIN users u ON u.id=sa.subagent_user_id WHERE sa.status='active' AND u.status='active'"),
+      activeListings: await count('activeListings', "SELECT COUNT(*) FROM listings WHERE status='published'"),
+      listingsNeedingReview: await count('listingsNeedingReview', "SELECT COUNT(*) FROM listings WHERE status IN ('pending_review','draft')"),
+      pendingVerifications: await count('pendingVerifications', "SELECT COUNT(*) FROM identity_verifications WHERE status='pending'"),
+      pendingBookings: await count('pendingBookings', "SELECT COUNT(*) FROM bookings WHERE status='pending'"),
+      unreadNotifications: await count('unreadNotifications', 'SELECT COUNT(*) FROM notifications WHERE read_at IS NULL'),
+      todaysBookings: await count('todaysBookings', 'SELECT COUNT(*) FROM bookings WHERE created_at >= UTC_DATE()'),
+      grossBookingVolume: await count('grossBookingVolume', "SELECT COALESCE(SUM(total_amount),0) FROM bookings WHERE status IN ('confirmed','completed')"),
+      todaysAuditEvents: await count('todaysAuditEvents', 'SELECT COUNT(*) FROM audit_logs WHERE created_at >= UTC_DATE()')
+    };
+    res.json({ ...stats, unavailableMetrics });
   } catch (error) { next(error); }
 });
 
@@ -2955,7 +3019,7 @@ app.get('/api/admin/posts', requireAuth, requireAdminAccess('posts'), async (req
     if (status && ['draft','pending_review','published'].includes(status)) { where.push('po.status=?'); params.push(status); }
     if (req.query.q) { where.push('(l.title LIKE ? OR l.city LIKE ? OR CONCAT(p.first_name," ",p.last_name) LIKE ?)'); const q=`%${String(req.query.q).slice(0,100)}%`; params.push(q,q,q); }
     const [posts] = await pool.query(
-      `SELECT po.id post_id,po.listing_id listing_id,l.title,l.city,po.status,po.created_at,po.created_at updated_at,
+      `SELECT po.id post_id,po.listing_id listing_id,po.post_type,po.caption,po.amenity_tags,l.title,l.city,po.status,po.created_at,po.created_at updated_at,
         COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) agent_name,
         COALESCE(lk.likes,0) likes,COALESCE(vw.views,0) views,
         (COALESCE(lk.likes,0)*3+COALESCE(vw.views,0)) engagement
@@ -3066,17 +3130,6 @@ app.get('/api/admin/verifications', requireAuth, requireAdminAccess('verificatio
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess('verifications'), async (_req, res, next) => {
-  try {
-    const [registrations] = await pool.query(`
-      SELECT u.id, 'agent' verification_type,
-             CASE WHEN u.status='active' THEN 'approved' WHEN u.status='suspended' THEN 'rejected' ELSE u.status END verification_status,
-             u.status, u.email, u.phone, p.city, p.avatar_url avatarUrl, u.created_at,
-             p.first_name, p.last_name, NULL main_agent_id, NULL main_agent_name, NULL main_agent_email, NULL main_agent_phone,
-             NULL main_agent_city, NULL mainAgentAvatar, NULL account_label
-      FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
-      JOIN user_profiles p ON p.user_id=u.id
-      WHERE r.name='agent' AND u.status IN ('pending','active','suspended')
 app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
   const verificationId = positiveId(req.params.id);
   const token = typeof req.query.token === 'string' ? req.query.token : '';
@@ -3122,6 +3175,17 @@ app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
   } finally { connection.release(); }
 });
 
+app.get('/api/admin/agent-verifications', requireAuth, requireAdminAccess('verifications'), async (_req, res, next) => {
+  try {
+    const [registrations] = await pool.query(`
+      SELECT u.id, 'agent' verification_type,
+             CASE WHEN u.status='active' THEN 'approved' WHEN u.status='suspended' THEN 'rejected' ELSE u.status END verification_status,
+             u.status, u.email, u.phone, p.city, p.avatar_url avatarUrl, u.created_at,
+             p.first_name, p.last_name, NULL main_agent_id, NULL main_agent_name, NULL main_agent_email, NULL main_agent_phone,
+             NULL main_agent_city, NULL mainAgentAvatar, NULL account_label
+      FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+      JOIN user_profiles p ON p.user_id=u.id
+      WHERE r.name='agent' AND u.status IN ('pending','active','suspended')
     `);
     const [subagents] = await pool.query(`
       SELECT u.id, 'subagent' verification_type,
@@ -3220,10 +3284,12 @@ app.post('/api/admin/users/:id/email/verify', requireAuth, requireAdminAccess('u
 app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess('access'), async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
-    const role = ['tenant', 'agent', 'administrator'].includes(req.body.role) ? req.body.role : null;
+    const role = isSupportedRole(req.body.role) ? req.body.role : null;
     const userId = Number(req.params.id);
     if (!role || !Number.isSafeInteger(userId) || userId < 1) return res.status(400).json({ error: 'Invalid role or user ID' });
-    if (role === 'administrator' && !req.session.adminGate) return res.status(403).json({ error: 'Only the founder administrator can assign administrator access' });
+    if (!canAssignRole(role, { isFounder: req.session.adminGate === true })) {
+      return res.status(403).json({ error: 'Only the founder administrator can assign this role' });
+    }
     await connection.beginTransaction();
     const [roleRows] = await connection.execute('SELECT id FROM roles WHERE name=?', [role]);
     if (!roleRows.length) { await connection.rollback(); return res.status(400).json({ error: 'Role not found' }); }
@@ -3231,12 +3297,19 @@ app.post('/api/admin/users/:id/role', requireAuth, requireAdminAccess('access'),
     if (!userRows.length) { await connection.rollback(); return res.status(404).json({ error: 'User not found' }); }
     const alreadyAdministrator = await isAdministratorAccount(userId, connection);
     if (!req.session.adminGate && alreadyAdministrator) { await connection.rollback(); return res.status(403).json({ error: 'Only the founder administrator can manage administrator accounts' }); }
-    await connection.execute('DELETE ur FROM user_roles ur JOIN roles old_role ON old_role.id=ur.role_id WHERE ur.user_id=? AND old_role.name IN ("tenant","agent")', [userId]);
-    await connection.execute('INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)', [userId, roleRows[0].id, req.session.user.id]);
+    await connection.execute('DELETE ur FROM user_roles ur JOIN roles old_role ON old_role.id=ur.role_id WHERE ur.user_id=? AND old_role.name IN ("tenant","agent","property_owner")', [userId]);
+    if (role === 'property_owner') {
+      await connection.execute(
+        'INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) SELECT ?, id, ? FROM roles WHERE name IN ("tenant", "property_owner")',
+        [userId, req.session.user.id]
+      );
+    } else {
+      await connection.execute('INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)', [userId, roleRows[0].id, req.session.user.id]);
+    }
     if (role === 'administrator' && !alreadyAdministrator) {
       await connection.execute('INSERT INTO admin_access_profiles (user_id, managed_by) VALUES (?, ?)', [userId, req.session.user.id || null]);
     }
-    if (role === 'agent') await connection.execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (?)', [userId]);
+    if (['agent', 'property_owner', 'agency', 'developer'].includes(role)) await connection.execute('INSERT IGNORE INTO agent_profiles (user_id) VALUES (?)', [userId]);
     await connection.commit();
     await audit(req, 'user_role_assigned', 'user', userId, { role });
     void notifyUser(userId, {
@@ -3253,9 +3326,11 @@ app.delete('/api/admin/users/:id/role/:role', requireAuth, requireAdminAccess('a
   const connection = await pool.getConnection();
   try {
     const userId = positiveId(req.params.id);
-    const role = ['tenant', 'agent', 'administrator'].includes(req.params.role) ? req.params.role : null;
+    const role = isSupportedRole(req.params.role) ? req.params.role : null;
     if (!userId || !role) return res.status(400).json({ error: 'Invalid role or user ID' });
-    if (role === 'administrator' && !req.session.adminGate) return res.status(403).json({ error: 'Only the founder administrator can remove administrator access' });
+    if (!canAssignRole(role, { isFounder: req.session.adminGate === true })) {
+      return res.status(403).json({ error: 'Only the founder administrator can remove this role' });
+    }
     if (userId === req.session.user.id && role === 'administrator') return res.status(400).json({ error: 'You cannot remove your own administrator role' });
     await connection.beginTransaction();
     if (!req.session.adminGate && await isAdministratorAccount(userId, connection)) {
@@ -3340,15 +3415,6 @@ app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('
     if (!status) return res.status(400).json({ error: 'Invalid listing moderation status' });
     const [[listing]] = await pool.query('SELECT id, title, agent_user_id, owner_user_id FROM listings WHERE id=? AND status != "archived"', [req.params.id]);
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
-    const [result] = await pool.execute('UPDATE listings SET status=?, published_at=IF(?="published", COALESCE(published_at, UTC_TIMESTAMP()), published_at) WHERE id=? AND status != "archived"', [status, status, req.params.id]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Listing not found' });
-    await audit(req, `listing_${status}`, 'listing', req.params.id, { reason: String(req.body.reason || '') });
-    const recipient = listing.agent_user_id || listing.owner_user_id;
-    void notifyUser(recipient, {
-      type: `listing_${status}`,
-      title: status === 'published' ? 'Listing approved' : status === 'rejected' ? 'Listing rejected' : 'Listing unpublished',
-      body: `"${listing.title}" was ${status === 'published' ? 'approved and published' : status}.`,
-      data: { listingId: listing.id, status }
     if (status === 'published') {
       const [[verification]] = await pool.query(
         `SELECT verification_status,
@@ -3362,20 +3428,20 @@ app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('
         return res.status(409).json({ error: 'Complete identity, location, authorization, and document checks before publishing this property' });
       }
     }
+    const [result] = await pool.execute('UPDATE listings SET status=?, published_at=IF(?="published", COALESCE(published_at, UTC_TIMESTAMP()), published_at) WHERE id=? AND status != "archived"', [status, status, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Listing not found' });
+    await audit(req, `listing_${status}`, 'listing', req.params.id, { reason: String(req.body.reason || '') });
+    const recipient = listing.agent_user_id || listing.owner_user_id;
+    void notifyUser(recipient, {
+      type: `listing_${status}`,
+      title: status === 'published' ? 'Listing approved' : status === 'rejected' ? 'Listing rejected' : 'Listing unpublished',
+      body: `"${listing.title}" was ${status === 'published' ? 'approved and published' : status}.`,
+      data: { listingId: listing.id, status }
     }).catch(error => console.error('Listing moderation notification failed:', error.message));
     res.json({ ok: true, status });
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
-  try {
-    const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
-    if (!status) return res.status(400).json({ error: 'Invalid verification decision' });
-    const [result] = await pool.execute('UPDATE identity_verifications SET status=?, reviewed_by=?, reviewed_at=UTC_TIMESTAMP(), rejection_reason=? WHERE id=? AND status="pending"', [status, req.session.user.id, status === 'rejected' ? String(req.body.reason || 'Not approved') : null, req.params.id]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Verification not found' });
-    await audit(req, `verification_${status}`, 'identity_verification', req.params.id);
-    res.json({ ok: true });
-  } catch (error) { next(error); }
 app.get('/api/admin/listings/:id/verification-history', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   try {
     const listingId = positiveId(req.params.id);
@@ -3483,6 +3549,15 @@ app.post('/api/admin/listings/:id/verification', requireAuth, requireAdminAccess
   } finally { connection.release(); }
 });
 
+app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
+  try {
+    const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
+    if (!status) return res.status(400).json({ error: 'Invalid verification decision' });
+    const [result] = await pool.execute('UPDATE identity_verifications SET status=?, reviewed_by=?, reviewed_at=UTC_TIMESTAMP(), rejection_reason=? WHERE id=? AND status="pending"', [status, req.session.user.id, status === 'rejected' ? String(req.body.reason || 'Not approved') : null, req.params.id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Verification not found' });
+    await audit(req, `verification_${status}`, 'identity_verification', req.params.id);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/listings/:id/media', requireAuth, requireAgentAccess('media.manage'), upload.array('images', 10), async (req, res, next) => {
@@ -3545,6 +3620,10 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
       await connection.rollback();
       return res.status(404).json({ error: 'Listing not found' });
     }
+    if (!['stay', 'both'].includes(listing.transaction_type)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
+    }
     const [overlaps] = await connection.execute('SELECT id FROM bookings WHERE listing_id=? AND status IN ("pending","payment_pending","confirmed") AND check_in < ? AND check_out > ? FOR UPDATE', [listingId, checkOut, checkIn]);
     if (overlaps.length) {
       await connection.rollback();
@@ -3556,10 +3635,6 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
     } catch {
       await connection.rollback();
       return res.status(400).json({ error: 'Invalid dates or minimum stay not met' });
-    if (!['stay', 'both'].includes(listing.transaction_type)) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
-    }
     }
     const bookingCode = `SN${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     const { nights, subtotal, total } = booking;
@@ -3633,13 +3708,22 @@ app.get('/app.js', async (_req, res, next) => {
     next(error);
   }
 });
+app.use('/api', createAgentEcosystemRouter({
+  pool,
+  requireAuth,
+  requireAgentAccess,
+  requireAdminAccess,
+  requireRole,
+  agentOwnerId,
+  audit
+}));
 app.use(express.static(path.resolve(process.cwd(), 'dist')));
 app.use((error, req, res, _next) => {
   console.error(JSON.stringify({
     level: 'error',
     requestId: req.requestId,
     method: req.method,
-    path: req.originalUrl,
+    path: req.path,
     userId: req.session?.user?.id || null,
     error: error.message,
     code: error.code,
@@ -3686,3 +3770,5 @@ assertDatabaseConnection()
     setInterval(() => { void loadRuntimeConfig(); }, 30 * 1000);
   }))
   .catch(error => { console.error('Database connection failed:', error.message); process.exitCode = 1; });
+
+/*x*/

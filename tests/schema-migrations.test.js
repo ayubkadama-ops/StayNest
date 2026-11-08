@@ -31,10 +31,32 @@ function createMigrationPool({ failOn } = {}) {
   };
 }
 
-test('property journey migration is part of the startup sequence', () => {
+test('property marketplace migrations are part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('property-journeys-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-search-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-verification-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('agent-ecosystem-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('listing-category-details-migration.sql'));
+});
+
+test('username column migration keeps its unique index separate for TiDB compatibility', async () => {
+  const statements = [];
+  const pool = {
+    async execute(sql) {
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    },
+    async query(sql) {
+      if (sql.startsWith('SELECT checksum FROM schema_migrations')) return [[], []];
+      statements.push(sql);
+      return [{ affectedRows: 1 }, []];
+    }
+  };
+
+  await applySchemaMigrations(pool, 'database', ['admin-username-migration.sql']);
+  assert.ok(statements.includes('ALTER TABLE users ADD COLUMN username VARCHAR(120) NULL'));
+  assert.ok(statements.includes('CREATE UNIQUE INDEX uq_users_username ON users (username)'));
+  assert.ok(statements.every(sql => !/ADD COLUMN username[^;]*UNIQUE/i.test(sql)));
 });
 
 test('schema migrations apply once and skip unchanged applied files', async () => {

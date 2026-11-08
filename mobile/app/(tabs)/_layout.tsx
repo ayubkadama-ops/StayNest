@@ -58,7 +58,7 @@ export default function TabLayout() {
         options={{
           title: 'Workspace',
           headerShown: false,
-          href: user?.roles.includes('agent') ? '/(tabs)/agent' : null,
+          href: user?.roles.some((role) => ['agent', 'property_owner', 'agency', 'developer'].includes(role)) ? '/(tabs)/agent' : null,
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{

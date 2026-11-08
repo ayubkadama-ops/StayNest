@@ -263,7 +263,7 @@ export type LoginResult =
   | { mfaRequired: true }
   | { mfaRequired: false; user: SessionUser };
 
-export type RegistrationRole = 'tenant' | 'agent';
+export type RegistrationRole = 'tenant' | 'property_owner' | 'agent';
 
 export type RegistrationInput = {
   role: RegistrationRole;
@@ -749,7 +749,7 @@ export async function registerAccount(input: RegistrationInput): Promise<Registr
   const pendingApproval = payload.pendingApproval === true;
   if (
     (input.role === 'agent' && !pendingApproval) ||
-    (input.role === 'tenant' && (pendingApproval || payload.requiresLogin !== true))
+    (input.role !== 'agent' && (pendingApproval || payload.requiresLogin !== true))
   ) {
     throw new Error('The server returned an unexpected account-creation status.');
   }
