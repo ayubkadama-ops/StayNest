@@ -5,6 +5,26 @@ commit history or release notes.
 
 ## Unreleased
 
+### Listing lifecycle and property verification
+
+- Added independent property identity, location, authorization, and document
+  review states with conservative backfill of existing listings as
+  unverified. These checks do not certify legal title.
+- Added audited check decisions and history, including rejection reasons and
+  operator labels for Express and Founder Console reviewers.
+- Added agent listing edit and soft-archive operations. Material location or
+  category changes restart property checks while preserving advertiser
+  identity review; published, rejected, and unpublished edits return to
+  moderation.
+- Enforced current completion of all four checks before publication in both
+  administrative paths, and exposed accurate status explanations on public
+  web and mobile details.
+- Sensitive review documents remain on the existing private-document path
+  and are not included in public listing payloads.
+- Local tests and builds pass. Applying the migration and checking database
+  recovery and private storage in controlled production-like infrastructure
+  remain outstanding.
+
 ### Search and discovery
 
 - Added validated, parameterized discovery filters for location breakdown,

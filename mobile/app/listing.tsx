@@ -159,7 +159,7 @@ export default function ListingScreen() {
               ) : (
                 <Text style={styles.metaText}>New listing</Text>
               )}
-              {listing.verifiedAgent ? <Text style={styles.verified}>Verified agent</Text> : null}
+              {listing.verifiedAgent ? <Text style={styles.verified}>Identity-checked agent</Text> : null}
             </View>
             <Text style={styles.price}>
               {price !== null && period
@@ -184,6 +184,25 @@ export default function ListingScreen() {
             <Section title="About this place">
               <Text style={styles.bodyText}>
                 {listing.description || 'The agent has not added a description yet.'}
+              </Text>
+            </Section>
+
+            <Section title="Makazi Go property checks">
+              <Text style={styles.agentName}>
+                {(listing.propertyVerification?.status || 'unverified').replace(/_/g, ' ')}
+              </Text>
+              {[
+                ['Identity', listing.propertyVerification?.identity],
+                ['Location', listing.propertyVerification?.location],
+                ['Owner/agent authorization', listing.propertyVerification?.ownerOrAgentAuthorization],
+                ['Property documents', listing.propertyVerification?.documents],
+              ].map(([label, status]) => (
+                <Text key={label} style={styles.bodyText}>
+                  {label}: {(status || 'not reviewed').replace(/_/g, ' ')}
+                </Text>
+              ))}
+              <Text style={styles.bodyText}>
+                These platform checks are not a legal title guarantee. Title details are advertiser-reported.
               </Text>
             </Section>
 

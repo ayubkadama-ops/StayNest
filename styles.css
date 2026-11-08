@@ -3082,6 +3082,17 @@ body > .topbar:has(+ .topbar) {
 .listing-compare-table thead th strong,.listing-compare-table thead th small { display: block; }
 .listing-compare-table thead th small { margin-top: 4px; color: var(--muted); font-weight: 400; }
 .listing-compare-remove { display: block; margin-top: 8px; border: 0; padding: 0; color: var(--danger, #8d2626); background: none; text-decoration: underline; cursor: pointer; }
+.listing-property-verification { padding: 16px; margin: 20px 0; border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-soft); }
+.listing-property-verification h2 { margin: 0 0 8px; }
+.listing-property-verification p { margin: 0 0 10px; }
+.listing-property-verification ul { display: grid; gap: 6px; padding: 0; margin: 0 0 10px; list-style: none; }
+.listing-property-verification li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.listing-property-verification small { color: var(--muted); line-height: 1.5; }
+.listing-manager-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.listing-edit-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-height: 70vh; overflow-y: auto; padding: 8px; }
+.listing-edit-form > label { display: grid; gap: 6px; }
+.listing-edit-form > label:has(textarea), .listing-edit-form > .form-error, .listing-edit-form > button { grid-column: 1 / -1; }
+.listing-edit-form input, .listing-edit-form select, .listing-edit-form textarea { width: 100%; min-width: 0; }
 
 @media (max-width: 900px) {
   .listings-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3093,6 +3104,8 @@ body > .topbar:has(+ .topbar) {
 @media (max-width: 620px) {
   .listings-filter-bar { grid-template-columns: 1fr; gap: 10px; }
   .listings-filter-bar button { width: 100%; }
+  .listing-edit-form { grid-template-columns: 1fr; }
+  .listing-edit-form > label, .listing-edit-form > .form-error, .listing-edit-form > button { grid-column: 1; }
   .all-listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
   .listing-page-gallery { grid-template-columns: 1fr; gap: 8px; }
   .listing-page-media, .listing-page-cover-media { height: 240px; }

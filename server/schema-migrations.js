@@ -23,7 +23,8 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'tenant-experience-migration.sql',
   'private-document-access-migration.sql',
   'property-journeys-migration.sql',
-  'property-search-migration.sql'
+  'property-search-migration.sql',
+  'property-verification-migration.sql'
 ]);
 
 async function columnExists(pool, tableName, columnName) {

@@ -312,9 +312,17 @@ def dashboard(request):
             data['rows'] = rows(
                 f"""SELECT l.id,l.title,l.city,l.status,l.currency,l.nightly_price,l.monthly_price,l.yearly_price,
                           l.updated_at,l.created_at,u.id owner_user_id,
+                          CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
+                               ELSE COALESCE(v.verification_status,'unverified') END verification_status,
+                          COALESCE(v.identity_status,'not_reviewed') identity_status,
+                          COALESCE(v.location_status,'not_reviewed') location_status,
+                          COALESCE(v.authority_status,'not_reviewed') authority_status,
+                          COALESCE(v.documents_status,'not_reviewed') documents_status,
+                          v.verified_at,v.expires_at,
                           COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name
                    FROM listings l JOIN users u ON u.id=l.owner_user_id
                    LEFT JOIN user_profiles p ON p.user_id=u.id
+                   LEFT JOIN listing_verifications v ON v.listing_id=l.id
                    WHERE {' AND '.join(listing_where)}
                    ORDER BY {listing_sorts[listing_sort]} LIMIT 200""",
                 listing_params,
@@ -677,10 +685,19 @@ def listing_detail(request, listing_id):
         """SELECT l.id,l.title,l.description,l.status,l.currency,l.nightly_price,l.monthly_price,
                   l.yearly_price,l.city,l.region,l.country_code,l.bedrooms,l.beds,l.bathrooms,
                   l.max_guests,l.created_at,l.updated_at,u.id owner_user_id,
+                  CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
+                       ELSE COALESCE(v.verification_status,'unverified') END verification_status,
+                  COALESCE(v.identity_status,'not_reviewed') identity_status,
+                  COALESCE(v.location_status,'not_reviewed') location_status,
+                  COALESCE(v.authority_status,'not_reviewed') authority_status,
+                  COALESCE(v.documents_status,'not_reviewed') documents_status,
+                  v.verified_at,v.expires_at,
                   COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
                   u.email owner_email
            FROM listings l JOIN users u ON u.id=l.owner_user_id
-           LEFT JOIN user_profiles p ON p.user_id=u.id WHERE l.id=%s""",
+           LEFT JOIN user_profiles p ON p.user_id=u.id
+           LEFT JOIN listing_verifications v ON v.listing_id=l.id
+           WHERE l.id=%s""",
         [listing_id],
     )
     if not listing_rows:
@@ -691,6 +708,12 @@ def listing_detail(request, listing_id):
         'page_title': listing_rows[0]['title'],
         'content': listing_rows[0],
         'media': rows('SELECT media_type media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id', [listing_id]),
+        'verification_events': rows(
+            """SELECT check_name,previous_status,new_status,reason,created_at,actor_user_id,actor_label
+               FROM listing_verification_events WHERE listing_id=%s
+               ORDER BY created_at DESC,id DESC LIMIT 100""",
+            [listing_id],
+        ),
     })
 
 @admin_required
@@ -890,7 +913,85 @@ def action(request, action):
             elif action == 'listing-status':
                 listing_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'published', 'rejected', 'unpublished'}: raise ValueError('Invalid listing status')
-                execute('UPDATE listings SET status=%s WHERE id=%s', [status, listing_id]); audit(f'listing_{status}', 'listing', listing_id)
+                if status == 'published':
+                    verification = rows(
+                        """SELECT verification_status,
+                                  (expires_at IS NULL OR expires_at>=UTC_DATE()) is_current
+                           FROM listing_verifications WHERE listing_id=%s FOR UPDATE""",
+                        [listing_id],
+                    )
+                    if not verification or verification[0]['verification_status'] != 'verified' or not verification[0]['is_current']:
+                        raise ValueError('Complete identity, location, authorization, and document checks before publishing this property')
+                execute('UPDATE listings SET status=%s,published_at=IF(%s=\'published\',COALESCE(published_at,UTC_TIMESTAMP()),published_at) WHERE id=%s', [status, status, listing_id]); audit(f'listing_{status}', 'listing', listing_id)
+            elif action == 'listing-verification':
+                listing_id = int(request.POST.get('id', '0'))
+                check = request.POST.get('check', '')
+                status = request.POST.get('status', '')
+                reason = request.POST.get('reason', '').strip()
+                check_columns = {'identity_status', 'location_status', 'authority_status', 'documents_status'}
+                if listing_id < 1 or check not in check_columns or status not in {'checked', 'rejected'}:
+                    raise ValueError('Choose a valid property verification check and decision')
+                if status == 'rejected' and not reason:
+                    raise ValueError('Enter a reason when rejecting a verification check')
+                if len(reason) > 500:
+                    raise ValueError('Verification reason must be 500 characters or fewer')
+                verification = rows(
+                    'SELECT * FROM listing_verifications WHERE listing_id=%s FOR UPDATE',
+                    [listing_id],
+                )
+                if not verification:
+                    execute(
+                        'INSERT INTO listing_verifications (listing_id,verification_status,submitted_at) VALUES (%s,\'submitted\',UTC_TIMESTAMP())',
+                        [listing_id],
+                    )
+                    previous_checks = {
+                        'identity_status': 'not_reviewed',
+                        'location_status': 'not_reviewed',
+                        'authority_status': 'not_reviewed',
+                        'documents_status': 'not_reviewed',
+                    }
+                    previous_overall = 'submitted'
+                else:
+                    previous_checks = {key: verification[0][key] for key in check_columns}
+                    previous_overall = verification[0]['verification_status']
+                previous_status = previous_checks[check]
+                previous_checks[check] = status
+                if 'rejected' in previous_checks.values():
+                    overall_status = 'rejected'
+                elif all(value == 'checked' for value in previous_checks.values()):
+                    overall_status = 'verified'
+                elif 'checked' in previous_checks.values():
+                    overall_status = 'under_review'
+                else:
+                    overall_status = 'submitted'
+                execute(
+                    f"""UPDATE listing_verifications SET {check}=%s,verification_status=%s,
+                        verified_at=IF(%s='verified',UTC_TIMESTAMP(),NULL),
+                        rejection_reason=%s WHERE listing_id=%s""",
+                    [status, overall_status, overall_status, reason if status == 'rejected' else None, listing_id],
+                )
+                actor_label = (
+                    request.session.get('admin_name')
+                    or request.session.get('admin_username')
+                    or request.session.get('admin_label')
+                    or 'Founder Console'
+                )[:120]
+                execute(
+                    """INSERT INTO listing_verification_events
+                       (listing_id,actor_user_id,actor_label,check_name,previous_status,new_status,reason)
+                       VALUES (%s,NULL,%s,%s,%s,%s,%s)""",
+                    [listing_id, actor_label, check, previous_status, status, reason or None],
+                )
+                audit(
+                    f'property_{check.removesuffix("_status")}_{status}',
+                    'listing',
+                    listing_id,
+                    {
+                        'verification_status': overall_status,
+                        'previous_status': previous_overall,
+                        'actor_label': actor_label,
+                    },
+                )
             elif action == 'post-status':
                 post_id = int(request.POST['id']); status = request.POST['status']
                 if status not in {'draft', 'pending_review', 'published'}: raise ValueError('Invalid post status')
@@ -1041,7 +1142,7 @@ def action(request, action):
         return redirect('/admin/?section=users')
     if action == 'admin-create' and created_admin_id is not None:
         return redirect(f'/admin/admins/{created_admin_id}/')
-    if action == 'listing-status' and request.POST.get('listing_tab') in {'review', 'available'}:
+    if action in {'listing-status', 'listing-verification'} and request.POST.get('listing_tab') in {'review', 'available'}:
         listing_tab = request.POST['listing_tab']
         listing_sort = request.POST.get('listing_sort', 'updated')
         if listing_sort not in {'updated', 'oldest', 'title', 'city', 'price_low', 'price_high'}:

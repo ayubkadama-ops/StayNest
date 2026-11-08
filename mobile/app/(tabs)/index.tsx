@@ -931,6 +931,9 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
               .filter(Boolean)
               .join(' · ') || propertyLabel}
           </Text>
+          {listing.propertyVerificationStatus === 'verified' ? (
+            <Text style={styles.facts}>Makazi Go property checks complete</Text>
+          ) : null}
           <Text style={styles.price}>
             {price !== null && period
               ? `${listing.currency || 'TZS'} ${price.toLocaleString()} / ${period}`

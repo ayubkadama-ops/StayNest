@@ -46,6 +46,34 @@
   margin: 0;
 }
 
+.listing-property-verification {
+  padding: 16px;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f5f7f5;
+}
+
+.listing-property-verification h2 {
+  margin-top: 0;
+}
+
+.listing-property-verification ul {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}
+
+.listing-property-verification small,
+.property-check-badge {
+  color: var(--muted);
+}
+
+.property-check-badge {
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 900px) {
   .filter-advanced-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

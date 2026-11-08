@@ -34,6 +34,7 @@
           <div class="fact"><span>Prices</span><strong>{% if content.nightly_price %}{{ content.currency }} {{ content.nightly_price }} / night{% endif %}{% if content.monthly_price %} · {{ content.currency }} {{ content.monthly_price }} / month{% endif %}{% if content.yearly_price %} · {{ content.currency }} {{ content.yearly_price }} / year{% endif %}</strong></div>
           <div class="fact"><span>Bedrooms · beds · bathrooms</span><strong>{{ content.bedrooms }} · {{ content.beds|default:'—' }} · {{ content.bathrooms }}</strong></div>
           <div class="fact"><span>Maximum guests</span><strong>{{ content.max_guests }}</strong></div>
+          <div class="fact"><span>Property verification</span><strong>{{ content.verification_status|default:'unverified' }}</strong><span>Identity: {{ content.identity_status|default:'not_reviewed' }} · Location: {{ content.location_status|default:'not_reviewed' }} · Authorization: {{ content.authority_status|default:'not_reviewed' }} · Documents: {{ content.documents_status|default:'not_reviewed' }}</span>{% if content.verified_at %}<span>Checked {{ content.verified_at }}{% if content.expires_at %} · Expires {{ content.expires_at }}{% endif %}</span>{% endif %}</div>
           <div class="fact"><span>Updated</span><strong>{{ content.updated_at }}</strong></div>
         {% else %}
           <div class="fact"><span>Type</span><strong>{{ content.post_type }}</strong></div>
@@ -46,6 +47,7 @@
       {% if content.description %}<h3>Description</h3><p>{{ content.description }}</p>{% endif %}
       {% if content.caption %}<h3>Caption</h3><p>{{ content.caption }}</p>{% endif %}
     </section>
+    {% if content_type == 'Listing' %}<section class="panel"><h2>Property verification history</h2>{% if verification_events %}<table class="table"><tr><th>Check</th><th>Change</th><th>Recorded by</th><th>Reason</th><th>Time</th></tr>{% for event in verification_events %}<tr><td>{{ event.check_name }}</td><td>{{ event.previous_status|default:'—' }} → {{ event.new_status }}</td><td>{{ event.actor_label|default:'Makazi Go system' }}</td><td>{{ event.reason|default:'—' }}</td><td>{{ event.created_at }}</td></tr>{% endfor %}</table>{% else %}<p class="muted">No property checks have been recorded.</p>{% endif %}<p class="muted">Makazi Go checks do not certify legal title or replace a formal ownership search.</p></section>{% endif %}
     {% if media %}<section class="panel"><h2>Listing media</h2><div class="media">{% for item in media %}<div>{% if item.media_type == 'video' %}<video controls preload="metadata" src="{{ item.public_url }}"></video>{% else %}<img loading="lazy" src="{{ item.public_url }}" alt="{{ item.caption|default:content.title }}">{% endif %}{% if item.caption %}<p>{{ item.caption }}</p>{% endif %}<a href="{{ item.public_url }}" target="_blank" rel="noopener">Open media</a></div>{% endfor %}</div></section>{% endif %}
   </main>
 </div>

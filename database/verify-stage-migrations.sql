@@ -27,6 +27,17 @@ FROM information_schema.tables
 WHERE table_schema=DATABASE()
   AND table_name='identity_document_download_tokens';
 
+SELECT 'property_verification_tables' AS check_name, COUNT(*) AS present_count
+FROM information_schema.tables
+WHERE table_schema=DATABASE()
+  AND table_name IN ('listing_verifications', 'listing_verification_events');
+
+SELECT 'property_verification_actor_label' AS check_name, COUNT(*) AS present_count
+FROM information_schema.columns
+WHERE table_schema=DATABASE()
+  AND table_name='listing_verification_events'
+  AND column_name='actor_label';
+
 SELECT transaction_type, COUNT(*) AS listing_count
 FROM listings
 GROUP BY transaction_type
@@ -42,10 +53,13 @@ FROM schema_migrations
 WHERE migration_name IN (
   'private-document-access-migration.sql',
   'property-journeys-migration.sql',
-  'property-search-migration.sql'
+  'property-search-migration.sql',
+  'property-verification-migration.sql'
 )
 ORDER BY migration_name;
 
 SHOW CREATE TABLE listings;
 SHOW CREATE TABLE identity_verifications;
 SHOW CREATE TABLE identity_document_download_tokens;
+SHOW CREATE TABLE listing_verifications;
+SHOW CREATE TABLE listing_verification_events;

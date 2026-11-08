@@ -41,6 +41,7 @@ export type ListingSummary = {
   propertySize: number | null;
   furnished: string | null;
   verifiedAgent: boolean | null;
+  propertyVerificationStatus: string | null;
   currency: string | null;
   transactionType: string | null;
   salePrice: number | null;
@@ -88,10 +89,21 @@ export type ListingReview = {
   lastName: string | null;
 };
 
+export type PropertyVerification = {
+  status: string;
+  identity: string;
+  location: string;
+  ownerOrAgentAuthorization: string;
+  documents: string;
+  verifiedAt: string | null;
+  expiresAt: string | null;
+};
+
 export type ListingDetails = {
   listing: ListingSummary & {
     responseHours: number | null;
     verifiedAgent: boolean | null;
+    propertyVerification: PropertyVerification | null;
     locationLatitude: number | null;
     locationLongitude: number | null;
   };
@@ -409,6 +421,7 @@ function parseListing(value: unknown): ListingSummary {
     propertySize: nullableNumber(value.propertySize, 'property size'),
     furnished: nullableString(value.furnished, 'furnishing'),
     verifiedAgent: nullableBoolean(value.verifiedAgent, 'agent verification'),
+    propertyVerificationStatus: nullableString(value.propertyVerificationStatus, 'property verification status'),
     currency: nullableString(value.currency, 'currency'),
     transactionType: nullableString(value.transactionType, 'transaction type'),
     salePrice: nullableNumber(value.salePrice, 'sale price'),
@@ -1072,6 +1085,20 @@ export async function getListingDetails(id: string): Promise<ListingDetails> {
         isRecord(payload.listing) ? payload.listing.verifiedAgent : undefined,
         'agent verification state',
       ),
+      propertyVerification: isRecord(payload.listing) && isRecord(payload.listing.propertyVerification)
+        ? {
+          status: nullableString(payload.listing.propertyVerification.status, 'property verification status') ?? 'unverified',
+          identity: nullableString(payload.listing.propertyVerification.identity, 'identity check status') ?? 'not_reviewed',
+          location: nullableString(payload.listing.propertyVerification.location, 'location check status') ?? 'not_reviewed',
+          ownerOrAgentAuthorization: nullableString(
+            payload.listing.propertyVerification.ownerOrAgentAuthorization,
+            'authorization check status',
+          ) ?? 'not_reviewed',
+          documents: nullableString(payload.listing.propertyVerification.documents, 'document review status') ?? 'not_reviewed',
+          verifiedAt: nullableString(payload.listing.propertyVerification.verifiedAt, 'property verification date'),
+          expiresAt: nullableString(payload.listing.propertyVerification.expiresAt, 'property verification expiry'),
+        }
+        : null,
       locationLatitude: nullableNumber(
         isRecord(payload.listing) ? payload.listing.locationLatitude : undefined,
         'latitude',

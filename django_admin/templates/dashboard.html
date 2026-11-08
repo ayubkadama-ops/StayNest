@@ -85,13 +85,15 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
     <button class="button primary" type="submit">Apply filters</button>
     <a class="link listing-clear" href="/admin/?section=listings&listing_tab={{ listing_tab }}">Clear</a>
   </form>
+  <p class="muted">Identity, approximate location, advertising authority, and document review are independent checks. An uploaded identity document alone does not verify ownership or legal title.</p>
   <table class="table">
-    <tr><th>Listing</th><th>Owner</th><th>Status</th><th>Actions</th></tr>
+    <tr><th>Listing</th><th>Owner</th><th>Listing status</th><th>Property checks</th><th>Actions</th></tr>
     {% for row in rows %}
     <tr>
       <td><strong>{{ row.title }}</strong><small>{{ row.city }} · {{ row.currency }} {{ row.nightly_price|default:row.monthly_price|default:row.yearly_price|default:'—' }}</small></td>
       <td>{{ row.owner_name }}</td>
       <td><span class="pill">{{ row.status }}</span></td>
+      <td><span class="pill">{{ row.verification_status|default:'unverified' }}</span><small>ID {{ row.identity_status|default:'not_reviewed' }} · Location {{ row.location_status|default:'not_reviewed' }} · Authority {{ row.authority_status|default:'not_reviewed' }} · Documents {{ row.documents_status|default:'not_reviewed' }}</small>{% if row.verified_at %}<small>Checked {{ row.verified_at }}{% if row.expires_at %} · Expires {{ row.expires_at }}{% endif %}</small>{% endif %}<form method="post" action="/admin/action/listing-verification/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><label>Check<select name="check"><option value="identity_status">Identity</option><option value="location_status">Location</option><option value="authority_status">Owner/agent authorization</option><option value="documents_status">Property documents</option></select></label><label>Decision<select name="status"><option value="checked">Checked</option><option value="rejected">Rejected</option></select></label><label>Reason when rejecting<input name="reason" maxlength="500"></label><button class="button">Record check</button></form></td>
       <td><div class="actions">
         {% if listing_tab == 'review' %}
         <form method="post" action="/admin/action/listing-status/">{% csrf_token %}<input type="hidden" name="section" value="listings"><input type="hidden" name="listing_tab" value="{{ listing_tab }}"><input type="hidden" name="listing_status" value="{{ listing_status }}"><input type="hidden" name="listing_query" value="{{ listing_query }}"><input type="hidden" name="listing_sort" value="{{ listing_sort }}"><input type="hidden" name="id" value="{{ row.id }}"><input type="hidden" name="status" value="published"><button class="button primary">Publish</button></form>
@@ -102,7 +104,7 @@ button:focus-visible,a:focus-visible{outline:3px solid #8abf98;outline-offset:3p
         {% endif %}
       </div></td>
     </tr>
-    {% empty %}<tr><td colspan="4">{% if listing_tab == 'review' %}No listings need review.{% else %}No published listings match these filters.{% endif %}</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="5">{% if listing_tab == 'review' %}No listings need review.{% else %}No published listings match these filters.{% endif %}</td></tr>{% endfor %}
   </table>
 </section>
 {% elif section == 'posts' %}

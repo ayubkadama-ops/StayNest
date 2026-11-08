@@ -23,6 +23,7 @@
 		{% endif %}
 		{% if listing.amenityList %}<p class="listing-highlights">{% for amenity in listing.amenityList|slice:':3' %}{% if not forloop.first %} · {% endif %}{{ amenity }}{% endfor %}</p>{% endif %}
 		<p class="listing-price">{% if listing.salePrice %}{{ listing.currency }} {{ listing.salePrice|floatformat:0 }} · For sale{% elif listing.nightlyPrice %}{{ listing.currency }} {{ listing.nightlyPrice|floatformat:0 }} / night{% elif listing.monthlyPrice %}{{ listing.currency }} {{ listing.monthlyPrice|floatformat:0 }} / month{% elif listing.yearlyPrice %}{{ listing.currency }} {{ listing.yearlyPrice|floatformat:0 }} / year{% else %}Contact agent{% endif %}</p>
+		{% if listing.propertyVerificationStatus == 'verified' %}<p class="property-check-badge">Makazi Go property checks complete</p>{% endif %}
 	</div>
 </article>
 {% empty %}<p class="empty-state">No published properties match this search yet. Try another category or location.</p>{% endfor %}

@@ -1,6 +1,6 @@
 # Makazi Go Development Roadmap
 
-- **Status:** Phase 1 audit recorded; Stage 1 implemented, production-engine verification pending
+- **Status:** Stages 1–4 implemented and locally verified; production-engine verification pending
 - **Audit date:** 2026-11-07
 - **Baseline revision:** `1ccb3d3` (`main`)
 **Scope:** Current repository working tree, including existing uncommitted changes
@@ -163,13 +163,23 @@ surgical and preserve current tenant bookings and agent approval behavior.
 
 ### Stage 4 — Listing lifecycle and property verification
 
-- Extend the current create flow with edit/archive and category-aware fields.
-- Add distinct, audited property verification stages; do not infer ownership
-  or legal verification from an uploaded document.
-- Gate publication on the configured review process and show precise,
-  evidence-based verification labels.
-- Acceptance: agent ownership/permissions and admin decisions are tested;
-  sensitive evidence never becomes public media.
+- [x] Add agent-owned listing edit and soft-archive actions with
+  category-aware validation. Edits to published, rejected, or unpublished
+  properties return them to moderation; drafts stay drafts.
+- [x] Track advertiser identity, location, authorization, and property
+  document checks independently. Location/category edits restart the
+  property-specific checks while retaining the advertiser identity check.
+- [x] Record each decision, rejection reason, and operator label in the
+  verification event history. Uploaded property documents are not treated as
+  proof of legal ownership or title.
+- [x] Require all four checks to be current before publishing through either
+  the Express API or Founder Console; show the state and limitation language
+  on web and mobile property details.
+- [x] Backfill legacy listings conservatively as unverified. No uploaded
+  identity or property document is exposed through public listing responses.
+- Acceptance: focused verification state and Founder Console tests pass;
+  migration execution against deployed TiDB/MySQL, backup/restore, and live
+  document-storage checks remain required before production rollout.
 
 ### Stage 5 — Agent and organization ecosystem
 
@@ -248,13 +258,23 @@ Stage 3 verification on the current working tree:
 - TiDB/MySQL `EXPLAIN`, migration execution, backup restore, and live API
   behavior — **not run**; a controlled database environment is still needed.
 
+Stage 4 verification on the current working tree:
+
+- `npm test` — **45 passed**
+- `npm run test:django` — **73 passed**; Django system checks clean
+- `npm run build` — **passed**
+- `npm run typecheck --prefix mobile` — **passed**
+- JavaScript/Python syntax checks and `git diff --check` — **passed**
+- TiDB/MySQL migration execution, query plans, backup/restore, and private
+  storage end-to-end checks — **not run**; production access was unavailable.
+
 ## Current handoff for the next development session
 
-- Stage 1 and Stage 2 code plus Stage 3 search are implemented. The saved
+- Stages 1–4 are implemented locally. The saved
   master prompt reference is `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Node,
   Django, web build, and mobile type-check pass locally. No database or
   object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
-  and live document review are not end-to-end verified.
+  property migration, and live document review are not end-to-end verified.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.
@@ -266,7 +286,9 @@ Stage 3 verification on the current working tree:
   points to the Express API host in deployment.
 - Next: verify migration bootstrap, Stage 3 query plans, and private storage
   against TiDB/S3 in a controlled environment; execute a backup/restore test
-  before production rollout. Preserve unrelated worktree changes.
+  before production rollout. Stage 4 migration:
+  `database/property-verification-migration.sql`. Preserve unrelated worktree
+  changes.
 
 ## Working rules for future stages
 

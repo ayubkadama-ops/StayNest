@@ -145,8 +145,78 @@ class AdminConsoleAccessTests(SimpleTestCase):
             '/admin/?section=listings&listing_tab=available&listing_sort=price_high&listing_q=Arusha+%26+coast',
             fetch_redirect_response=False,
         )
-        execute.assert_called_once_with('UPDATE listings SET status=%s WHERE id=%s', ['unpublished', 17])
+        execute.assert_called_once_with(
+            "UPDATE listings SET status=%s,published_at=IF(%s='published',COALESCE(published_at,UTC_TIMESTAMP()),published_at) WHERE id=%s",
+            ['unpublished', 'unpublished', 17],
+        )
         audit.assert_called_once_with('listing_unpublished', 'listing', 17)
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{
+        'verification_status': 'submitted',
+        'identity_status': 'not_reviewed',
+        'location_status': 'not_reviewed',
+        'authority_status': 'not_reviewed',
+        'documents_status': 'not_reviewed',
+    }])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_property_check_records_founder_actor_and_event(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-verification/', {
+            'section': 'listings', 'listing_tab': 'review', 'id': '17',
+            'check': 'identity_status', 'status': 'checked',
+        })
+
+        self.assertRedirects(
+            response,
+            '/admin/?section=listings&listing_tab=review&listing_sort=updated&listing_q=&listing_status=all',
+            fetch_redirect_response=False,
+        )
+        event_call = next(call for call in execute.call_args_list if 'INSERT INTO listing_verification_events' in call.args[0])
+        self.assertEqual(
+            event_call.args[1],
+            [17, 'founder', 'identity_status', 'not_reviewed', 'checked', None],
+        )
+        update_call = next(call for call in execute.call_args_list if 'UPDATE listing_verifications SET' in call.args[0])
+        self.assertNotIn('reviewed_by=NULL', update_call.args[0])
+        audit.assert_called_once_with(
+            'property_identity_checked',
+            'listing',
+            17,
+            {
+                'verification_status': 'under_review',
+                'previous_status': 'submitted',
+                'actor_label': 'founder',
+            },
+        )
+
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.rows', return_value=[{
+        'verification_status': 'verified',
+        'is_current': 0,
+    }])
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_expired_property_checks_block_publication(self, atomic, rows, execute, audit):
+        self.authenticate_admin()
+
+        response = self.client.post('/admin/action/listing-status/', {
+            'section': 'listings', 'listing_tab': 'review', 'id': '17', 'status': 'published',
+        })
+
+        self.assertRedirects(
+            response,
+            '/admin/?section=listings&listing_tab=review&listing_sort=updated&listing_q=&listing_status=all',
+            fetch_redirect_response=False,
+        )
+        self.assertTrue(any(
+            'checks before publishing' in str(message).lower()
+            for message in response.wsgi_request._messages
+        ))
+        execute.assert_not_called()
+        audit.assert_not_called()
 
     @patch('console.views.rows', side_effect=[
         [{'id': 17, 'title': 'Garden flat', 'description': 'A sunny home', 'status': 'published',
@@ -155,6 +225,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
           'bathrooms': 1, 'max_guests': 4, 'created_at': '2026-10-01', 'updated_at': '2026-10-17',
           'owner_user_id': 42, 'owner_name': 'Asha Mrema', 'owner_email': 'asha@example.test'}],
         [{'media_type': 'image', 'public_url': '/media/listings/17/cover.webp', 'caption': 'Living room', 'is_cover': True}],
+        [],
     ])
     def test_admin_listing_detail_renders_listing_and_media(self, rows):
         self.authenticate_admin()

@@ -34,6 +34,7 @@ function createMigrationPool({ failOn } = {}) {
 test('property journey migration is part of the startup sequence', () => {
   assert.ok(SCHEMA_MIGRATIONS.includes('property-journeys-migration.sql'));
   assert.ok(SCHEMA_MIGRATIONS.includes('property-search-migration.sql'));
+  assert.ok(SCHEMA_MIGRATIONS.includes('property-verification-migration.sql'));
 });
 
 test('schema migrations apply once and skip unchanged applied files', async () => {

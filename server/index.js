@@ -23,6 +23,11 @@ import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
 import { createDiscoveryPlan } from './discovery.js';
+import {
+  resetPropertyLocationChecks,
+  resolvePropertyVerificationStatus,
+  validatePropertyVerificationDecision
+} from './property-verification.js';
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || !process.env.APP_ENCRYPTION_KEY || process.env.APP_ENCRYPTION_KEY.length < 16) {
   throw new Error('SESSION_SECRET and APP_ENCRYPTION_KEY must be configured');
@@ -1293,12 +1298,15 @@ app.get('/api/listings/discover', async (req, res, next) => {
         l.floor_area floorArea, l.commercial_use commercialUse,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
+        CASE WHEN lv.verification_status='verified' AND lv.expires_at<CURRENT_DATE() THEN 'expired'
+             ELSE COALESCE(lv.verification_status, 'unverified') END propertyVerificationStatus,
         l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
         EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved,
         up.first_name agentFirstName, up.last_name agentLastName, ap.agency_name agencyName,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC LIMIT 1) coverUrl
        FROM listings l
+       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        JOIN property_types pt ON pt.id=l.property_type_id
        LEFT JOIN user_profiles up ON up.user_id=l.agent_user_id
        LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
@@ -1739,12 +1747,220 @@ app.get('/api/account/summary', requireAuth, requireRole('tenant'), async (req, 
 app.get('/api/host/listings', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT id, title, slug, status, rental_mode, transaction_type, currency, sale_price, nightly_price, monthly_price, yearly_price, average_rating, review_count, updated_at FROM listings WHERE owner_user_id=? OR agent_user_id=? ORDER BY updated_at DESC',
+      `SELECT l.id, l.title, l.slug, l.status, l.rental_mode, l.transaction_type, l.currency,
+              l.sale_price, l.nightly_price, l.monthly_price, l.yearly_price, l.average_rating,
+              l.review_count, l.updated_at, l.description, l.address_line1, l.neighborhood,
+              l.district, l.ward, l.city, l.region, l.property_size, l.furnished,
+              l.plot_size, l.plot_size_unit, l.land_use, l.title_status, l.floor_area,
+              l.commercial_use, l.bedrooms, l.beds, l.bathrooms, l.max_guests,
+              l.structure_type, l.privacy_type, pt.name property_type,
+              CASE WHEN v.verification_status='verified' AND v.expires_at<CURRENT_DATE() THEN 'expired'
+                   ELSE COALESCE(v.verification_status, 'unverified') END property_verification_status
+       FROM listings l
+       JOIN property_types pt ON pt.id=l.property_type_id
+       LEFT JOIN listing_verifications v ON v.listing_id=l.id
+       WHERE (l.owner_user_id=? OR l.agent_user_id=?) AND l.deleted_at IS NULL
+       ORDER BY l.updated_at DESC`,
       [agentOwnerId(req), agentOwnerId(req)]
     );
     res.json({ listings: rows });
   } catch (error) { next(error); }
 });
+app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  const connection = await pool.getConnection();
+  try {
+    const listingId = positiveId(req.params.id);
+    if (!listingId || !req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Choose a valid listing and provide its updated details' });
+    }
+    await connection.beginTransaction();
+    const [[listing]] = await connection.execute(
+      `SELECT l.*, pt.name propertyType FROM listings l
+       JOIN property_types pt ON pt.id=l.property_type_id
+       WHERE l.id=? AND (l.owner_user_id=? OR l.agent_user_id=?) FOR UPDATE`,
+      [listingId, agentOwnerId(req), agentOwnerId(req)]
+    );
+    if (!listing) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Listing not found' });
+    }
+    if (listing.status === 'archived' || listing.deleted_at) {
+      await connection.rollback();
+      return res.status(409).json({ error: 'Archived listings cannot be edited' });
+    }
+    const input = req.body;
+    const value = (key, current) => Object.hasOwn(input, key) ? input[key] : current;
+    const title = String(value('title', listing.title) || '').trim().slice(0, 180);
+    const description = String(value('description', listing.description) || '').trim().slice(0, 8000);
+    const city = String(value('city', listing.city) || '').trim().slice(0, 100);
+    const addressLine1 = String(value('addressLine1', listing.address_line1) || '').trim().slice(0, 190);
+    const propertyType = String(value('propertyType', listing.propertyType) || '').trim().toLowerCase();
+    const categoryChanged = propertyType !== listing.propertyType;
+    const categoryValue = (key, current) => Object.hasOwn(input, key)
+      ? input[key]
+      : categoryChanged ? null : current;
+    const structureTypeInput = Object.hasOwn(input, 'structureType')
+      ? input.structureType
+      : categoryChanged ? null : listing.structure_type;
+    const structureType = String(structureTypeInput || '').trim() || null;
+    const rentalMode = value('rentalMode', listing.rental_mode);
+    const transactionType = value('transactionType', listing.transaction_type);
+    const journey = validateListingJourney({
+      transactionType,
+      propertyType,
+      structureType,
+      rentalMode,
+      salePrice: value('salePrice', listing.sale_price),
+      nightlyPrice: value('nightlyPrice', listing.nightly_price),
+      monthlyPrice: value('monthlyPrice', listing.monthly_price),
+      yearlyPrice: value('yearlyPrice', listing.yearly_price),
+      plotSize: categoryValue('plotSize', listing.plot_size),
+      plotSizeUnit: categoryValue('plotSizeUnit', listing.plot_size_unit),
+      landUse: categoryValue('landUse', listing.land_use),
+      titleStatus: categoryValue('titleStatus', listing.title_status),
+      floorArea: categoryValue('floorArea', listing.floor_area),
+      commercialUse: categoryValue('commercialUse', listing.commercial_use)
+    });
+    if (!title || !description || !city || !addressLine1) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Title, description, address, and city are required' });
+    }
+    if (journey.error) {
+      await connection.rollback();
+      return res.status(400).json({ error: journey.error });
+    }
+    const neighborhood = String(value('neighborhood', listing.neighborhood) || '').trim().slice(0, 120) || null;
+    const district = String(value('district', listing.district) || '').trim().slice(0, 100) || null;
+    const ward = String(value('ward', listing.ward) || '').trim().slice(0, 100) || null;
+    const region = String(value('region', listing.region) || '').trim().slice(0, 100) || null;
+    const propertySizeInput = categoryValue('propertySize', listing.property_size);
+    const propertySize = propertySizeInput === '' || propertySizeInput == null ? null : Number(propertySizeInput);
+    const furnished = String(categoryValue('furnished', listing.furnished) || '').trim() || null;
+    if (propertySize !== null && (!Number.isFinite(propertySize) || propertySize <= 0)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Enter a valid property size in square metres' });
+    }
+    if (furnished && !['furnished', 'unfurnished', 'partially_furnished'].includes(furnished)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Choose a valid furnishing option' });
+    }
+    if (['land', 'commercial'].includes(journey.propertyType) && (propertySize !== null || furnished)) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Use the category-specific land or commercial area fields for this property' });
+    }
+    const [[type]] = await connection.execute('SELECT id FROM property_types WHERE name=?', [journey.propertyType]);
+    if (!type) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Choose a valid property category' });
+    }
+    const latitude = value('latitude', listing.latitude);
+    const longitude = value('longitude', listing.longitude);
+    if (latitude == null || longitude == null || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))
+      || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Choose a valid location on the map' });
+    }
+    const bedrooms = Number(value('bedrooms', listing.bedrooms));
+    const beds = value('beds', listing.beds) === '' || value('beds', listing.beds) == null ? null : Number(value('beds', listing.beds));
+    const bathrooms = Number(value('bathrooms', listing.bathrooms));
+    const maxGuests = Number(value('maxGuests', listing.max_guests));
+    const privacyType = value('privacyType', listing.privacy_type) || null;
+    if (!Number.isInteger(bedrooms) || bedrooms < 0 || bedrooms > 99
+      || (beds !== null && (!Number.isInteger(beds) || beds < 0 || beds > 99))
+      || !Number.isFinite(bathrooms) || bathrooms < 0.5 || bathrooms > 99
+      || !Number.isInteger(maxGuests) || maxGuests < 1 || maxGuests > 999
+      || (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType))) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Check the bedroom, bathroom, guest capacity, and privacy details' });
+    }
+    const propertyLocationChanged = addressLine1 !== listing.address_line1
+      || city !== listing.city
+      || region !== listing.region
+      || district !== listing.district
+      || ward !== listing.ward
+      || neighborhood !== (listing.neighborhood || null)
+      || Number(latitude) !== Number(listing.latitude)
+      || Number(longitude) !== Number(listing.longitude)
+      || categoryChanged;
+    const nextListingStatus = ['published', 'rejected', 'unpublished'].includes(listing.status)
+      ? 'pending_review'
+      : listing.status;
+    await connection.execute(
+      `UPDATE listings SET property_type_id=?, structure_type=?, privacy_type=?, title=?, description=?,
+       transaction_type=?, rental_mode=?, sale_price=?, nightly_price=?, monthly_price=?, yearly_price=?,
+       plot_size=?, plot_size_unit=?, land_use=?, title_status=?, floor_area=?, commercial_use=?,
+       bedrooms=?, beds=?, bathrooms=?, max_guests=?, address_line1=?, neighborhood=?, district=?, ward=?,
+       city=?, region=?, property_size=?, furnished=?, latitude=?, longitude=?,
+       status=?
+       WHERE id=?`,
+      [
+        type.id, structureType, privacyType, title, description,
+        journey.transactionType, journey.rentalMode, journey.prices.salePrice, journey.prices.nightlyPrice,
+        journey.prices.monthlyPrice, journey.prices.yearlyPrice, journey.plotSize, journey.plotSizeUnit,
+        journey.landUse, journey.titleStatus, journey.floorArea, journey.commercialUse,
+        bedrooms, beds, bathrooms, maxGuests,
+        addressLine1, neighborhood, district, ward, city, region, propertySize, furnished, latitude, longitude,
+        nextListingStatus, listingId
+      ]
+    );
+    if (propertyLocationChanged) {
+      const [[verification]] = await connection.execute(
+        'SELECT verification_status, identity_status FROM listing_verifications WHERE listing_id=? FOR UPDATE',
+        [listingId]
+      );
+      const reset = resetPropertyLocationChecks(verification || {});
+      if (verification) {
+        await connection.execute(
+          `UPDATE listing_verifications SET verification_status=?, location_status='not_reviewed',
+           authority_status='not_reviewed', documents_status='not_reviewed',
+           submitted_at=UTC_TIMESTAMP(), verified_at=NULL, reviewed_by=NULL, rejection_reason=NULL
+           WHERE listing_id=?`,
+          [reset.status, listingId]
+        );
+      } else {
+        await connection.execute(
+          `INSERT INTO listing_verifications (listing_id, verification_status, identity_status, submitted_at)
+           VALUES (?, ?, ?, UTC_TIMESTAMP())`,
+          [listingId, reset.status, reset.checks.identity_status]
+        );
+      }
+      await connection.execute(
+        `INSERT INTO listing_verification_events
+         (listing_id, actor_user_id, actor_label, check_name, previous_status, new_status, reason)
+         VALUES (?, ?, ?, 'listing', ?, ?, 'Property location or category changed; affected checks require review again')`,
+        [
+          listingId,
+          req.session.user.id,
+          `${req.session.user.firstName || ''} ${req.session.user.lastName || ''}`.trim() || 'Makazi Go agent',
+          verification?.verification_status || null,
+          reset.status
+        ]
+      );
+    }
+    await connection.commit();
+    await audit(req, 'agent_listing_updated', 'listing', listingId, { propertyLocationChanged });
+    res.json({ ok: true, status: nextListingStatus });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally { connection.release(); }
+});
+
+app.delete('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    if (!listingId) return res.status(400).json({ error: 'Choose a valid listing' });
+    const [result] = await pool.execute(
+      `UPDATE listings SET status='archived', deleted_at=UTC_TIMESTAMP()
+       WHERE id=? AND (owner_user_id=? OR agent_user_id=?) AND status!='archived' AND deleted_at IS NULL`,
+      [listingId, agentOwnerId(req), agentOwnerId(req)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'Listing not found or already archived' });
+    await audit(req, 'agent_listing_archived', 'listing', listingId);
+    res.json({ ok: true, status: 'archived' });
+  } catch (error) { next(error); }
+});
+
 
 app.get('/api/agent/summary', requireAuth, requireRole('agent'), async (req, res, next) => {
   try {
@@ -2028,6 +2244,16 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
         countryCode, latitude, longitude
       ]
+    await connection.execute(
+      'INSERT INTO listing_verifications (listing_id, verification_status, submitted_at) VALUES (?, "submitted", UTC_TIMESTAMP())',
+      [result.insertId]
+    );
+    await connection.execute(
+      `INSERT INTO listing_verification_events
+       (listing_id, actor_user_id, actor_label, check_name, previous_status, new_status, reason)
+       VALUES (?, ?, ?, 'listing', NULL, 'submitted', 'Property submitted for independent review')`,
+      [result.insertId, req.session.user.id, `${req.session.user.firstName || ''} ${req.session.user.lastName || ''}`.trim() || 'Makazi Go agent']
+    );
     );
     savePhase = 'insert_identity_verification';
     await connection.execute('INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key, encryption_version) VALUES (?, ?, ?, ?, ?, ?)', [agentOwnerId(req), documentType, documentCountry, documentLast4 || null, storedDocument.key, storedDocument.encryptionVersion]);
@@ -2230,6 +2456,13 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         l.rental_mode rentalMode, pt.name propertyType,
         l.agent_user_id agentId, ap.agency_name agencyName, p.first_name firstName, p.last_name lastName,
+        CASE WHEN lv.verification_status='verified' AND lv.expires_at<CURRENT_DATE() THEN 'expired'
+             ELSE COALESCE(lv.verification_status, 'unverified') END propertyVerificationStatus,
+        COALESCE(lv.identity_status, 'not_reviewed') identityVerificationStatus,
+        COALESCE(lv.location_status, 'not_reviewed') locationVerificationStatus,
+        COALESCE(lv.authority_status, 'not_reviewed') authorityVerificationStatus,
+        COALESCE(lv.documents_status, 'not_reviewed') documentReviewStatus,
+        lv.verified_at propertyVerifiedAt, lv.expires_at propertyVerificationExpiresAt,
         ap.profile_image_url profileImageUrl, ap.followers_count followers,
         EXISTS(SELECT 1 FROM identity_verifications iv WHERE iv.user_id=l.agent_user_id AND iv.status="approved" AND (iv.expires_at IS NULL OR iv.expires_at>=CURRENT_DATE())) verifiedAgent,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
@@ -2238,11 +2471,28 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         EXISTS(SELECT 1 FROM saved_listings s WHERE s.user_id=? AND s.listing_id=l.id) saved
        FROM listings l JOIN property_types pt ON pt.id=l.property_type_id
        LEFT JOIN agent_profiles ap ON ap.user_id=l.agent_user_id
+       LEFT JOIN listing_verifications lv ON lv.listing_id=l.id
        LEFT JOIN user_profiles p ON p.user_id=l.agent_user_id
        WHERE l.id=? AND l.status="published" AND l.deleted_at IS NULL`,
       [req.session.user?.id || 0, req.params.id]
     );
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    listing.propertyVerification = {
+      status: listing.propertyVerificationStatus,
+      identity: listing.identityVerificationStatus,
+      location: listing.locationVerificationStatus,
+      ownerOrAgentAuthorization: listing.authorityVerificationStatus,
+      documents: listing.documentReviewStatus,
+      verifiedAt: listing.propertyVerifiedAt,
+      expiresAt: listing.propertyVerificationExpiresAt
+    };
+    delete listing.propertyVerificationStatus;
+    delete listing.identityVerificationStatus;
+    delete listing.locationVerificationStatus;
+    delete listing.authorityVerificationStatus;
+    delete listing.documentReviewStatus;
+    delete listing.propertyVerifiedAt;
+    delete listing.propertyVerificationExpiresAt;
     const publicLocation = approximateListingCoordinates(
       listing.approximate_latitude ?? listing.latitude,
       listing.approximate_longitude ?? listing.longitude
@@ -3099,6 +3349,19 @@ app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('
       title: status === 'published' ? 'Listing approved' : status === 'rejected' ? 'Listing rejected' : 'Listing unpublished',
       body: `"${listing.title}" was ${status === 'published' ? 'approved and published' : status}.`,
       data: { listingId: listing.id, status }
+    if (status === 'published') {
+      const [[verification]] = await pool.query(
+        `SELECT verification_status,
+                (expires_at IS NULL OR expires_at>=CURRENT_DATE()) is_current
+         FROM listing_verifications
+         WHERE listing_id=?`,
+        [listing.id]
+      );
+      if (!verification || verification.verification_status !== 'verified'
+        || !verification.is_current) {
+        return res.status(409).json({ error: 'Complete identity, location, authorization, and document checks before publishing this property' });
+      }
+    }
     }).catch(error => console.error('Listing moderation notification failed:', error.message));
     res.json({ ok: true, status });
   } catch (error) { next(error); }
@@ -3113,6 +3376,113 @@ app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAcces
     await audit(req, `verification_${status}`, 'identity_verification', req.params.id);
     res.json({ ok: true });
   } catch (error) { next(error); }
+app.get('/api/admin/listings/:id/verification-history', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    if (!listingId) return res.status(400).json({ error: 'Choose a valid listing' });
+    const [[listing]] = await pool.query(
+      `SELECT l.id, l.title,
+              CASE WHEN v.verification_status='verified' AND v.expires_at<CURRENT_DATE() THEN 'expired'
+                   ELSE COALESCE(v.verification_status, 'unverified') END verificationStatus,
+              COALESCE(v.identity_status, 'not_reviewed') identityStatus,
+              COALESCE(v.location_status, 'not_reviewed') locationStatus,
+              COALESCE(v.authority_status, 'not_reviewed') authorityStatus,
+              COALESCE(v.documents_status, 'not_reviewed') documentsStatus,
+              v.verified_at verifiedAt, v.expires_at expiresAt
+       FROM listings l LEFT JOIN listing_verifications v ON v.listing_id=l.id
+       WHERE l.id=?`,
+      [listingId]
+    );
+    if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    const [events] = await pool.execute(
+      `SELECT e.check_name checkName, e.previous_status previousStatus, e.new_status newStatus,
+              e.reason, e.created_at createdAt, e.actor_user_id actorUserId,
+              COALESCE(e.actor_label, p.display_name, CONCAT(p.first_name, ' ', p.last_name), u.email, 'System') actorName
+       FROM listing_verification_events e
+       LEFT JOIN users u ON u.id=e.actor_user_id
+       LEFT JOIN user_profiles p ON p.user_id=e.actor_user_id
+       WHERE e.listing_id=? ORDER BY e.created_at DESC, e.id DESC LIMIT 100`,
+      [listingId]
+    );
+    res.json({ listing, events });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/listings/:id/verification', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
+  const decision = validatePropertyVerificationDecision(req.body);
+  if (decision.error) return res.status(400).json({ error: decision.error });
+  const listingId = positiveId(req.params.id);
+  if (!listingId) return res.status(400).json({ error: 'Choose a valid listing' });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[listing]] = await connection.execute('SELECT id FROM listings WHERE id=? FOR UPDATE', [listingId]);
+    if (!listing) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Listing not found' });
+    }
+    let [[verification]] = await connection.execute(
+      'SELECT * FROM listing_verifications WHERE listing_id=? FOR UPDATE',
+      [listingId]
+    );
+    if (!verification) {
+      await connection.execute(
+        'INSERT INTO listing_verifications (listing_id, verification_status, submitted_at) VALUES (?, "submitted", UTC_TIMESTAMP())',
+        [listingId]
+      );
+      [[verification]] = await connection.execute(
+        'SELECT * FROM listing_verifications WHERE listing_id=? FOR UPDATE',
+        [listingId]
+      );
+    }
+    const previousCheckStatus = verification[decision.check];
+    const nextChecks = {
+      identity_status: verification.identity_status,
+      location_status: verification.location_status,
+      authority_status: verification.authority_status,
+      documents_status: verification.documents_status,
+      [decision.check]: decision.status
+    };
+    const nextOverallStatus = resolvePropertyVerificationStatus(nextChecks);
+    await connection.execute(
+      `UPDATE listing_verifications SET ${decision.check}=?, verification_status=?,
+       reviewed_by=?, verified_at=IF(?='verified', UTC_TIMESTAMP(), NULL),
+       rejection_reason=? WHERE listing_id=?`,
+      [
+        decision.status,
+        nextOverallStatus,
+        req.session.user.id,
+        nextOverallStatus,
+        decision.status === 'rejected' ? decision.reason : null,
+        listingId
+      ]
+    );
+    await connection.execute(
+      `INSERT INTO listing_verification_events
+       (listing_id, actor_user_id, actor_label, check_name, previous_status, new_status, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        listingId,
+        req.session.user.id,
+        `${req.session.user.firstName || ''} ${req.session.user.lastName || ''}`.trim() || req.session.user.email || 'Administrator',
+        decision.check,
+        previousCheckStatus,
+        decision.status,
+        decision.reason
+      ]
+    );
+    await connection.commit();
+    await audit(req, `property_${decision.check.replace('_status', '')}_${decision.status}`, 'listing', listingId, {
+      check: decision.check,
+      verificationStatus: nextOverallStatus
+    });
+    res.json({ ok: true, check: decision.check, status: decision.status, verificationStatus: nextOverallStatus });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally { connection.release(); }
+});
+
 });
 
 app.post('/api/listings/:id/media', requireAuth, requireAgentAccess('media.manage'), upload.array('images', 10), async (req, res, next) => {
