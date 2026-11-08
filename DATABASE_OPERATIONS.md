@@ -69,11 +69,17 @@ completed and recorded by an operator with access to the target database.
   CLI, configured `makazigo-prod` login path, or authenticated TiDB Cloud
   console session. Production credential values were not inspected or
   copied.
-- No production DDL, database restore, deployment, or Git push was attempted.
+- The production fix and its operational-status commits were pushed to `main`
+  at the user's explicit request (`f607484`, `50c0741`, `db3e05f`), despite
+  the backup/staging gate not being satisfied. The public homepage now serves
+  the new web bundle.
 - Read-only production checks returned `/api/ready` HTTP 200 and
-  `/api/listings/discover` HTTP 500. The fix is committed locally, but this
-  does not establish that its migration works on TiDB.
-- Do not deploy the migration until an authorized operator takes and records
-  a provider recovery point, makes a protected logical backup, restores it to
-  isolated staging, and completes the application migration and smoke tests
-  above.
+  `/api/listings/discover` HTTP 500 (request ID
+  `d0ad93a4-7eb0-4d69-947d-1ec389a3d4e3`). The production schema and migration
+  result are not verified; Render runtime logs require an authenticated
+  dashboard session, and the local database target did not verify as
+  production, so no database query was run.
+- Do not make further production schema changes or redeploy until an
+  authorized operator records a provider recovery point, makes a protected
+  logical backup, restores it to isolated staging, and completes the
+  migration and smoke tests above.
