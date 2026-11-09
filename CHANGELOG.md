@@ -5,6 +5,34 @@ commit history or release notes.
 
 ## Unreleased
 
+### Stages 16–17 — SEO and quality assurance
+
+- Added readable listing URLs using normalized title slugs and stable IDs.
+  Legacy numeric paths permanently redirect to the canonical URL while
+  retaining return-navigation parameters. Listing cards, map previews, and
+  share links now use the same friendly URL format on Express and the Django
+  marketplace.
+- Expanded listing metadata with dynamic titles and descriptions, canonical
+  and Open Graph/Twitter tags, cover-image fallbacks, and escaped
+  `RealEstateListing` JSON-LD with available location and offer details.
+- Added an index of location guides and server-rendered region/neighborhood
+  pages. A guide is published only for an unambiguous location with at least
+  three published listings; pages include useful listing links, image alt
+  text, canonical/social metadata, and `CollectionPage` structured data.
+- Django location-guide URLs permanently hand off to the configured public
+  Express origin, keeping one canonical location-page host.
+- Extended the dynamic sitemap to include canonical listing URLs and eligible
+  location guides. Existing robots rules remain in place. No database schema
+  changes were made.
+- Added regression tests for SEO slug generation, numeric-ID validation,
+  sitemap URLs, social metadata, escaping, thin-page exclusion, and location
+  guide content.
+- Verification: 84 Node tests, 105 Django tests, Django system checks,
+  production Vite build, mobile TypeScript check, and `git diff --check` pass.
+  Database-backed cross-service/browser journeys, native-device behavior,
+  production crawling, and deployed TiDB/MySQL behavior remain unverified and
+  require the documented isolated-staging/backup gate.
+
 ### Agent workspace access and admin review reliability
 
 - Added a direct professional dashboard and analytics action in agent settings.

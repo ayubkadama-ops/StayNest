@@ -1,16 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildRobotsTxt, buildSitemapXml, renderCanonicalPageHtml, renderListingSeoHtml } from '../server/seo.js';
+import {
+  buildLocationLandingPages,
+  buildRobotsTxt,
+  buildSitemapXml,
+  listingCanonicalPath,
+  renderCanonicalPageHtml,
+  renderListingSeoHtml,
+  renderLocationIndexPage,
+  renderLocationLandingPage
+} from '../server/seo.js';
 
 test('sitemap contains absolute public listing URLs and excludes invalid IDs', () => {
   const sitemap = buildSitemapXml('https://makazigo.example/path', [
-    { id: 42, updated_at: '2026-11-08T12:30:00Z' },
+    { id: 42, title: 'Dar es Salaam Villa', updated_at: '2026-11-08T12:30:00Z' },
     { id: 'not-an-id', updated_at: '2026-11-08' },
+  ], [
+    { neighborhood: 'Masaki', city: 'Dar es Salaam', region: 'Dar', listingCount: 3 },
+    { neighborhood: 'Kijiji', city: 'Dodoma', region: 'Dodoma', listingCount: 2 },
   ]);
   assert.match(sitemap, /<loc>https:\/\/makazigo\.example\/<\/loc>/);
   assert.match(sitemap, /<loc>https:\/\/makazigo\.example\/listings\.html<\/loc>/);
-  assert.match(sitemap, /<loc>https:\/\/makazigo\.example\/properties\/42\/<\/loc><lastmod>2026-11-08<\/lastmod>/);
+  assert.match(sitemap, /<loc>https:\/\/makazigo\.example\/properties\/dar-es-salaam-villa-42\/<\/loc><lastmod>2026-11-08<\/lastmod>/);
+  assert.match(sitemap, /<loc>https:\/\/makazigo\.example\/locations\/masaki-dar-es-salaam-dar\/<\/loc>/);
+  assert.doesNotMatch(sitemap, /locations\/kijiji-dodoma-dodoma/);
   assert.doesNotMatch(sitemap, /not-an-id|<loc>\//);
+});
+
+test('listing canonical paths are readable, stable, and require a valid ID', () => {
+  assert.equal(listingCanonicalPath({ id: 42, title: 'Mlimani Heights, Dar es Salaam' }), '/properties/mlimani-heights-dar-es-salaam-42/');
+  assert.equal(listingCanonicalPath({ id: 43, title: '東京' }), '/properties/property-43/');
+  assert.throws(() => listingCanonicalPath({ id: 0, title: 'Invalid' }), /valid listing ID/);
+});
+
+test('location pages omit thin and ambiguous location groups', () => {
+  const locations = buildLocationLandingPages([
+    { neighborhood: 'Masaki', city: 'Dar es Salaam', region: 'Dar', listingCount: 3 },
+    { neighborhood: 'Masaki', city: 'Dar es Salaam', region: 'Dar', listingCount: 9 },
+    { neighborhood: 'Kijiji', city: 'Dodoma', region: 'Dodoma', listingCount: 2 },
+  ]);
+  assert.equal(locations.length, 0);
+  assert.equal(buildLocationLandingPages([
+    { neighborhood: 'Masaki', city: 'Dar es Salaam', region: 'Dar', listingCount: 3 },
+  ])[0].path, '/locations/masaki-dar-es-salaam-dar/');
 });
 
 test('robots sitemap URL is absolute and uses configured origin', () => {
@@ -24,6 +56,8 @@ test('static public pages receive absolute canonical and Open Graph URLs', () =>
   assert.match(rendered, /rel="canonical" href="https:\/\/makazigo\.example\/listings\.html"/);
   assert.match(rendered, /property="og:url" content="https:\/\/makazigo\.example\/listings\.html"/);
   assert.match(rendered, /property="og:title" content="Makazi Go"/);
+  assert.match(rendered, /name="twitter:card" content="summary_large_image"/);
+  assert.equal((rendered.match(/property="og:title"/g) || []).length, 1);
 });
 
 test('listing SEO metadata is escaped, canonical, and includes safe structured data', () => {
@@ -45,4 +79,23 @@ test('listing SEO metadata is escaped, canonical, and includes safe structured d
   assert.match(rendered, /og:image" content="https:\/\/makazigo\.example\/media\/cover\.webp"/);
   assert.doesNotMatch(rendered, /<\/script><script>alert/);
   assert.match(rendered, /"@type":"RealEstateListing"/);
+  assert.match(rendered, /twitter:image/);
+});
+
+test('location pages are useful, escaped, canonical, and contain linked listings', () => {
+  const locations = [{ neighborhood: '<Masaki>', city: 'Dar es Salaam', region: 'Dar', listingCount: 3 }];
+  const index = renderLocationIndexPage('https://makazigo.example', locations);
+  assert.match(index, /href="\/locations\/masaki-dar-es-salaam-dar\/"/);
+  assert.doesNotMatch(index, /<Masaki>/);
+  const page = renderLocationLandingPage('https://makazigo.example', locations[0], [
+    { id: 1, title: 'Villa One', salePrice: 125000000, currency: 'TZS', coverUrl: '/media/one.jpg' },
+    { id: 2, title: 'Villa Two', nightlyPrice: 50000, currency: 'TZS' },
+    { id: 3, title: 'Villa Three', monthlyPrice: 900000, currency: 'TZS' },
+  ]);
+  assert.match(page, /rel="canonical" href="https:\/\/makazigo\.example\/locations\/masaki-dar-es-salaam-dar\/"/);
+  assert.match(page, /properties\/villa-one-1/);
+  assert.match(page, /"@type":"CollectionPage"/);
+  assert.equal(renderLocationLandingPage('https://makazigo.example', locations[0], [
+    { id: 1, title: 'One' }, { id: 2, title: 'Two' }
+  ]), null);
 });

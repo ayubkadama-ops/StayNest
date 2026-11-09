@@ -1,13 +1,13 @@
 <div class="listing-grid">
 {% for listing in listings %}
 <article class="listing-card">
-	<a class="listing-image" href="{% url 'marketplace:property-detail' listing.id %}">
+	<a class="listing-image" href="{{ listing.seo_path }}">
 		{% if listing.coverUrl %}<img src="{{ listing.coverUrl }}" alt="{{ listing.title }}" loading="lazy">{% else %}<span class="image-placeholder">Makazi Go</span>{% endif %}
 		<span class="type-label">{{ listing.propertyType|default:'property'|title }}</span>
 	</a>
 	<div class="listing-info">
 		<p class="listing-location">{{ listing.neighborhood|default:listing.city }}{% if listing.neighborhood and listing.city %}, {{ listing.city }}{% endif %}</p>
-		<h2><a href="{% url 'marketplace:property-detail' listing.id %}">{{ listing.title }}</a></h2>
+		<h2><a href="{{ listing.seo_path }}">{{ listing.title }}</a></h2>
 		{% if listing.propertyType == 'house' %}
 			<p class="listing-facts">Home · {{ listing.bedrooms|default:0 }} bedrooms · {{ listing.bathrooms|default:0 }} bathrooms · {{ listing.maxGuests|default:0 }} guests</p>
 		{% elif listing.propertyType == 'apartment' %}

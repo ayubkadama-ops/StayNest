@@ -1,10 +1,12 @@
 import json
+import re
+import unicodedata
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from django.conf import settings
-from django.http import Http404, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpResponse, HttpResponsePermanentRedirect, JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 
@@ -26,6 +28,17 @@ DISCOVERY_AMENITIES = (
     'Parking', 'Wi-Fi', 'Swimming pool', 'Air conditioning', 'Security',
     'Garden', 'Water connection', 'Electricity nearby',
 )
+
+def _seo_slug(value):
+    normalized = unicodedata.normalize('NFD', str(value or ''))
+    normalized = ''.join(character for character in normalized if not unicodedata.combining(character))
+    return re.sub(r'-+$', '', re.sub(r'[^a-z0-9]+', '-', normalized.lower()).lstrip('-'))[:100]
+
+
+def _listing_seo_path(listing):
+    listing_id = int(listing.get('id', listing.get('listingId', listing.get('listing_id'))))
+    slug = _seo_slug(listing.get('title')) or 'property'
+    return f'/properties/{slug}-{listing_id}/'
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -82,6 +95,7 @@ def _listing_view_model(listing):
     listing.setdefault('bathrooms', 0)
     listing.setdefault('maxGuests', 0)
     listing.setdefault('privacyType', '')
+    listing['seo_path'] = _listing_seo_path(listing)
     return listing
 
 
@@ -122,17 +136,73 @@ def properties(request):
     )
 
 
-def property_detail(request, listing_id):
+def location_guides(request, location_slug=None):
+    destination_path = 'locations/'
+    if location_slug:
+        destination_path += f'{quote(location_slug, safe="-")}/'
+    destination = _upstream_url(destination_path)
+    query = request.META.get('QUERY_STRING')
+    return HttpResponsePermanentRedirect(f'{destination}?{query}' if query else destination)
+
+
+def property_detail(request, listing_id, listing_slug=None):
     result = _api_json(request, f'api/listings/{listing_id}/details')
     listing = result.get('listing')
     if not listing:
         raise Http404('Property not found')
     listing = _listing_view_model(listing)
+    if request.path != listing['seo_path']:
+        destination = listing['seo_path']
+        query = request.META.get('QUERY_STRING')
+        return HttpResponsePermanentRedirect(f'{destination}?{query}' if query else destination)
+    description = re.sub(r'<[^>]*>', ' ', str(listing.get('description') or ''))
+    description = re.sub(r'\s+', ' ', description).strip()[:160]
+    listing_title = f"{listing.get('title') or 'Property details'} | Makazi Go"
+    cover_url = listing.get('coverUrl') or '/assets/makazi-go-icon.png'
+    image_url = request.build_absolute_uri(cover_url)
+    sale_price = float(listing.get('salePrice') or 0)
+    rental_price = float(listing.get('nightlyPrice') or listing.get('monthlyPrice') or listing.get('yearlyPrice') or 0)
+    offer_price = sale_price if sale_price > 0 else rental_price if rental_price > 0 else None
+    structured_data = {
+        '@context': 'https://schema.org',
+        '@type': 'RealEstateListing',
+        'name': str(listing.get('title') or 'Property listing'),
+        'description': description or f"Explore {listing.get('title') or 'this property'} on Makazi Go.",
+        'url': request.build_absolute_uri(listing['seo_path']),
+        'image': [image_url],
+    }
+    if listing.get('propertyType'):
+        structured_data['category'] = str(listing['propertyType'])
+    if offer_price:
+        structured_data['offers'] = {
+            '@type': 'Offer',
+            'price': offer_price,
+            'priceCurrency': str(listing.get('currency') or 'TZS').upper(),
+            'url': request.build_absolute_uri(listing['seo_path']),
+            'availability': 'https://schema.org/InStock',
+        }
+    locality = [listing.get('neighborhood'), listing.get('city'), listing.get('region')]
+    if any(locality):
+        structured_data['address'] = {
+            '@type': 'PostalAddress',
+            'addressLocality': str(listing.get('city') or listing.get('neighborhood') or ''),
+            'addressRegion': str(listing.get('region') or ''),
+            'addressCountry': 'TZ',
+        }
+        if listing.get('neighborhood'):
+            structured_data['address']['streetAddress'] = str(listing['neighborhood'])
+    structured_data_json = json.dumps(structured_data, separators=(',', ':'))
+    for character, escaped in (('<', '\\u003c'), ('>', '\\u003e'), ('&', '\\u0026')):
+        structured_data_json = structured_data_json.replace(character, escaped)
     return render(request, 'marketplace/property_detail.html', {
         'listing': listing,
         'media': result.get('media', []),
         'property_types': PROPERTY_TYPES,
-        'canonical_url': request.build_absolute_uri(request.path),
+        'canonical_url': request.build_absolute_uri(listing['seo_path']),
+        'seo_title': listing_title,
+        'seo_description': description or f"Explore {listing.get('title') or 'this property'} on Makazi Go.",
+        'seo_image': image_url,
+        'structured_data_json': structured_data_json,
     })
 
 
@@ -146,9 +216,12 @@ def agent_detail(request, agent_id):
     profile = result.get('profile')
     if not profile:
         raise Http404('Agent not found')
+    posts = result.get('posts', [])
+    for post in posts:
+        post['seo_path'] = _listing_seo_path(post)
     return render(request, 'marketplace/agent_detail.html', {
         'profile': profile,
-        'posts': result.get('posts', []),
+        'posts': posts,
         'property_types': PROPERTY_TYPES,
     })
 
@@ -201,6 +274,12 @@ def tenant_dashboard(request):
     summary = _api_json(request, 'api/account/summary')
     bookings = _api_json(request, 'api/account/bookings').get('bookings', [])
     saved_listings = _api_json(request, 'api/account/saved-listings').get('listings', [])
+    for booking in bookings:
+        booking['seo_path'] = _listing_seo_path({
+            'id': booking.get('listing_id'),
+            'title': booking.get('title'),
+        })
+    saved_listings = [_listing_view_model(listing) for listing in saved_listings]
     return render(request, 'marketplace/tenant_dashboard.html', {
         'user': user,
         'summary': summary,

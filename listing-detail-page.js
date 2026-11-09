@@ -1,5 +1,6 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { listingCanonicalPath } from './public-listing-url.js';
 
 const page = document.querySelector('#listingDetailPage');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
@@ -294,13 +295,13 @@ menu?.addEventListener('click', () => {
   menu.setAttribute('aria-expanded', String(open));
 });
 if (page) {
-  const id = location.pathname.match(/^\/properties\/([1-9]\d*)\/?$/)?.[1]
+  const id = location.pathname.match(/^\/properties\/(?:[a-z0-9-]+-)?([1-9]\d*)\/?$/)?.[1]
     || new URLSearchParams(location.search).get('listing');
   if (!id) location.replace('/listings.html');
   else api(`/api/listings/${encodeURIComponent(id)}/details`).then(result => {
     page.innerHTML = markup(result);
     document.title = `${result.listing.title} | Makazi Go`;
-    const canonical = new URL(`/properties/${encodeURIComponent(id)}/`, location.origin).href;
+    const canonical = new URL(listingCanonicalPath(result.listing), location.origin).href;
     const canonicalLink = document.querySelector('link[rel="canonical"]');
     if (canonicalLink) canonicalLink.href = canonical;
     const description = String(result.listing.description || `Explore ${result.listing.title} on Makazi Go.`).replace(/\s+/g, ' ').slice(0, 160);

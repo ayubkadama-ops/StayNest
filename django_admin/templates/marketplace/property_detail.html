@@ -1,9 +1,13 @@
 {% extends 'marketplace/base.html' %}
-{% block title %}{{ listing.title }} | Makazi Go{% endblock %}
-{% block meta_description %}{{ listing.description|default:'Explore this property in Tanzania on Makazi Go.'|truncatechars:160 }}{% endblock %}
-{% block og_title %}{{ listing.title }} | Makazi Go{% endblock %}
-{% block og_description %}{{ listing.description|default:'Explore this property in Tanzania on Makazi Go.'|truncatechars:160 }}{% endblock %}
-{% block og_image %}{% if listing.coverUrl %}<meta property="og:image" content="{{ listing.coverUrl }}">{% endif %}{% endblock %}
+{% block title %}{{ seo_title }}{% endblock %}
+{% block meta_description %}{{ seo_description }}{% endblock %}
+{% block og_title %}{{ seo_title }}{% endblock %}
+{% block og_description %}{{ seo_description }}{% endblock %}
+{% block og_image %}<meta property="og:image" content="{{ seo_image }}">{% endblock %}
+{% block twitter_title %}{{ seo_title }}{% endblock %}
+{% block twitter_description %}{{ seo_description }}{% endblock %}
+{% block twitter_image %}{{ seo_image }}{% endblock %}
+{% block extra_head %}<script type="application/ld+json">{{ structured_data_json|safe }}</script>{% endblock %}
 {% block content %}
 <section class="detail-shell">
   <a class="back-link" href="{% url 'marketplace:properties' %}">Back to properties</a>
@@ -53,7 +57,7 @@
           <label>Guests<input type="number" name="guests" min="1" max="100" value="1" required></label>
           <p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Request to book</button>
         </form>
-        <a class="text-link" href="{% url 'marketplace:login' %}?next=/properties/{{ listing.id }}/">Sign in to manage bookings</a>
+        <a class="text-link" href="{% url 'marketplace:login' %}?next={{ listing.seo_path|urlencode }}">Sign in to manage bookings</a>
       {% endif %}
       <p class="agent-attribution">Listing by {{ listing.firstName }} {{ listing.lastName }}{% if listing.agencyName %} · {{ listing.agencyName }}{% endif %}</p>
     </aside>

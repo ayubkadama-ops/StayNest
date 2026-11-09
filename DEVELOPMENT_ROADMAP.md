@@ -1,6 +1,6 @@
 # Makazi Go Development Roadmap
 
-- **Status:** Stages 1–14 implemented locally; production-engine and operational verification remain pending
+- **Status:** Core work for Stages 1–14 and 16–17 is implemented locally; Stage 15 future modules remain intentionally deferred; production-engine and end-to-end verification remain pending
 - **Audit date:** 2026-11-09
 - **Baseline revision:** `1ccb3d3` (`main`)
 **Scope:** Current repository working tree, including existing uncommitted changes
@@ -67,7 +67,7 @@ provide additional but not exhaustive evidence.
 | Security | **Controls present; production verification required** | Parameterized SQL is widely used; Express configures Helmet, CSRF, rate limits, secure HTTP-only cookies in production, session expiry, and upload signature checks. The audit found incorrect admin IP CIDR matching and a predictable Django signing-key fallback; both are corrected. New identity documents are encrypted at rest by the application and exposed only through audited one-time review grants. Express and Django now disallow inline script execution and script attributes; verify production secrets/configuration and deployed headers. |
 | Error handling | **Mixed** | Express has a central error handler and request IDs. Django preserves API validation errors on discovery and search pages; upstream network/JSON failures elsewhere can still appear as empty results and should be replaced with explicit error states as those views are improved. |
 | Performance and scalability | **Mixed** | Image processing and database indexes exist. Discovery now uses bounded pages, but wildcard location matches, correlated listing subqueries, and session revocation's full-table session scan may become expensive as data grows. Measure query plans and workload before adding indexes or caching. |
-| SEO | **Partial** | `robots.txt` and a static sitemap exist. The current sitemap lists only `/` and `/posts.html`; property detail routes are numeric and there is no evidence of dynamic listing metadata/structured data or regional landing pages. Build crawlable pages only when canonical URLs and useful unique content are available. |
+| SEO | **Implemented locally** | Public pages have canonical/Open Graph metadata; published listings have slug-plus-ID canonical pages, dynamic metadata and structured data; the sitemap includes published listing and qualifying location URLs; robots rules and region/neighborhood guides are present. Production crawling/indexing and search performance are not verified. |
 
 ### Priority issues
 
@@ -250,8 +250,9 @@ surgical and preserve current tenant bookings and agent approval behavior.
 - [x] Add an opt-in map view for the current paginated results, with map
   markers and previews only for listings that have an approximate location.
 - [x] Add absolute canonical/Open Graph metadata, structured listing data,
-  crawlable `/properties/<id>/` pages, and an absolute dynamic sitemap that
-  includes published, non-deleted listings only.
+  crawlable `/properties/<slug>-<id>/` pages, and an absolute dynamic sitemap
+  that includes published, non-deleted listings only. Legacy numeric paths
+  redirect to the canonical URL.
 - [x] Expose the approximate map location in the native detail screen using
   OpenStreetMap without adding a provider SDK or API credential.
 - [x] Retain existing responsive image processing, lazy-loaded web listing
@@ -389,6 +390,66 @@ surgical and preserve current tenant bookings and agent approval behavior.
   pending the backup and isolated-staging restore gate in
   `DATABASE_OPERATIONS.md`.
 
+### Stage 15 — Future features (intentionally deferred)
+
+- [x] Keep future payment, agreement, valuation, financing, property
+  management, investment, developer marketplace, advanced analytics, AI,
+  WhatsApp, and push-notification work out of the active delivery scope until
+  requirements and dependencies are validated.
+- [x] Preserve current module boundaries for API/business logic, storage,
+  notifications, integrations, and mobile clients; do not add speculative
+  provider abstractions or placeholder user flows.
+- [ ] Before starting any future module, document its validated user need,
+  provider/security/privacy requirements, data model, operational owner, and
+  end-to-end acceptance plan. Payments and investment remain gated on legal,
+  provider, reconciliation, backup, and isolated-staging approval.
+- **Stage status:** Stage 15 is a design horizon in the master reference, not
+  an instruction to implement every listed module. No additional feature is
+  activated without validated requirements, configured providers, and
+  appropriate production-readiness checks.
+
+### Stage 16 — SEO and marketing
+
+- [x] Use readable, Unicode-normalized listing slugs with stable numeric IDs;
+  preserve old numeric URLs through permanent canonical redirects, including
+  return-navigation query parameters, across Express and Django marketplace
+  property routes.
+- [x] Render dynamic listing titles, descriptions, Open Graph/Twitter cards,
+  canonical URLs, cover-image metadata, and safe `RealEstateListing` JSON-LD
+  with address and available offer information.
+- [x] Add published-listing region/neighborhood guides and a location index.
+  Guides require at least three published listings, reject ambiguous slug
+  collisions, escape advertiser/location content, and link to listing details.
+- [x] Redirect Django marketplace location-guide requests to the configured
+  public Express origin so the guides have one canonical host.
+- [x] Include eligible location pages and published listing canonical URLs in
+  the XML sitemap; retain `robots.txt`, canonical URLs, responsive image
+  handling, lazy-loaded location images, and descriptive alt text.
+- [x] Add focused tests for canonical URL generation, sitemap output, metadata
+  escaping, location quality thresholds, and crawlable guide content.
+- **Stage status:** Implemented without database schema changes. Production
+  sitemap/crawl validation and search-engine indexing measurements remain
+  unverified; location guides deliberately omit thin or ambiguous pages.
+
+### Stage 17 — Testing and quality assurance
+
+- [x] Run the existing automated Node and Django suites covering validation,
+  authorization, account/admin flows, discovery/filtering, booking rules,
+  listing and image handling, property verification, and moderation.
+- [x] Add regression coverage for the SEO routes' helper behavior and the
+  canonical URL/location-page edge cases introduced in Stage 16.
+- [x] Run Django system checks, production Vite build, mobile TypeScript
+  type-check, and `git diff --check`.
+- [ ] Complete full browser/native-device journeys (including registration,
+  password recovery, listing creation/editing, booking, uploads, and responsive
+  behavior) against isolated staging with representative data; verify the
+  deployed TiDB/MySQL operations and production provider integrations. These
+  checks cannot be inferred from local unit tests or a successful build.
+- **Stage status:** Local QA passed: 84 Node tests, 105 Django tests, Django
+  checks, production web build, mobile TypeScript check, and diff validation.
+  Database-backed cross-service and physical-device end-to-end verification
+  remain open.
+
 Stage 8/9 verification:
 
 - Production `https://staynest-fb9b.onrender.com/sitemap.xml`,
@@ -479,14 +540,16 @@ Stage 7 verification:
 
 ## Current handoff for the next development session
 
-- Stages 1–14 are implemented locally. The saved master prompt reference is
-  `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Current local verification: 81 Node
-  tests, 102 Django tests, Django system checks, production Vite build,
-  JavaScript/Python syntax checks, and `git diff --check` pass. The professional
-  workspace is accessible from agent settings; API mounting order, TiDB-safe
-  moderation joins, admin media origin handling, inline document preview,
-  profile-image fallback, and strict legacy AI alias behavior have regression
-  coverage.
+- Stages 1–14 and 16–17 have local implementations; Stage 15 is intentionally
+  deferred as a future-feature horizon, not a missing implementation stage.
+  Current local verification: 84 Node tests, 105
+  Django tests, Django system checks, production Vite build, mobile TypeScript
+  check, and `git diff --check` pass. SEO now uses slug-plus-ID listing URLs,
+  canonical redirects, qualified location guides, and a dynamic sitemap.
+  The professional workspace remains accessible from agent settings; API
+  mounting order, TiDB-safe moderation joins, admin media origin handling,
+  inline document preview, profile-image fallback, and strict legacy AI alias
+  behavior retain regression coverage.
 - No schema changes were made for the latest admin/workspace reliability work.
   No production database or object-storage credentials were used; TiDB query
   plans, migration state, stored media reachability, and the secure document

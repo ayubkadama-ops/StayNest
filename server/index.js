@@ -23,7 +23,16 @@ import { getGa4Analytics } from './google-analytics.js';
 import { canAccessAdminFeature } from './admin-access.js';
 import { applySchemaMigrations } from './schema-migrations.js';
 import { buildDiscoveryPaginationSql, createDiscoveryPlan } from './discovery.js';
-import { buildRobotsTxt, buildSitemapXml, renderCanonicalPageHtml, renderListingSeoHtml } from './seo.js';
+import {
+  buildLocationLandingPages,
+  buildRobotsTxt,
+  buildSitemapXml,
+  listingCanonicalPath,
+  renderCanonicalPageHtml,
+  renderListingSeoHtml,
+  renderLocationIndexPage,
+  renderLocationLandingPage
+} from './seo.js';
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
@@ -4019,31 +4028,99 @@ app.get('/robots.txt', (_req, res) => {
 app.get('/sitemap.xml', async (_req, res, next) => {
   try {
     const [listings] = await pool.query(
-      `SELECT id, updated_at
+      `SELECT id,title,updated_at
        FROM listings
        WHERE status='published' AND deleted_at IS NULL
        ORDER BY updated_at DESC, id DESC
        LIMIT 10000`
     );
-    res.type('application/xml').send(buildSitemapXml(publicAppUrl(), listings));
+    const [locations] = await pool.query(
+      `SELECT neighborhood,city,region,COUNT(*) listingCount
+       FROM listings
+       WHERE status='published' AND deleted_at IS NULL
+         AND (NULLIF(TRIM(city),'') IS NOT NULL OR NULLIF(TRIM(neighborhood),'') IS NOT NULL)
+       GROUP BY neighborhood,city,region
+       HAVING COUNT(*)>=3
+       ORDER BY listingCount DESC,region,city,neighborhood
+       LIMIT 1000`
+    );
+    res.type('application/xml').send(buildSitemapXml(publicAppUrl(), listings, locations));
   } catch (error) { next(error); }
 });
-app.get(/^\/properties\/([1-9]\d*)\/?$/, async (req, res, next) => {
+async function loadSeoLocations() {
+  const [locations] = await pool.query(
+    `SELECT neighborhood,city,region,COUNT(*) listingCount
+     FROM listings
+     WHERE status='published' AND deleted_at IS NULL
+       AND (NULLIF(TRIM(city),'') IS NOT NULL OR NULLIF(TRIM(neighborhood),'') IS NOT NULL)
+     GROUP BY neighborhood,city,region
+     HAVING COUNT(*)>=3
+     ORDER BY listingCount DESC,region,city,neighborhood
+     LIMIT 1000`
+  );
+  return buildLocationLandingPages(locations);
+}
+app.get('/locations/', async (_req, res, next) => {
   try {
-    const listingId = req.params[0];
+    const locations = await loadSeoLocations();
+    res.type('html').send(renderLocationIndexPage(publicAppUrl(), locations));
+  } catch (error) { next(error); }
+});
+app.get(/^\/locations\/([a-z0-9-]+)\/?$/, async (req, res, next) => {
+  try {
+    const locations = await loadSeoLocations();
+    const location = locations.find(item => item.path === `/locations/${req.params[0]}/`);
+    if (!location) return res.status(404).send('Location guide not found');
+    const [listings] = await pool.query(
+      `SELECT l.id,l.title,l.description,l.city,l.neighborhood,l.region,l.currency,
+              l.transaction_type transactionType,l.sale_price salePrice,
+              l.nightly_price nightlyPrice,l.monthly_price monthlyPrice,l.yearly_price yearlyPrice,
+              COALESCE(pt.name,'Property') propertyType,
+              (SELECT lm.public_url FROM listing_media lm
+               WHERE lm.listing_id=l.id
+               ORDER BY lm.is_cover DESC,lm.sort_order ASC,lm.id ASC LIMIT 1) coverUrl
+       FROM listings l
+       LEFT JOIN property_types pt ON pt.id=l.property_type_id
+       WHERE l.status='published' AND l.deleted_at IS NULL
+         AND COALESCE(l.neighborhood,'')=COALESCE(?,'')
+         AND COALESCE(l.city,'')=COALESCE(?,'')
+         AND COALESCE(l.region,'')=COALESCE(?,'')
+       ORDER BY l.updated_at DESC,l.id DESC
+       LIMIT 100`,
+      [location.neighborhood || null, location.city || null, location.region || null]
+    );
+    const html = renderLocationLandingPage(publicAppUrl(), location, listings);
+    if (!html) return res.status(404).send('Location guide not found');
+    res.type('html').send(html);
+  } catch (error) { next(error); }
+});
+app.get(/^\/properties\/([a-z0-9-]+)\/?$/, async (req, res, next) => {
+  try {
+    const listingPath = req.params[0];
+    const pathMatch = listingPath.match(/^(?:([1-9]\d*)|[a-z0-9-]+-([1-9]\d*))$/);
+    if (!pathMatch) return res.status(404).send('Property not found');
+    const listingId = pathMatch[1] || pathMatch[2];
     const [[listing]] = await pool.query(
-      `SELECT l.id, l.title, l.description, l.city, l.neighborhood, l.region,
+      `SELECT l.id,l.title,l.description,l.city,l.neighborhood,l.region,l.currency,
+         l.sale_price salePrice,l.nightly_price nightlyPrice,l.monthly_price monthlyPrice,
+         l.yearly_price yearlyPrice,COALESCE(pt.name,'Property') propertyType,
          (SELECT lm.public_url FROM listing_media lm
           WHERE lm.listing_id=l.id
           ORDER BY lm.is_cover DESC, lm.sort_order ASC, lm.id ASC
           LIMIT 1) coverUrl
-       FROM listings l
+       FROM listings l LEFT JOIN property_types pt ON pt.id=l.property_type_id
        WHERE l.id=? AND l.status='published' AND l.deleted_at IS NULL`,
       [listingId]
     );
     if (!listing) return res.status(404).send('Property not found');
+    const canonicalPath = listingCanonicalPath(listing);
+    if (req.path !== canonicalPath) {
+      const requestedUrl = new URL(req.originalUrl, publicAppUrl());
+      requestedUrl.pathname = canonicalPath;
+      return res.redirect(301, `${requestedUrl.pathname}${requestedUrl.search}`);
+    }
     const template = await readFile(path.resolve(process.cwd(), 'dist', 'listing-detail.html'), 'utf8');
-    const canonicalUrl = new URL(`/properties/${listing.id}/`, publicAppUrl()).href;
+    const canonicalUrl = new URL(canonicalPath, publicAppUrl()).href;
     res.type('html').send(renderListingSeoHtml(template, listing, canonicalUrl));
   } catch (error) { next(error); }
 });

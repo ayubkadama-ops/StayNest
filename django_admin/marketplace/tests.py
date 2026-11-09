@@ -13,6 +13,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertEqual(resolve('/').url_name, 'home')
         self.assertEqual(resolve('/properties/').url_name, 'properties')
         self.assertEqual(resolve('/properties/17/').url_name, 'property-detail')
+        self.assertEqual(resolve('/properties/city-apartment-17/').url_name, 'property-detail-seo')
         self.assertEqual(resolve('/agents/').url_name, 'agents')
         self.assertEqual(resolve('/agents/23/').url_name, 'agent-detail')
         self.assertEqual(resolve('/account/').url_name, 'account')
@@ -71,6 +72,25 @@ class MarketplaceRoutingTests(SimpleTestCase):
         for category in ('home', 'apartment', 'land', 'hotel', 'commercial'):
             self.assertContains(response, f'makazi-category-{category}.webp')
 
+    @patch('marketplace.views._api_json', return_value={
+        'listings': [{'id': 42, 'title': 'Mlimani Heights', 'city': 'Dar es Salaam'}],
+    })
+    def test_discovery_cards_link_to_friendly_property_urls(self, api_json):
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="/properties/mlimani-heights-42/"')
+
+    @override_settings(API_UPSTREAM_URL='https://makazigo.example')
+    def test_location_guides_redirect_to_the_public_canonical_host(self):
+        response = self.client.get('/locations/masaki-dar-es-salaam-dar/?source=marketplace')
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(
+            response['Location'],
+            'https://makazigo.example/locations/masaki-dar-es-salaam-dar/?source=marketplace',
+        )
+
     @patch('marketplace.views._api_json')
     def test_property_discovery_forwards_filters_and_preserves_them_in_pagination(self, api_json):
         api_json.return_value = {
@@ -114,14 +134,28 @@ class MarketplaceRoutingTests(SimpleTestCase):
         'media': [],
     })
     def test_property_detail_uses_canonical_metadata_and_approximate_map_location(self, api_json):
-        response = self.client.get('/properties/17/')
+        response = self.client.get('/properties/mikocheni-apartment-17/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '<link rel="canonical" href="http://testserver/properties/17/">')
+        self.assertContains(response, '<link rel="canonical" href="http://testserver/properties/mikocheni-apartment-17/">')
         self.assertContains(response, 'Mikocheni apartment | Makazi Go')
+        self.assertContains(response, 'name="twitter:card" content="summary_large_image"')
+        self.assertContains(response, '"@type":"RealEstateListing"')
         self.assertContains(response, 'View approximate location')
         self.assertContains(response, 'mlat=-6.82&amp;mlon=39.22')
         self.assertNotContains(response, 'View pinned location')
+
+    @patch('marketplace.views._api_json', return_value={
+        'listing': {'id': 17, 'title': 'Mikocheni apartment'},
+        'media': [],
+    })
+    def test_numeric_property_urls_redirect_to_canonical_slug_and_keep_query(self, api_json):
+        response = self.client.get('/properties/17/?returnTo=%2Fproperties%2F')
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response['Location'], '/properties/mikocheni-apartment-17/?returnTo=%2Fproperties%2F')
+        api_json.assert_called_once()
+        self.assertEqual(api_json.call_args.args[1], 'api/listings/17/details')
 
     @patch('marketplace.views._api_json', return_value={'error': 'Choose a price period for this range.'})
     def test_property_discovery_shows_filter_errors_without_dropping_input(self, api_json):
@@ -135,7 +169,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
     @patch('marketplace.views._api_json')
     def test_stay_detail_uses_booking_flow(self, api_json):
         api_json.return_value = {'listing': {'id': 17, 'title': 'City apartment', 'propertyType': 'apartment', 'currency': 'TZS', 'nightlyPrice': 70000}, 'media': []}
-        response = self.client.get('/properties/17/')
+        response = self.client.get('/properties/city-apartment-17/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-booking-form')
         self.assertContains(response, 'data-auth-required')
@@ -162,7 +196,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
             },
             'media': [],
         }
-        response = self.client.get('/properties/19/')
+        response = self.client.get('/properties/city-apartment-19/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Apartment · 2 beds · Entire place · 1 bathroom')
         self.assertContains(response, 'Kinondoni')
@@ -173,7 +207,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
     @patch('marketplace.views._api_json')
     def test_land_detail_uses_agent_enquiry_flow(self, api_json):
         api_json.return_value = {'listing': {'id': 18, 'title': 'Serviced plot', 'propertyType': 'land', 'currency': 'TZS', 'agentId': 4}, 'media': []}
-        response = self.client.get('/properties/18/')
+        response = self.client.get('/properties/serviced-plot-18/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-message-form')
         self.assertNotContains(response, 'data-booking-form')

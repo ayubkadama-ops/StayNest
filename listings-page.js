@@ -1,5 +1,6 @@
 import { installLiveFormValidation } from './form-validation.js';
 import { addToComparison, markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
+import { listingCanonicalPath } from './public-listing-url.js';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -55,11 +56,14 @@ function showToast(message) {
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => { toast.hidden = true; }, 3600);
 }
-function listingDetailUrl(id) {
+function listingDetailUrl(listing) {
+  const item = typeof listing === 'object' && listing !== null ? listing : { id: listing };
+  const id = item.id;
   const returnUrl = new URL(location.href);
   returnUrl.searchParams.delete('listing');
   const returnTo = `${returnUrl.pathname}${returnUrl.search}`;
-  return `/properties/${encodeURIComponent(id)}/?returnTo=${encodeURIComponent(returnTo)}`;
+  const path = listingCanonicalPath(item);
+  return `${path}?returnTo=${encodeURIComponent(returnTo)}`;
 }
 let discoveryMap;
 let discoveryMarkers;
@@ -97,7 +101,7 @@ function renderDiscoveryMap(listings) {
     });
     const marker = L.marker([latitude, longitude], { icon: priceMarker }).addTo(discoveryMarkers);
     const preview = document.createElement('a');
-    preview.href = listingDetailUrl(listing.id);
+    preview.href = listingDetailUrl(listing);
     preview.className = 'listing-map-preview';
     const title = document.createElement('strong');
     title.textContent = listing.title;
@@ -161,7 +165,8 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
     renderDiscoveryMap(listings);
     grid.querySelectorAll('[data-listing-id]').forEach(card => card.addEventListener('click', event => {
       if (event.target.closest('[data-agent-link],[data-save-listing],[data-share-listing],[data-compare-listing]')) return;
-      location.href = listingDetailUrl(card.dataset.listingId);
+      const listing = currentListings.find(item => String(item.id) === card.dataset.listingId);
+      location.href = listingDetailUrl(listing || card.dataset.listingId);
     }));
     grid.querySelectorAll('[data-agent-link]').forEach(link => link.addEventListener('click', event => event.stopPropagation()));
     grid.querySelectorAll('[data-save-listing]').forEach(button => button.addEventListener('click', async event => {
@@ -186,7 +191,7 @@ async function loadListings(event, { historyMode = 'replace' } = {}) {
       event.stopPropagation();
       const listing = listings.find(item => String(item.id) === button.dataset.shareListing);
       if (!listing) return;
-      const url = new URL(listingDetailUrl(listing.id), location.origin).href;
+      const url = new URL(listingDetailUrl(listing), location.origin).href;
       try {
         if (navigator.share) await navigator.share({ title: listing.title, url });
         else {
