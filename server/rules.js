@@ -178,6 +178,22 @@ export function validateListingJourney({
   };
 }
 
+export function validateListingOccupancy({ bedrooms, beds, bathrooms, maxGuests }) {
+  const numberOrDefault = (value, fallback) =>
+    value === undefined || value === null || String(value).trim() === '' ? fallback : Number(value);
+  const bedroomCount = numberOrDefault(bedrooms, 0);
+  const bedCount = beds === undefined || beds === null || String(beds).trim() === '' ? null : Number(beds);
+  const bathroomCount = numberOrDefault(bathrooms, 1);
+  const guestCount = numberOrDefault(maxGuests, 1);
+  if (!Number.isInteger(bedroomCount) || bedroomCount < 0 || bedroomCount > 99
+    || (bedCount !== null && (!Number.isInteger(bedCount) || bedCount < 0 || bedCount > 99))
+    || !Number.isFinite(bathroomCount) || bathroomCount < 0.5 || bathroomCount > 99
+    || !Number.isInteger(guestCount) || guestCount < 1 || guestCount > 999) {
+    return { error: 'Enter valid bedroom, bed, bathroom, and guest-capacity details' };
+  }
+  return { value: { bedrooms: bedroomCount, beds: bedCount, bathrooms: bathroomCount, maxGuests: guestCount } };
+}
+
 export function approximateListingCoordinates(latitude, longitude) {
   const lat = Number(latitude), lng = Number(longitude);
   if (latitude == null || longitude == null || !Number.isFinite(lat) || !Number.isFinite(lng)
@@ -216,6 +232,34 @@ export function calculateBooking({ nightlyPrice, cleaningFee = 0, checkIn, check
   }
   const subtotal = Number(nightlyPrice) * nights;
   return { nights, subtotal, total: subtotal + Number(cleaningFee) };
+}
+
+export function validateBookingGuestCount(guests, maximumGuests = 100) {
+  const guestCount = Number(guests);
+  const capacity = Number(maximumGuests);
+  if (!Number.isSafeInteger(guestCount) || guestCount < 1 || guestCount > 100) {
+    return { guestCount: null, error: 'Invalid listing, dates, or guest count' };
+  }
+  if (!Number.isSafeInteger(capacity) || capacity < 1) {
+    return { guestCount: null, error: 'This listing has invalid guest capacity' };
+  }
+  if (guestCount > capacity) {
+    return { guestCount: null, error: `This listing accommodates up to ${capacity} guests` };
+  }
+  return { guestCount, error: null };
+}
+
+export function calculateStayBooking({ listing, guests, checkIn, checkOut }) {
+  const guestValidation = validateBookingGuestCount(guests, listing.max_guests);
+  if (guestValidation.error) throw new Error(guestValidation.error);
+  const quote = calculateBooking({
+    nightlyPrice: listing.nightly_price || 0,
+    cleaningFee: listing.cleaning_fee || 0,
+    checkIn,
+    checkOut,
+    minimumNights: listing.min_stay_nights,
+  });
+  return { ...quote, guests: guestValidation.guestCount };
 }
 
 export function verifyWebhookSignature(payload, signature, secret) {

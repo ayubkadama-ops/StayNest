@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateListingJourney, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, calculateStayBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
@@ -24,6 +24,45 @@ test('date overlap detects intersecting stays but permits checkout/check-in boun
 test('booking calculation applies nights, cleaning fee, and minimum stay', () => {
   assert.deepEqual(calculateBooking({ nightlyPrice: 80, cleaningFee: 20, checkIn: '2026-10-10', checkOut: '2026-10-13', minimumNights: 2 }), { nights: 3, subtotal: 240, total: 260 });
   assert.throws(() => calculateBooking({ nightlyPrice: 80, checkIn: '2026-10-10', checkOut: '2026-10-11', minimumNights: 2 }));
+});
+
+test('booking guest count cannot exceed the published listing capacity', () => {
+  assert.deepEqual(validateBookingGuestCount('2', 2), { guestCount: 2, error: null });
+  assert.deepEqual(validateBookingGuestCount(3, 2), {
+    guestCount: null,
+    error: 'This listing accommodates up to 2 guests',
+  });
+  assert.deepEqual(validateBookingGuestCount(0, 2), {
+    guestCount: null,
+    error: 'Invalid listing, dates, or guest count',
+  });
+});
+
+test('rescheduled stays recalculate the quote and recheck listing capacity and minimum nights', () => {
+  const listing = {
+    nightly_price: 80,
+    cleaning_fee: 20,
+    min_stay_nights: 2,
+    max_guests: 2,
+  };
+  assert.deepEqual(calculateStayBooking({
+    listing,
+    guests: 2,
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-13',
+  }), { nights: 3, subtotal: 240, total: 260, guests: 2 });
+  assert.throws(() => calculateStayBooking({
+    listing,
+    guests: 3,
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-13',
+  }), /accommodates up to 2 guests/);
+  assert.throws(() => calculateStayBooking({
+    listing,
+    guests: 1,
+    checkIn: '2026-10-10',
+    checkOut: '2026-10-11',
+  }), /minimum stay/);
 });
 
 test('payment signatures are verified with timing-safe comparison', () => {
@@ -160,6 +199,18 @@ test('legacy stay and combined-rental submissions remain classifiable', () => {
     nightlyPrice: '80000',
     monthlyPrice: '1000000'
   }).transactionType, 'both');
+});
+
+test('listing occupancy rejects malformed and out-of-range values without excluding studios', () => {
+  assert.deepEqual(validateListingOccupancy({
+    bedrooms: '0',
+    beds: '0',
+    bathrooms: '1',
+    maxGuests: '2'
+  }), { value: { bedrooms: 0, beds: 0, bathrooms: 1, maxGuests: 2 } });
+  assert.match(validateListingOccupancy({ bedrooms: 'abc', bathrooms: 1, maxGuests: 2 }).error, /valid bedroom/);
+  assert.match(validateListingOccupancy({ bedrooms: 1.5, bathrooms: 1, maxGuests: 2 }).error, /valid bedroom/);
+  assert.match(validateListingOccupancy({ bedrooms: 1, bathrooms: 1, maxGuests: 0 }).error, /valid bedroom/);
 });
 
 test('public listing coordinates are rounded and invalid coordinates are omitted', () => {

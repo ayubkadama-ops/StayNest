@@ -2996,10 +2996,6 @@ body.agent-marketplace-view .topbar .header-actions .profile-chip {
   accent-color: var(--rausch);
 }
 
-body > .topbar:has(+ .topbar) {
-  display: none !important;
-}
-
 .main-nav a[href="/posts.html"] {
   display: none !important;
 }
@@ -3349,6 +3345,7 @@ body > .topbar:has(+ .topbar) {
   .listing-edit-form { grid-template-columns: 1fr; }
   .listing-edit-form > label, .listing-edit-form > .form-error, .listing-edit-form > button { grid-column: 1; }
   .all-listings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+  .all-listing-actions { position: static; display: flex; justify-content: flex-end; margin-top: 8px; }
   .listing-page-gallery { grid-template-columns: 1fr; gap: 8px; }
   .listing-page-media, .listing-page-cover-media { height: 240px; }
   .listing-page-map { height: 260px; }

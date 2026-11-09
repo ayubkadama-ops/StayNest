@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -1625,6 +1625,18 @@ app.post('/api/notifications/read', requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get('/api/users/:id/block', requireAuth, async (req, res, next) => {
+  try {
+    const blockedUserId = positiveId(req.params.id);
+    if (!blockedUserId || blockedUserId === req.session.user.id) return res.status(400).json({ error: 'Choose a valid user' });
+    const [[block]] = await pool.execute(
+      'SELECT 1 FROM user_blocks WHERE blocker_user_id=? AND blocked_user_id=? LIMIT 1',
+      [req.session.user.id, blockedUserId]
+    );
+    res.json({ blocked: Boolean(block) });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/users/:id/block', requireAuth, async (req, res, next) => {
   try {
     const blockedUserId = positiveId(req.params.id);
@@ -1813,7 +1825,7 @@ app.get('/api/account/bookings', requireAuth, async (req, res, next) => {
     await pool.execute('UPDATE bookings SET status="completed" WHERE guest_user_id=? AND status="confirmed" AND check_out < UTC_DATE()', [req.session.user.id]);
     const [rows] = await pool.execute(
       `SELECT b.id, b.booking_code, b.booking_kind, b.appointment_at, b.check_in, b.check_out,
-        b.total_amount, b.currency, b.status, b.created_at, l.id listing_id, l.title, l.slug,
+        b.total_amount, b.currency, b.status, b.payment_status, b.created_at, l.id listing_id, l.title, l.slug,
         b.host_user_id agent_id,
         lr.id listing_review_id,lr.status listing_review_status,
         ar.id agent_review_id,ar.status agent_review_status
@@ -1832,13 +1844,15 @@ app.get('/api/bookings/:id', requireAuth, async (req, res, next) => {
     const [[booking]] = await pool.query(
       `SELECT b.id, b.booking_code bookingCode, b.booking_kind bookingKind, b.appointment_at appointmentAt,
         b.check_in checkIn, b.check_out checkOut, b.guests, b.total_amount totalAmount, b.currency, b.status,
-        b.created_at createdAt, l.id listingId, l.title, l.city, l.address_line1 addressLine1,
+        b.payment_status paymentStatus,
+        b.created_at createdAt, l.id listingId, l.title, l.city,
+        IF(b.guest_user_id=? AND b.status NOT IN ("confirmed","completed"), NULL, l.address_line1) addressLine1,
         u.id tenantId, COALESCE(NULLIF(p.first_name,''), u.email, 'Guest') firstName,
         COALESCE(p.last_name,'') lastName, u.email, u.phone
        FROM bookings b JOIN listings l ON l.id=b.listing_id
        JOIN users u ON u.id=b.guest_user_id LEFT JOIN user_profiles p ON p.user_id=u.id
        WHERE b.id=? AND (b.guest_user_id=? OR b.host_user_id=? OR l.agent_user_id=?)`,
-      [req.params.id, req.session.user.id, req.session.user.id, agentOwnerId(req) || 0]
+      [req.session.user.id, req.params.id, req.session.user.id, req.session.user.id, agentOwnerId(req) || 0]
     );
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     res.json({ booking });
@@ -1934,6 +1948,12 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
       floorArea: categoryValue('floorArea', listing.floor_area),
       commercialUse: categoryValue('commercialUse', listing.commercial_use)
     });
+    const occupancy = validateListingOccupancy({
+      bedrooms: value('bedrooms', listing.bedrooms),
+      beds: value('beds', listing.beds),
+      bathrooms: value('bathrooms', listing.bathrooms),
+      maxGuests: value('maxGuests', listing.max_guests)
+    });
     const categoryDetailsInput = Object.hasOwn(input, 'categoryDetails')
       ? input.categoryDetails
       : categoryChanged ? {} : listing.category_details;
@@ -1954,6 +1974,10 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
     if (journey.error) {
       await connection.rollback();
       return res.status(400).json({ error: journey.error });
+    }
+    if (occupancy.error) {
+      await connection.rollback();
+      return res.status(400).json({ error: occupancy.error });
     }
     if (categoryDetails.error || authorization.error) {
       await connection.rollback();
@@ -1990,18 +2014,11 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
       await connection.rollback();
       return res.status(400).json({ error: 'Choose a valid location on the map' });
     }
-    const bedrooms = Number(value('bedrooms', listing.bedrooms));
-    const beds = value('beds', listing.beds) === '' || value('beds', listing.beds) == null ? null : Number(value('beds', listing.beds));
-    const bathrooms = Number(value('bathrooms', listing.bathrooms));
-    const maxGuests = Number(value('maxGuests', listing.max_guests));
+    const { bedrooms, beds, bathrooms, maxGuests } = occupancy.value;
     const privacyType = value('privacyType', listing.privacy_type) || null;
-    if (!Number.isInteger(bedrooms) || bedrooms < 0 || bedrooms > 99
-      || (beds !== null && (!Number.isInteger(beds) || beds < 0 || beds > 99))
-      || !Number.isFinite(bathrooms) || bathrooms < 0.5 || bathrooms > 99
-      || !Number.isInteger(maxGuests) || maxGuests < 1 || maxGuests > 999
-      || (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType))) {
+    if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) {
       await connection.rollback();
-      return res.status(400).json({ error: 'Check the bedroom, bathroom, guest capacity, and privacy details' });
+      return res.status(400).json({ error: 'Choose a valid privacy type' });
     }
     const propertyLocationChanged = addressLine1 !== listing.address_line1
       || city !== listing.city
@@ -2294,16 +2311,19 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
       floorArea: req.body.floorArea,
       commercialUse: req.body.commercialUse
     });
+    const occupancy = validateListingOccupancy({
+      bedrooms: req.body.bedrooms,
+      beds: req.body.beds ?? 0,
+      bathrooms: req.body.bathrooms,
+      maxGuests: req.body.maxGuests
+    });
     const categoryDetails = normalizeListingCategoryDetails(req.body.categoryDetails);
     const authorization = validateAdvertisingAuthorization({
       authorization: req.body.advertisingAuthorization,
       notes: req.body.authorizationNotes,
       attested: req.body.authorizationAttested
     });
-    const bedrooms = Math.max(0, Math.min(Number(req.body.bedrooms) || 0, 99));
-    const beds = Math.max(0, Math.min(Number(req.body.beds) || 0, 99));
-    const bathrooms = Math.max(0.5, Math.min(Number(req.body.bathrooms) || 1, 99));
-    const maxGuests = Math.max(1, Math.min(Number(req.body.maxGuests) || 1, 999));
+    const { bedrooms, beds, bathrooms, maxGuests } = occupancy.value || {};
     const neighborhood = String(req.body.neighborhood || '').trim().slice(0, 120) || null;
     const district = String(req.body.district || '').trim().slice(0, 100) || null;
     const ward = String(req.body.ward || '').trim().slice(0, 100) || null;
@@ -2316,6 +2336,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const document = req.files?.document?.[0], media = req.files?.media || [];
     if (!title || !description || !city || !addressLine1) return res.status(400).json({ error: 'Title, description, address, and city are required' });
     if (journey.error) return res.status(400).json({ error: journey.error });
+    if (occupancy.error) return res.status(400).json({ error: occupancy.error });
     if (categoryDetails.error) return res.status(400).json({ error: categoryDetails.error });
     if (authorization.error) return res.status(400).json({ error: authorization.error });
     if (propertySize !== null && (!Number.isFinite(propertySize) || propertySize <= 0)) return res.status(400).json({ error: 'Enter a valid property size in square metres' });
@@ -2471,8 +2492,17 @@ app.get('/api/agent/bookings', requireAuth, requireAgentAccess('bookings.view'),
 
 app.post('/api/bookings/:id/cancel', requireAuth, async (req, res, next) => {
   try {
-    const [result] = await pool.execute('UPDATE bookings SET status="cancelled", cancellation_reason=?, cancelled_at=UTC_TIMESTAMP() WHERE id=? AND guest_user_id=? AND status IN ("pending","payment_pending","confirmed")', [String(req.body.reason || 'Guest cancellation').slice(0, 500), req.params.id, req.session.user.id]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Active booking not found' });
+    const [result] = await pool.execute('UPDATE bookings SET status="cancelled", cancellation_reason=?, cancelled_at=UTC_TIMESTAMP() WHERE id=? AND guest_user_id=? AND status IN ("pending","payment_pending","confirmed") AND payment_status="unpaid"', [String(req.body.reason || 'Guest cancellation').slice(0, 500), req.params.id, req.session.user.id]);
+    if (!result.affectedRows) {
+      const [[booking]] = await pool.query(
+        'SELECT payment_status paymentStatus FROM bookings WHERE id=? AND guest_user_id=? AND status IN ("pending","payment_pending","confirmed")',
+        [req.params.id, req.session.user.id]
+      );
+      if (booking && booking.paymentStatus !== 'unpaid') {
+        return res.status(409).json({ error: 'This booking has a payment attached. Contact support to manage cancellation and any refund.' });
+      }
+      return res.status(404).json({ error: 'Active booking not found' });
+    }
     await pool.execute('DELETE FROM booking_date_locks WHERE booking_id=?', [req.params.id]);
     await audit(req, 'booking_cancelled', 'booking', req.params.id);
     res.json({ ok: true });
@@ -2480,18 +2510,106 @@ app.post('/api/bookings/:id/cancel', requireAuth, async (req, res, next) => {
 });
 
 app.patch('/api/bookings/:id/reschedule', requireAuth, requireRole('tenant'), async (req, res, next) => {
+  let connection;
+  let transactionOpen = false;
   try {
     const checkIn = String(req.body.checkIn || '');
     const checkOut = String(req.body.checkOut || '');
-    if (!isValidDate(checkIn) || !isValidDate(checkOut) || checkOut <= checkIn) return res.status(400).json({ error: 'Choose valid new dates' });
-    const [overlaps] = await pool.execute('SELECT id FROM bookings WHERE listing_id=(SELECT listing_id FROM bookings WHERE id=? AND guest_user_id=?) AND id<>? AND status IN ("pending","payment_pending","confirmed") AND check_in < ? AND check_out > ?', [req.params.id, req.session.user.id, req.params.id, checkOut, checkIn]);
-    if (overlaps.length) return res.status(409).json({ error: 'Those dates are no longer available' });
-    const [result] = await pool.execute('UPDATE bookings SET check_in=?, check_out=?, status="pending" WHERE id=? AND guest_user_id=? AND status IN ("pending","confirmed")', [checkIn, checkOut, req.params.id, req.session.user.id]);
-    if (!result.affectedRows) return res.status(404).json({ error: 'Booking cannot be rescheduled' });
-    await pool.execute('DELETE FROM booking_date_locks WHERE booking_id=?', [req.params.id]);
+    if (!isValidDate(checkIn) || !isValidDate(checkOut) || checkOut <= checkIn
+      || checkIn < new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'Choose valid future check-in and check-out dates' });
+    }
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    transactionOpen = true;
+    const [[booking]] = await connection.execute(
+      `SELECT b.id, b.listing_id listingId, b.guests, b.payment_status paymentStatus,
+        l.max_guests maxGuests, l.nightly_price nightlyPrice, l.cleaning_fee cleaningFee,
+        l.min_stay_nights minimumNights, l.transaction_type transactionType, l.currency listingCurrency
+       FROM bookings b JOIN listings l ON l.id=b.listing_id
+       WHERE b.id=? AND b.guest_user_id=? AND b.booking_kind="stay"
+         AND b.status IN ("pending","confirmed") AND l.status="published"
+       FOR UPDATE`,
+      [req.params.id, req.session.user.id]
+    );
+    if (!booking) {
+      await connection.rollback();
+      transactionOpen = false;
+      return res.status(404).json({ error: 'Booking cannot be rescheduled' });
+    }
+    if (booking.paymentStatus !== 'unpaid') {
+      await connection.rollback();
+      transactionOpen = false;
+      return res.status(409).json({ error: 'This booking has a payment attached. Contact support to manage date changes.' });
+    }
+    if (!['stay', 'both'].includes(booking.transactionType)) {
+      await connection.rollback();
+      transactionOpen = false;
+      return res.status(400).json({ error: 'This listing no longer accepts stay bookings' });
+    }
+    let quote;
+    try {
+      quote = calculateStayBooking({
+        listing: {
+          max_guests: booking.maxGuests,
+          nightly_price: booking.nightlyPrice,
+          cleaning_fee: booking.cleaningFee,
+          min_stay_nights: booking.minimumNights,
+        },
+        guests: booking.guests,
+        checkIn,
+        checkOut,
+      });
+    } catch (error) {
+      await connection.rollback();
+      transactionOpen = false;
+      return res.status(400).json({ error: error.message || 'The new stay dates do not meet the listing terms' });
+    }
+    const [overlaps] = await connection.execute(
+      `SELECT id FROM bookings
+       WHERE listing_id=? AND booking_kind="stay" AND id<>?
+         AND status IN ("pending","payment_pending","confirmed")
+         AND check_in < ? AND check_out > ?
+       FOR UPDATE`,
+      [booking.listingId, booking.id, checkOut, checkIn]
+    );
+    if (overlaps.length) {
+      await connection.rollback();
+      transactionOpen = false;
+      return res.status(409).json({ error: 'Those dates are no longer available' });
+    }
+    await connection.execute(
+      'DELETE FROM booking_date_locks WHERE booking_id=?',
+      [booking.id]
+    );
+    await connection.execute(
+      `DELETE FROM booking_date_locks
+       WHERE listing_id=? AND stay_date>=? AND stay_date<? AND expires_at<=UTC_TIMESTAMP()`,
+      [booking.listingId, checkIn, checkOut]
+    );
+    await connection.execute(
+      `UPDATE bookings SET check_in=?, check_out=?, nights=?, nightly_rate=?, subtotal=?,
+       cleaning_fee=?, total_amount=?, currency=?, status="pending", confirmed_at=NULL
+       WHERE id=? AND guest_user_id=?`,
+      [checkIn, checkOut, quote.nights, booking.nightlyPrice, quote.subtotal,
+        booking.cleaningFee, quote.total, booking.listingCurrency, booking.id, req.session.user.id]
+    );
+    for (let date = new Date(`${checkIn}T00:00:00Z`); date < new Date(`${checkOut}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1)) {
+      await connection.execute(
+        'INSERT INTO booking_date_locks (listing_id, stay_date, booking_id, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE))',
+        [booking.listingId, date.toISOString().slice(0, 10), booking.id]
+      );
+    }
+    await connection.commit();
+    transactionOpen = false;
     await audit(req, 'booking_rescheduled', 'booking', req.params.id);
-    res.json({ ok: true, status: 'pending' });
-  } catch (error) { next(error); }
+    res.json({ ok: true, status: 'pending', nights: quote.nights, totalAmount: quote.total });
+  } catch (error) {
+    if (transactionOpen) await connection.rollback();
+    next(error);
+  } finally {
+    if (connection) connection.release();
+  }
 });
 
 app.post('/api/host/bookings/:id/decision', requireAuth, requireAgentAccess('bookings.manage'), async (req, res, next) => {
@@ -2566,8 +2684,10 @@ app.delete('/api/listings/:id/save', requireAuth, async (req, res, next) => {
 app.get('/api/account/saved-listings', requireAuth, requireRole('tenant'), async (req, res, next) => {
   try {
     const [listings] = await pool.execute(
-      `SELECT l.id, l.title, l.city, l.neighborhood, l.currency, l.nightly_price nightlyPrice,
-        l.monthly_price monthlyPrice, l.yearly_price yearlyPrice, l.average_rating rating, l.review_count reviewCount,
+      `SELECT l.id, l.title, l.city, l.neighborhood, l.currency, l.transaction_type transactionType,
+        l.sale_price salePrice, l.nightly_price nightlyPrice, l.monthly_price monthlyPrice,
+        l.yearly_price yearlyPrice, l.average_rating rating, l.review_count reviewCount,
+        l.status listingStatus,
         (SELECT lm.public_url FROM listing_media lm WHERE lm.listing_id=l.id ORDER BY lm.is_cover DESC, lm.sort_order ASC LIMIT 1) coverUrl
        FROM saved_listings s JOIN listings l ON l.id=s.listing_id
        WHERE s.user_id=? AND l.deleted_at IS NULL ORDER BY s.created_at DESC`,
@@ -2600,6 +2720,7 @@ app.get('/api/listings/:id/details', async (req, res, next) => {
         l.approximate_latitude, l.approximate_longitude, l.latitude, l.longitude,
         l.currency, l.transaction_type transactionType, l.sale_price salePrice,
         l.nightly_price nightlyPrice, l.monthly_price monthlyPrice, l.yearly_price yearlyPrice,
+        l.cleaning_fee cleaningFee, l.min_stay_nights minStayNights,
         l.average_rating rating, l.review_count reviewCount, l.structure_type structureType, l.privacy_type privacyType,
         l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
         l.floor_area floorArea, l.commercial_use commercialUse, l.category_details categoryDetails,
@@ -3884,6 +4005,9 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
         || !Number.isSafeInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > 100))) {
       return res.status(400).json({ error: 'Invalid listing, dates, or guest count' });
     }
+    if (!isViewing && checkIn < new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: 'Check-in must be today or a future date' });
+    }
     if (idempotencyKey && !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Invalid idempotency key' });
     await connection.beginTransaction();
     if (idempotencyKey) {
@@ -3893,7 +4017,7 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
         return res.status(200).json(JSON.parse(prior[0].response_json));
       }
     }
-    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
+    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights, max_guests FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
     const listing = listingRows[0];
     if (!listing) {
       await connection.rollback();
@@ -3902,6 +4026,14 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
     if (!isViewing && !['stay', 'both'].includes(listing.transaction_type)) {
       await connection.rollback();
       return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
+    }
+    if (!isViewing) {
+      const guestValidation = validateBookingGuestCount(guests, listing.max_guests);
+      if (guestValidation.error) {
+        await connection.rollback();
+        return res.status(400).json({ error: guestValidation.error });
+      }
+      guests = guestValidation.guestCount;
     }
     let booking;
     if (isViewing) {

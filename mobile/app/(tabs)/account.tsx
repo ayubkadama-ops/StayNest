@@ -142,6 +142,17 @@ export default function AccountScreen() {
               <Text style={styles.bodyText}>Sub-agent access follows your assigned permissions.</Text>
             ) : null}
 
+            <Link href="/messages" asChild>
+              <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>Secure inbox</Text>
+              </Pressable>
+            </Link>
+            <Link href="/notifications" asChild>
+              <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>Notifications</Text>
+              </Pressable>
+            </Link>
+
             {user.roles.includes('agent') ? (
               <Link href="/(tabs)/agent" asChild>
                 <Pressable accessibilityRole="button" style={styles.primaryButton}>
@@ -151,9 +162,44 @@ export default function AccountScreen() {
             ) : null}
 
             {user.roles.includes('tenant') ? (
-              <Link href="/reviews" asChild>
-                <Pressable accessibilityRole="button" style={styles.secondaryButton}>
-                  <Text style={styles.secondaryButtonText}>Review completed stays</Text>
+              <>
+                <Link href="/tenant-profile" asChild>
+                  <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                    <Text style={styles.primaryButtonText}>Your profile</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/account-settings" asChild>
+                  <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                    <Text style={styles.primaryButtonText}>Account settings</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/search-alerts" asChild>
+                  <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                    <Text style={styles.primaryButtonText}>Search alerts</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/saved" asChild>
+                  <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                    <Text style={styles.primaryButtonText}>Saved properties</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/bookings" asChild>
+                  <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                    <Text style={styles.primaryButtonText}>Your bookings</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/reviews" asChild>
+                  <Pressable accessibilityRole="button" style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Review completed stays</Text>
+                  </Pressable>
+                </Link>
+              </>
+            ) : null}
+
+            {!user.roles.includes('tenant') ? (
+              <Link href="/account-settings" asChild>
+                <Pressable accessibilityRole="button" style={styles.primaryButton}>
+                  <Text style={styles.primaryButtonText}>Account settings</Text>
                 </Pressable>
               </Link>
             ) : null}

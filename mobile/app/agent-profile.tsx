@@ -8,7 +8,7 @@ import {
   StyleSheet,
   TextInput,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Link, Stack, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -124,6 +124,21 @@ export default function AgentProfileScreen() {
               <Text style={styles.bodyText}>No published verified reviews yet.</Text>
             )}
             {profile.bio ? <Text style={styles.bodyText}>{profile.bio}</Text> : null}
+            {user?.id !== profile.id ? (
+              <Link
+                href={{
+                  pathname: '/compose-message',
+                  params: {
+                    id: String(profile.id),
+                    name: [profile.firstName, profile.lastName].filter(Boolean).join(' ') || 'Makazi Go agent',
+                  },
+                }}
+                asChild>
+                <Pressable accessibilityRole="button" style={styles.messageButton}>
+                  <Text style={styles.messageButtonText}>Message agent</Text>
+                </Pressable>
+              </Link>
+            ) : null}
           </View>
 
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -187,6 +202,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#f5f7f5' },
   content: { padding: 18, paddingBottom: 36, gap: 14 },
   profileCard: { alignItems: 'flex-start', padding: 18, borderRadius: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce8df', gap: 8 },
+  messageButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 6, paddingHorizontal: 15, borderRadius: 11, backgroundColor: '#087f5b' },
+  messageButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: '#e8f3ec' },
   name: { color: '#173222', fontSize: 24, fontWeight: '800' },
   sectionTitle: { marginTop: 6, color: '#173222', fontSize: 20, fontWeight: '800' },

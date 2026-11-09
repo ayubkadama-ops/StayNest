@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+
 export type RentalMode = '' | 'short_term' | 'long_term';
 export type ListingTransaction = '' | 'sale' | 'rent' | 'stay';
 export type ListingSort = 'new' | 'price_low' | 'price_high' | 'popular' | 'relevance';
@@ -48,6 +50,8 @@ export type ListingSummary = {
   transactionType: string | null;
   salePrice: number | null;
   nightlyPrice: number | null;
+  cleaningFee: number | null;
+  minStayNights: number | null;
   monthlyPrice: number | null;
   yearlyPrice: number | null;
   rentalMode: string | null;
@@ -81,6 +85,32 @@ export type ListingMedia = {
   mediaType: string | null;
   mediaUrl: string;
   caption: string | null;
+};
+
+export type SavedListing = {
+  id: number;
+  title: string;
+  city: string | null;
+  neighborhood: string | null;
+  currency: string | null;
+  transactionType: string | null;
+  salePrice: number | null;
+  nightlyPrice: number | null;
+  monthlyPrice: number | null;
+  yearlyPrice: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+  listingStatus: string;
+  coverUrl: string | null;
+};
+
+export type SearchAlert = {
+  id: number;
+  name: string;
+  filters: Record<string, unknown>;
+  frequency: 'instant' | 'daily' | 'weekly';
+  active: boolean;
+  createdAt: string | null;
 };
 
 export type ListingReview = {
@@ -154,6 +184,67 @@ export type ListingDetails = {
   similar: ListingSummary[];
 };
 
+export type BookingRequestInput =
+  | {
+    listingId: number;
+    bookingKind: 'stay';
+    checkIn: string;
+    checkOut: string;
+    guests: number;
+    idempotencyKey: string;
+  }
+  | {
+    listingId: number;
+    bookingKind: 'viewing';
+    appointmentAt: string;
+    idempotencyKey: string;
+  };
+
+export type BookingRequestReceipt = {
+  bookingId: number;
+  bookingCode: string;
+  amount: number;
+  bookingKind: 'stay' | 'viewing';
+};
+
+export type AccountBooking = {
+  id: number;
+  bookingCode: string;
+  bookingKind: 'stay' | 'viewing';
+  appointmentAt: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  totalAmount: number;
+  currency: string;
+  status: string;
+  paymentStatus: string;
+  createdAt: string | null;
+  listingId: number;
+  title: string;
+  listingSlug: string | null;
+  listingReviewStatus: string | null;
+  agentReviewStatus: string | null;
+};
+
+export type BookingDetail = {
+  id: number;
+  bookingCode: string;
+  bookingKind: 'stay' | 'viewing';
+  appointmentAt: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  guests: number;
+  totalAmount: number;
+  currency: string;
+  status: string;
+  paymentStatus: string;
+  createdAt: string | null;
+  listingId: number;
+  title: string;
+  city: string | null;
+  addressLine1: string | null;
+};
+
 export type DiscoveryResult = {
   listings: ListingSummary[];
   pagination: {
@@ -174,6 +265,65 @@ export type SessionUser = {
   isSubAgent: boolean;
   permissions: string[];
 };
+
+export type NotificationPreferences = {
+  saved_searches: boolean;
+  price_drops: boolean;
+  booking_updates: boolean;
+  messages: boolean;
+  followed_agents: boolean;
+  marketing: boolean;
+};
+
+export type MessageConversation = {
+  id: number;
+  otherUserId: number;
+  otherDisplayName: string;
+  lastMessage: string;
+  lastMessageAt: string | null;
+  unread: number;
+};
+
+export type ConversationMessage = {
+  id: number;
+  body: string;
+  senderId: number;
+  createdAt: string;
+  firstName: string;
+  lastName: string;
+};
+
+export type SystemNotification = {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  data: unknown;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type TenantProfile = {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  city: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  following: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    profileImageUrl: string | null;
+    bio: string | null;
+    followers: number;
+    badgeLabel: string | null;
+  }[];
+};
+
+export type TenantProfileInput = Pick<TenantProfile, 'firstName' | 'lastName' | 'phone' | 'city' | 'bio'>;
 
 export type AgentSummary = {
   assignedListings: number;
@@ -470,6 +620,8 @@ function parseListing(value: unknown): ListingSummary {
     transactionType: nullableString(value.transactionType, 'transaction type'),
     salePrice: nullableNumber(value.salePrice, 'sale price'),
     nightlyPrice: nullableNumber(value.nightlyPrice, 'nightly price'),
+    cleaningFee: nullableNumber(value.cleaningFee, 'cleaning fee'),
+    minStayNights: nullableNumber(value.minStayNights, 'minimum stay nights'),
     monthlyPrice: nullableNumber(value.monthlyPrice, 'monthly price'),
     yearlyPrice: nullableNumber(value.yearlyPrice, 'yearly price'),
     rentalMode: nullableString(value.rentalMode, 'rental mode'),
@@ -540,6 +692,7 @@ function parseAgentBooking(value: unknown): AgentBooking {
   }
   const title = nullableString(value.title, 'booking property title');
   const status = nullableString(value.status, 'booking status');
+  const paymentStatus = nullableString(value.payment_status, 'booking payment status');
   if (!title || !status) {
     throw new Error('The server returned a booking without a property title or status.');
   }
@@ -564,12 +717,17 @@ function parseAgentBooking(value: unknown): AgentBooking {
 }
 
 function getApiOrigin(): string {
-  const configuredOrigin = process.env.EXPO_PUBLIC_API_URL?.trim();
-  if (!configuredOrigin) {
+  const expoOrigin = Constants.expoConfig?.extra?.apiOrigin;
+  const originValue = expoOrigin === undefined ? process.env.EXPO_PUBLIC_API_URL : expoOrigin;
+  if (typeof originValue !== 'string') {
+    throw new Error('The app configuration contains an invalid API origin.');
+  }
+  if (!originValue.trim()) {
     throw new Error(
       'Set EXPO_PUBLIC_API_URL before starting Expo. Android emulator: http://10.0.2.2:3000; physical device: http://<computer-LAN-IP>:3000.',
     );
   }
+  const configuredOrigin = originValue.trim();
 
   let parsed: URL;
   try {
@@ -691,10 +849,12 @@ async function postJson(
   path: string,
   body: Record<string, unknown>,
   csrfProtected: boolean,
+  additionalHeaders: Record<string, string> = {},
 ): Promise<unknown> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
+    ...additionalHeaders,
   };
   if (csrfProtected) headers['X-CSRF-Token'] = await getCsrfToken();
 
@@ -709,12 +869,416 @@ async function postJson(
   return payload;
 }
 
+async function patchJson(path: string, body: Record<string, unknown>): Promise<unknown> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': await getCsrfToken(),
+  };
+  const response = await fetch(apiUrl(path), {
+    method: 'PATCH',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(body),
+  });
+  const payload = await responseJson(response);
+  if (!response.ok) throw responseError(payload, response.status);
+  return payload;
+}
+
+async function deleteJson(path: string): Promise<void> {
+  const response = await fetch(apiUrl(path), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'X-CSRF-Token': await getCsrfToken(),
+    },
+    credentials: 'include',
+  });
+  if (response.status === 204) return;
+  const payload = await responseJson(response);
+  if (!response.ok) throw responseError(payload, response.status);
+  throw new Error('The server returned an unexpected response for this request.');
+}
+
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const payload = await getJson('/api/auth/me');
   if (!isRecord(payload) || !('user' in payload)) {
     throw new Error('The server returned an invalid session response.');
   }
   return payload.user === null ? null : parseSessionUser(payload.user);
+}
+
+export async function getTenantProfile(): Promise<TenantProfile> {
+  const payload = await getJson('/api/tenant/profile');
+  if (!isRecord(payload) || !isRecord(payload.profile) || !Array.isArray(payload.following)) {
+    throw new Error('The server returned an invalid tenant profile response.');
+  }
+  const profile = payload.profile;
+  const email = nullableString(profile.email, 'profile email');
+  if (!email) throw new Error('The server returned incomplete tenant profile details.');
+  return {
+    id: requiredId(profile.id),
+    email,
+    firstName: nullableString(profile.firstName, 'profile first name') ?? '',
+    lastName: nullableString(profile.lastName, 'profile last name') ?? '',
+    phone: nullableString(profile.phone, 'profile phone'),
+    city: nullableString(profile.city, 'profile city'),
+    bio: nullableString(profile.bio, 'profile bio'),
+    avatarUrl: nullableString(profile.avatarUrl, 'profile photo'),
+    following: payload.following.map((value) => {
+      if (!isRecord(value)) throw new Error('The server returned an invalid followed agent.');
+      return {
+        id: requiredId(value.id),
+        firstName: nullableString(value.firstName, 'followed agent first name') ?? '',
+        lastName: nullableString(value.lastName, 'followed agent last name') ?? '',
+        profileImageUrl: nullableString(value.profileImageUrl, 'followed agent photo'),
+        bio: nullableString(value.bio, 'followed agent bio'),
+        followers: nullableNumber(value.followers, 'agent follower count') ?? 0,
+        badgeLabel: nullableString(value.badgeLabel, 'agent badge'),
+      };
+    }),
+  };
+}
+
+export async function updateTenantProfile(input: TenantProfileInput): Promise<Omit<TenantProfile, 'id' | 'email' | 'avatarUrl' | 'following'>> {
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  const phone = input.phone?.trim() ?? '';
+  const city = input.city?.trim() ?? '';
+  const bio = input.bio?.trim() ?? '';
+  if (!firstName || !lastName || firstName.length > 80 || lastName.length > 80) {
+    throw new Error('First name and last name are required and must be 80 characters or fewer.');
+  }
+  if (phone && !/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) {
+    throw new Error('Enter a valid phone number.');
+  }
+  if (city.length > 80 || bio.length > 5000) {
+    throw new Error('City must be 80 characters or fewer and your bio must be 5,000 characters or fewer.');
+  }
+  const payload = await patchJson('/api/tenant/profile', { firstName, lastName, phone, city, bio });
+  if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.profile)) {
+    throw new Error('The server did not confirm the profile update.');
+  }
+  const profile = payload.profile;
+  return {
+    firstName: nullableString(profile.firstName, 'profile first name') ?? '',
+    lastName: nullableString(profile.lastName, 'profile last name') ?? '',
+    phone: nullableString(profile.phone, 'profile phone'),
+    city: nullableString(profile.city, 'profile city'),
+    bio: nullableString(profile.bio, 'profile bio'),
+  };
+}
+
+export async function uploadTenantProfilePhoto(file: Blob, filename: string): Promise<string> {
+  const formData = new FormData();
+  formData.append('profilePic', file, filename);
+  const response = await fetch(apiUrl('/api/tenant/profile/photo'), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'X-CSRF-Token': await getCsrfToken(),
+    },
+    credentials: 'include',
+    body: formData,
+  });
+  const payload = await responseJson(response);
+  if (!response.ok) throw responseError(payload, response.status);
+  if (!isRecord(payload) || typeof payload.avatarUrl !== 'string' || !payload.avatarUrl.trim()) {
+    throw new Error('The server returned an invalid profile photo response.');
+  }
+  return payload.avatarUrl;
+}
+
+export async function getMessageConversations(page = 1): Promise<{ conversations: MessageConversation[]; page: number; limit: number }> {
+  if (!Number.isInteger(page) || page < 1) throw new Error('Choose a valid inbox page.');
+  const payload = await getJson(`/api/messages?page=${page}&limit=50`);
+  if (!isRecord(payload) || !Array.isArray(payload.conversations)) {
+    throw new Error('The server returned an invalid inbox response.');
+  }
+  const responsePage = nullableNumber(payload.page, 'inbox page');
+  const limit = nullableNumber(payload.limit, 'inbox page size');
+  if (responsePage !== page || limit === null || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('The server returned invalid inbox pagination.');
+  }
+  return {
+    conversations: payload.conversations.map((value) => {
+      if (!isRecord(value)) throw new Error('The server returned an invalid conversation.');
+      const otherDisplayName = nullableString(value.otherDisplayName, 'conversation member name');
+      const otherFirstName = nullableString(value.otherFirstName, 'conversation member first name');
+      const otherLastName = nullableString(value.otherLastName, 'conversation member last name');
+      return {
+        id: requiredId(value.conversationId),
+        otherUserId: requiredId(value.otherUserId),
+        otherDisplayName: otherDisplayName?.trim()
+          || [otherFirstName, otherLastName].filter(Boolean).join(' ')
+          || 'Makazi Go member',
+        lastMessage: nullableString(value.lastMessage, 'last message') ?? '',
+        lastMessageAt: nullableString(value.lastMessageAt, 'last message date'),
+        unread: requiredCount(value.unread, 'unread messages'),
+      };
+    }),
+    page: responsePage ?? page,
+    limit: limit ?? 100,
+  };
+}
+
+export async function getConversationMessages(
+  conversationId: number,
+  page = 1,
+): Promise<{ messages: ConversationMessage[]; page: number; limit: number }> {
+  if (!Number.isInteger(conversationId) || conversationId < 1) throw new Error('Choose a valid conversation.');
+  if (!Number.isInteger(page) || page < 1) throw new Error('Choose a valid conversation page.');
+  const payload = await getJson(`/api/messages/${conversationId}?page=${page}&limit=100`);
+  if (!isRecord(payload) || !Array.isArray(payload.messages)) {
+    throw new Error('The server returned an invalid conversation history.');
+  }
+  const responsePage = nullableNumber(payload.page, 'conversation page');
+  const limit = nullableNumber(payload.limit, 'conversation page size');
+  if (responsePage !== page || limit !== 100) {
+    throw new Error('The server returned invalid conversation pagination.');
+  }
+  return {
+    messages: payload.messages.map((value) => {
+      if (!isRecord(value)) throw new Error('The server returned an invalid conversation message.');
+      const body = nullableString(value.body, 'message body');
+      const createdAt = nullableString(value.createdAt, 'message date');
+      if (!body || !createdAt) throw new Error('The server returned an incomplete conversation message.');
+      return {
+        id: requiredId(value.id),
+        body,
+        senderId: requiredId(value.senderId),
+        createdAt,
+        firstName: nullableString(value.firstName, 'message sender first name') ?? '',
+        lastName: nullableString(value.lastName, 'message sender last name') ?? '',
+      };
+    }),
+    page: responsePage ?? page,
+    limit: limit ?? 50,
+  };
+}
+
+export async function getUnreadMessageCount(): Promise<number> {
+  const payload = await getJson('/api/messages/unread-count');
+  if (!isRecord(payload)) throw new Error('The server returned an invalid unread message count.');
+  return requiredCount(payload.unread, 'unread messages');
+}
+
+export async function sendMessage(recipientId: number, body: string): Promise<{ conversationId: number; messageId: number }> {
+  const message = body.trim();
+  if (!Number.isInteger(recipientId) || recipientId < 1) throw new Error('Choose a valid message recipient.');
+  if (!message || message.length > 2000) throw new Error('Message must be between 1 and 2,000 characters.');
+  const payload = await postJson('/api/messages', { recipientId, body: message }, true);
+  if (!isRecord(payload)) throw new Error('The server returned an invalid message receipt.');
+  return {
+    conversationId: requiredId(payload.conversationId),
+    messageId: requiredId(payload.messageId),
+  };
+}
+
+export async function getUserBlockStatus(userId: number): Promise<boolean> {
+  if (!Number.isInteger(userId) || userId < 1) throw new Error('Choose a valid user.');
+  const payload = await getJson(`/api/users/${userId}/block`);
+  if (!isRecord(payload) || typeof payload.blocked !== 'boolean') {
+    throw new Error('The server returned an invalid user block status.');
+  }
+  return payload.blocked;
+}
+
+export async function setUserBlocked(userId: number, blocked: boolean): Promise<void> {
+  if (!Number.isInteger(userId) || userId < 1) throw new Error('Choose a valid user.');
+  if (blocked) {
+    const payload = await postJson(`/api/users/${userId}/block`, {}, true);
+    if (!isRecord(payload) || payload.blocked !== true) {
+      throw new Error('The server did not confirm the user was blocked.');
+    }
+    return;
+  }
+  const response = await fetch(apiUrl(`/api/users/${userId}/block`), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'X-CSRF-Token': await getCsrfToken(),
+    },
+    credentials: 'include',
+  });
+  if (response.status === 204) return;
+  const payload = await responseJson(response);
+  if (!response.ok) throw responseError(payload, response.status);
+  throw new Error('The server returned an unexpected response while unblocking the user.');
+}
+
+export async function reportUser(userId: number, reason: string, details?: string): Promise<void> {
+  if (!Number.isInteger(userId) || userId < 1) throw new Error('Choose a valid user to report.');
+  const normalizedReason = reason.trim();
+  const normalizedDetails = details?.trim() ?? '';
+  if (!normalizedReason || normalizedReason.length > 120 || normalizedDetails.length > 1000) {
+    throw new Error('Enter a report reason of 1–120 characters and details of no more than 1,000 characters.');
+  }
+  await postJson('/api/reports', {
+    entityType: 'user',
+    entityId: userId,
+    reason: normalizedReason,
+    details: normalizedDetails || undefined,
+  }, true);
+}
+
+export async function getSystemNotifications(page = 1): Promise<{
+  notifications: SystemNotification[];
+  unread: number;
+  page: number;
+  limit: number;
+}> {
+  if (!Number.isInteger(page) || page < 1) throw new Error('Choose a valid notifications page.');
+  const payload = await getJson(`/api/notifications?page=${page}&limit=50`);
+  if (!isRecord(payload) || !Array.isArray(payload.notifications)) {
+    throw new Error('The server returned an invalid notifications response.');
+  }
+  const responsePage = nullableNumber(payload.page, 'notifications page');
+  const limit = nullableNumber(payload.limit, 'notifications page size');
+  if (responsePage !== page || limit === null || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('The server returned invalid notifications pagination.');
+  }
+  return {
+    notifications: payload.notifications.map((value) => {
+      if (!isRecord(value)) throw new Error('The server returned an invalid notification.');
+      const type = nullableString(value.type, 'notification type');
+      const title = nullableString(value.title, 'notification title');
+      const body = nullableString(value.body, 'notification body');
+      const createdAt = nullableString(value.createdAt, 'notification date');
+      if (!type || !title || !createdAt) throw new Error('The server returned an incomplete notification.');
+      return {
+        id: requiredId(value.id),
+        type,
+        title,
+        body: body ?? '',
+        data: value.data,
+        readAt: nullableString(value.readAt, 'notification read date'),
+        createdAt,
+      };
+    }),
+    unread: requiredCount(payload.unread, 'unread notifications'),
+    page: responsePage ?? page,
+    limit: limit ?? 50,
+  };
+}
+
+export async function markSystemNotificationsRead(): Promise<void> {
+  const payload = await postJson('/api/notifications/read', {}, true);
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error('The server did not confirm the notifications were marked as read.');
+  }
+}
+
+function parseNotificationPreferences(value: unknown): NotificationPreferences {
+  if (!isRecord(value)) {
+    throw new Error('The server returned invalid notification preferences.');
+  }
+  const enabled = (key: keyof NotificationPreferences): boolean => {
+    const preference = nullableBoolean(value[key], `notification preference ${key}`);
+    if (preference === null) {
+      throw new Error('The server returned incomplete notification preferences.');
+    }
+    return preference;
+  };
+  return {
+    saved_searches: enabled('saved_searches'),
+    price_drops: enabled('price_drops'),
+    booking_updates: enabled('booking_updates'),
+    messages: enabled('messages'),
+    followed_agents: enabled('followed_agents'),
+    marketing: enabled('marketing'),
+  };
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const payload = await getJson('/api/account/notification-preferences');
+  if (!isRecord(payload)) throw new Error('The server returned an invalid preferences response.');
+  return parseNotificationPreferences(payload.preferences);
+}
+
+export async function updateNotificationPreferences(
+  preferences: NotificationPreferences,
+): Promise<NotificationPreferences> {
+  const payload = await patchJson('/api/account/notification-preferences', preferences);
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error('The server did not confirm the notification preference update.');
+  }
+  return parseNotificationPreferences(payload.preferences);
+}
+
+export async function changeAccountPassword(currentPassword: string, password: string): Promise<void> {
+  if (!currentPassword || password.length < 12) {
+    throw new Error('Enter your current password and a new password with at least 12 characters.');
+  }
+  const payload = await postJson('/api/account/change-password', { currentPassword, password }, true);
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error('The server did not confirm the password change.');
+  }
+}
+
+export async function requestAccountDeletion(password: string, reason: string): Promise<void> {
+  if (!password) throw new Error('Enter your password to request account deletion.');
+  const response = await fetch(apiUrl('/api/account'), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': await getCsrfToken(),
+    },
+    credentials: 'include',
+    body: JSON.stringify({ password, reason: reason.trim().slice(0, 500) }),
+  });
+  const payload = await responseJson(response);
+  if (!response.ok) throw responseError(payload, response.status);
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error('The server did not confirm the account deletion request.');
+  }
+}
+
+export async function setListingSaved(listingId: number, saved: boolean): Promise<void> {
+  if (!Number.isSafeInteger(listingId) || listingId < 1) {
+    throw new Error('Choose a valid property.');
+  }
+  if (saved) {
+    const payload = await postJson(`/api/listings/${listingId}/save`, {}, true);
+    if (!isRecord(payload) || payload.saved !== true) {
+      throw new Error('The server did not confirm that the property was saved.');
+    }
+    return;
+  }
+  await deleteJson(`/api/listings/${listingId}/save`);
+}
+
+export async function getSavedListings(): Promise<SavedListing[]> {
+  const payload = await getJson('/api/account/saved-listings');
+  if (!isRecord(payload) || !Array.isArray(payload.listings)) {
+    throw new Error('The server returned an invalid saved-properties response.');
+  }
+  return payload.listings.map((value): SavedListing => {
+    if (!isRecord(value)) throw new Error('The server returned an invalid saved property.');
+    const title = nullableString(value.title, 'saved property title');
+    const listingStatus = nullableString(value.listingStatus, 'saved property status');
+    if (!title || !listingStatus) {
+      throw new Error('The server returned incomplete saved-property details.');
+    }
+    return {
+      id: requiredId(value.id),
+      title,
+      city: nullableString(value.city, 'saved property city'),
+      neighborhood: nullableString(value.neighborhood, 'saved property neighborhood'),
+      currency: nullableString(value.currency, 'saved property currency'),
+      transactionType: nullableString(value.transactionType, 'saved property transaction type'),
+      salePrice: nullableNumber(value.salePrice, 'saved property sale price'),
+      nightlyPrice: nullableNumber(value.nightlyPrice, 'saved property nightly price'),
+      monthlyPrice: nullableNumber(value.monthlyPrice, 'saved property monthly price'),
+      yearlyPrice: nullableNumber(value.yearlyPrice, 'saved property yearly price'),
+      rating: nullableNumber(value.rating, 'saved property rating'),
+      reviewCount: nullableNumber(value.reviewCount, 'saved property review count'),
+      listingStatus,
+      coverUrl: nullableString(value.coverUrl, 'saved property cover image'),
+    };
+  });
 }
 
 export async function getAgentSummary(): Promise<AgentSummary> {
@@ -1073,20 +1637,96 @@ export async function discoverListings(filters: DiscoveryFilters, page = 1): Pro
   };
 }
 
-export async function createSearchAlert(name: string, filters: DiscoveryFilters): Promise<void> {
+export async function createSearchAlert(name: string, filters: DiscoveryFilters): Promise<number> {
+  const alertName = name.trim();
+  if (!alertName || alertName.length > 120) {
+    throw new Error('Enter a search name up to 120 characters.');
+  }
+
   const savedFilters: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(filters)) {
     if (Array.isArray(value)) {
       if (value.length) savedFilters[key] = value;
-    } else if (typeof value === 'string' && value.trim() && !(key === 'sort' && value === 'new')) {
+    } else if (
+      typeof value === 'string'
+      && value.trim()
+      && !(key === 'sort' && value === 'new')
+      && !(key === 'currency' && !filters.minPrice && !filters.maxPrice)
+    ) {
       savedFilters[key] = value.trim();
     }
   }
-  await postJson('/api/search-alerts', {
-    name: name.trim(),
+  if (!Object.keys(savedFilters).length) {
+    throw new Error('Apply at least one filter before saving.');
+  }
+
+  const payload = await postJson('/api/search-alerts', {
+    name: alertName,
     filters: savedFilters,
     frequency: 'daily',
   }, true);
+  if (!isRecord(payload)) {
+    throw new Error('The server returned an invalid saved-search response.');
+  }
+  const id = nullableNumber(payload.id, 'search alert id');
+  if (id === null || !Number.isSafeInteger(id) || id < 1) {
+    throw new Error('The server returned an invalid saved-search identifier.');
+  }
+  return id;
+}
+
+function parseSearchAlertFilters(value: unknown): Record<string, unknown> {
+  let filters = value;
+  if (typeof filters === 'string') {
+    try {
+      filters = JSON.parse(filters);
+    } catch {
+      throw new Error('The server returned invalid saved-search filters.');
+    }
+  }
+  if (!isRecord(filters)) {
+    throw new Error('The server returned invalid saved-search filters.');
+  }
+  return filters;
+}
+
+export async function getSearchAlerts(): Promise<SearchAlert[]> {
+  const payload = await getJson('/api/account/search-alerts');
+  if (!isRecord(payload) || !Array.isArray(payload.alerts)) {
+    throw new Error('The server returned an invalid saved-search response.');
+  }
+  return payload.alerts.map((value): SearchAlert => {
+    if (!isRecord(value)) throw new Error('The server returned an invalid saved search.');
+    const name = nullableString(value.name, 'search alert name');
+    const frequency = nullableString(value.frequency, 'search alert frequency');
+    const active = nullableBoolean(value.active, 'search alert status');
+    const id = nullableNumber(value.id, 'search alert id');
+    if (
+      !name
+      || (frequency !== 'instant' && frequency !== 'daily' && frequency !== 'weekly')
+      || active === null
+      || id === null
+      || !Number.isSafeInteger(id)
+      || id < 1
+    ) {
+      throw new Error('The server returned incomplete saved-search details.');
+    }
+    return {
+      id,
+      name,
+      filters: parseSearchAlertFilters(value.filters),
+      frequency,
+      active,
+      createdAt: nullableString(value.createdAt, 'search alert creation time'),
+    };
+  });
+}
+
+export async function deleteSearchAlert(alertId: number): Promise<void> {
+  if (!Number.isSafeInteger(alertId) || alertId < 1) {
+    throw new Error('Choose a valid saved search.');
+  }
+  await deleteJson(`/api/search-alerts/${alertId}`);
 }
 
 export async function getListingDetails(id: string): Promise<ListingDetails> {
@@ -1170,6 +1810,170 @@ export async function getListingDetails(id: string): Promise<ListingDetails> {
     reviews,
     similar: payload.similar.map(parseListing),
   };
+}
+
+export async function createBookingRequest(input: BookingRequestInput): Promise<BookingRequestReceipt> {
+  if (!Number.isSafeInteger(input.listingId) || input.listingId < 1) {
+    throw new Error('Choose a valid property.');
+  }
+  if (!/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotencyKey)) {
+    throw new Error('The booking request could not be safely retried. Please try again.');
+  }
+
+  let body: Record<string, unknown>;
+  if (input.bookingKind === 'stay') {
+    const isCalendarDate = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00Z`);
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (!isCalendarDate(input.checkIn) || !isCalendarDate(input.checkOut) || input.checkOut <= input.checkIn) {
+      throw new Error('Choose a valid check-in and check-out date.');
+    }
+    if (!Number.isSafeInteger(input.guests) || input.guests < 1 || input.guests > 100) {
+      throw new Error('Choose a valid guest count.');
+    }
+    body = {
+      listingId: input.listingId,
+      bookingKind: input.bookingKind,
+      checkIn: input.checkIn,
+      checkOut: input.checkOut,
+      guests: input.guests,
+    };
+  } else {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(input.appointmentAt)
+      || !Number.isFinite(Date.parse(input.appointmentAt))) {
+      throw new Error('Choose a valid viewing date and time.');
+    }
+    body = {
+      listingId: input.listingId,
+      bookingKind: input.bookingKind,
+      appointmentAt: input.appointmentAt,
+    };
+  }
+
+  const payload = await postJson(
+    '/api/bookings',
+    body,
+    true,
+    { 'Idempotency-Key': input.idempotencyKey },
+  );
+  if (!isRecord(payload)) throw new Error('The server returned an invalid booking confirmation.');
+  const bookingId = nullableNumber(payload.bookingId, 'booking request id');
+  const bookingCode = nullableString(payload.bookingCode, 'booking request code');
+  const amount = nullableNumber(payload.amount, 'booking amount');
+  if (bookingId === null || !Number.isSafeInteger(bookingId) || bookingId < 1
+    || !bookingCode?.trim() || amount === null || amount < 0
+    || payload.bookingKind !== input.bookingKind) {
+    throw new Error('The server returned an incomplete booking confirmation.');
+  }
+  return { bookingId, bookingCode, amount, bookingKind: input.bookingKind };
+}
+
+export async function getAccountBookings(): Promise<AccountBooking[]> {
+  const payload = await getJson('/api/account/bookings');
+  if (!isRecord(payload) || !Array.isArray(payload.bookings)) {
+    throw new Error('The server returned an invalid booking history response.');
+  }
+  return payload.bookings.map((value): AccountBooking => {
+    if (!isRecord(value)) throw new Error('The server returned an invalid booking.');
+    const bookingKind = value.booking_kind;
+    const title = nullableString(value.title, 'booking property title');
+    const currency = nullableString(value.currency, 'booking currency');
+    const status = nullableString(value.status, 'booking status');
+    const paymentStatus = nullableString(value.payment_status, 'booking payment status');
+    const bookingCode = nullableString(value.booking_code, 'booking code');
+    const totalAmount = nullableNumber(value.total_amount, 'booking total');
+    if (!title || !currency || !status || !paymentStatus || !bookingCode || totalAmount === null
+      || (bookingKind !== 'stay' && bookingKind !== 'viewing')) {
+      throw new Error('The server returned incomplete booking history details.');
+    }
+    return {
+      id: requiredId(value.id),
+      bookingCode,
+      bookingKind,
+      appointmentAt: nullableString(value.appointment_at, 'appointment time'),
+      checkIn: nullableString(value.check_in, 'check-in date'),
+      checkOut: nullableString(value.check_out, 'check-out date'),
+      totalAmount,
+      currency,
+      status,
+      paymentStatus,
+      createdAt: nullableString(value.created_at, 'booking creation date'),
+      listingId: requiredId(value.listing_id),
+      title,
+      listingSlug: nullableString(value.slug, 'listing slug'),
+      listingReviewStatus: nullableString(value.listing_review_status, 'listing review status'),
+      agentReviewStatus: nullableString(value.agent_review_status, 'agent review status'),
+    };
+  });
+}
+
+export async function getBookingDetails(id: number): Promise<BookingDetail> {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Choose a valid booking.');
+  const payload = await getJson(`/api/bookings/${id}`);
+  if (!isRecord(payload) || !isRecord(payload.booking)) {
+    throw new Error('The server returned an invalid booking detail response.');
+  }
+  const value = payload.booking;
+  const bookingKind = value.bookingKind;
+  const title = nullableString(value.title, 'booking property title');
+  const bookingCode = nullableString(value.bookingCode, 'booking code');
+  const currency = nullableString(value.currency, 'booking currency');
+  const status = nullableString(value.status, 'booking status');
+  const paymentStatus = nullableString(value.paymentStatus, 'booking payment status');
+  const guests = nullableNumber(value.guests, 'booking guest count');
+  const totalAmount = nullableNumber(value.totalAmount, 'booking total');
+  if (!title || !bookingCode || !currency || !status || !paymentStatus || guests === null || totalAmount === null
+    || (bookingKind !== 'stay' && bookingKind !== 'viewing')) {
+    throw new Error('The server returned incomplete booking details.');
+  }
+  return {
+    id: requiredId(value.id),
+    bookingCode,
+    bookingKind,
+    appointmentAt: nullableString(value.appointmentAt, 'appointment time'),
+    checkIn: nullableString(value.checkIn, 'check-in date'),
+    checkOut: nullableString(value.checkOut, 'check-out date'),
+    guests,
+    totalAmount,
+    currency,
+    status,
+    paymentStatus,
+    createdAt: nullableString(value.createdAt, 'booking creation date'),
+    listingId: requiredId(value.listingId),
+    title,
+    city: nullableString(value.city, 'property city'),
+    addressLine1: nullableString(value.addressLine1, 'property address'),
+  };
+}
+
+export async function cancelAccountBooking(id: number): Promise<void> {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Choose a valid booking.');
+  const payload = await postJson(`/api/bookings/${id}/cancel`, { reason: 'Cancelled by guest' }, true);
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error('The server did not confirm the booking cancellation.');
+  }
+}
+
+export async function rescheduleAccountBooking(
+  id: number,
+  checkIn: string,
+  checkOut: string,
+): Promise<void> {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Choose a valid booking.');
+  const isCalendarDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  if (!isCalendarDate(checkIn) || !isCalendarDate(checkOut) || checkOut <= checkIn) {
+    throw new Error('Choose valid new check-in and check-out dates.');
+  }
+  const payload = await patchJson(`/api/bookings/${id}/reschedule`, { checkIn, checkOut });
+  if (!isRecord(payload) || payload.ok !== true || payload.status !== 'pending') {
+    throw new Error('The server did not confirm the rescheduled booking request.');
+  }
 }
 
 export async function getReviewableBookings(): Promise<ReviewableBooking[]> {

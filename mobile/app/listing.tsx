@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -15,9 +16,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/components/AuthProvider';
 import {
+  createBookingRequest,
   getListingDetails,
   reportReview,
   resolveMediaUrl,
+  setListingSaved,
+  type BookingRequestReceipt,
   type ListingDetails,
 } from '@/constants/marketplaceApi';
 
@@ -32,12 +36,34 @@ export default function ListingScreen() {
   const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [bookingKind, setBookingKind] = useState<'stay' | 'viewing'>('stay');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [appointmentTime, setAppointmentTime] = useState('');
+  const [guestCount, setGuestCount] = useState('1');
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [bookingReceipt, setBookingReceipt] = useState<BookingRequestReceipt | null>(null);
+  const [savingListing, setSavingListing] = useState(false);
+  const idempotencyKey = useRef<string | null>(null);
+  const bookingInFlight = useRef(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
     setDetails(null);
+    setBookingKind('stay');
+    setCheckIn('');
+    setCheckOut('');
+    setAppointmentDate('');
+    setAppointmentTime('');
+    setGuestCount('1');
+    setBookingError(null);
+    setBookingReceipt(null);
+    setBookingSubmitting(false);
+    idempotencyKey.current = null;
 
     if (!id) {
       setError('Choose a valid property to view.');
@@ -71,7 +97,7 @@ export default function ListingScreen() {
     return () => {
       active = false;
     };
-  }, [id, retryKey]);
+  }, [id, retryKey, user?.id]);
 
   const listing = details?.listing;
   const mediaItems = details?.media.filter((item) => item.mediaType !== 'video') ?? [];
@@ -88,6 +114,103 @@ export default function ListingScreen() {
           : null;
   const amenities = listing?.amenities?.split(',').map((amenity) => amenity.trim()).filter(Boolean) ?? [];
   const agentName = [listing?.agentFirstName, listing?.agentLastName].filter(Boolean).join(' ');
+  const canRequestStay = ['stay', 'both'].includes(listing?.transactionType || '');
+  const activeBookingKind = canRequestStay ? bookingKind : 'viewing';
+  const stayQuote = getStayQuote(checkIn, checkOut, listing?.nightlyPrice, listing?.cleaningFee, listing?.minStayNights);
+  const guestCountNumber = Number(guestCount);
+  const guestCountLimit = Math.min(100, listing?.maxGuests ?? 0);
+  const guestCountValid = /^\d+$/.test(guestCount)
+    && Number.isSafeInteger(guestCountNumber)
+    && guestCountNumber >= 1
+    && guestCountLimit >= 1
+    && guestCountNumber <= guestCountLimit;
+  const changeBookingField = (update: () => void) => {
+    idempotencyKey.current = null;
+    setBookingReceipt(null);
+    setBookingError(null);
+    update();
+  };
+  const submitBookingRequest = async () => {
+    if (!listing) return;
+    if (!user) {
+      Alert.alert(
+        'Sign in to continue',
+        'A tenant account is required to send a booking or viewing request. Your property will remain open when you return.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => router.push('/(tabs)/account') },
+        ],
+      );
+      return;
+    }
+    if (!user.roles.includes('tenant')) {
+      setBookingError('Sign in with a tenant account to send booking and viewing requests.');
+      return;
+    }
+    if (bookingInFlight.current) return;
+    bookingInFlight.current = true;
+    setBookingSubmitting(true);
+    setBookingError(null);
+    try {
+      const requestKey = idempotencyKey.current
+        || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+      idempotencyKey.current = requestKey;
+      const receipt = activeBookingKind === 'stay'
+        ? await createBookingRequest({
+          listingId: listing.id,
+          bookingKind: 'stay',
+          checkIn,
+          checkOut,
+          guests: Number(guestCount),
+          idempotencyKey: requestKey,
+        })
+        : await createBookingRequest({
+          listingId: listing.id,
+          bookingKind: 'viewing',
+          appointmentAt: createLocalAppointmentIso(appointmentDate, appointmentTime),
+          idempotencyKey: requestKey,
+        });
+      setBookingReceipt(receipt);
+      idempotencyKey.current = null;
+    } catch (requestError: unknown) {
+      setBookingError(
+        requestError instanceof Error ? requestError.message : 'The request could not be sent. Please try again.',
+      );
+    } finally {
+      bookingInFlight.current = false;
+      setBookingSubmitting(false);
+    }
+  };
+  const toggleSavedListing = async () => {
+    if (!listing) return;
+    if (!user?.roles.includes('tenant')) {
+      Alert.alert(
+        'Sign in to save properties',
+        'A tenant account is required to manage saved properties.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => router.push('/(tabs)/account') },
+        ],
+      );
+      return;
+    }
+    if (savingListing) return;
+    const saved = listing.saved !== true;
+    setSavingListing(true);
+    try {
+      await setListingSaved(listing.id, saved);
+      setDetails((current) => current
+        ? { ...current, listing: { ...current.listing, saved } }
+        : current);
+    } catch (requestError: unknown) {
+      Alert.alert(
+        'Could not update saved properties',
+        requestError instanceof Error ? requestError.message : 'Please try again.',
+      );
+    } finally {
+      setSavingListing(false);
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
@@ -172,6 +295,16 @@ export default function ListingScreen() {
                 ? `${listing.currency || 'TZS'} ${price.toLocaleString()} / ${period}`
                 : 'Contact agent for pricing'}
             </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: listing.saved === true, disabled: savingListing }}
+              disabled={savingListing}
+              onPress={() => void toggleSavedListing()}
+              style={[styles.savePropertyButton, savingListing && styles.disabledBookingButton]}>
+              <Text style={styles.savePropertyText}>
+                {savingListing ? 'Saving…' : listing.saved === true ? 'Remove from saved properties' : 'Save property'}
+              </Text>
+            </Pressable>
 
             <View style={styles.factsCard}>
               <Fact label="Property" value={listing.propertyType} />
@@ -186,6 +319,146 @@ export default function ListingScreen() {
               <Fact label="Guests" value={listing.maxGuests} />
               {listing.rentalMode ? <Fact label="Stay" value={listing.rentalMode.replace('_', ' ')} /> : null}
             </View>
+
+            <Section title="Request a stay or viewing">
+              <Text style={styles.bodyText}>
+                Requests go to the responsible agent for review. A booking is not confirmed until the agent accepts it.
+              </Text>
+              <View style={styles.bookingModeRow}>
+                {canRequestStay ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: activeBookingKind === 'stay' }}
+                    onPress={() => changeBookingField(() => setBookingKind('stay'))}
+                    style={[styles.bookingModeButton, activeBookingKind === 'stay' && styles.bookingModeSelected]}>
+                    <Text style={[styles.bookingModeText, activeBookingKind === 'stay' && styles.bookingModeSelectedText]}>Request a stay</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: activeBookingKind === 'viewing' }}
+                  onPress={() => changeBookingField(() => setBookingKind('viewing'))}
+                  style={[styles.bookingModeButton, activeBookingKind === 'viewing' && styles.bookingModeSelected]}>
+                  <Text style={[styles.bookingModeText, activeBookingKind === 'viewing' && styles.bookingModeSelectedText]}>Request a viewing</Text>
+                </Pressable>
+              </View>
+              {activeBookingKind === 'stay' ? (
+                <>
+                  <View style={styles.bookingFieldRow}>
+                    <View style={styles.bookingField}>
+                      <Text style={styles.bookingLabel}>Check-in</Text>
+                      <TextInput
+                        accessibilityLabel="Check-in date"
+                        autoCorrect={false}
+                        onChangeText={(value) => changeBookingField(() => setCheckIn(value))}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#718176"
+                        style={styles.bookingInput}
+                        value={checkIn}
+                      />
+                    </View>
+                    <View style={styles.bookingField}>
+                      <Text style={styles.bookingLabel}>Check-out</Text>
+                      <TextInput
+                        accessibilityLabel="Check-out date"
+                        autoCorrect={false}
+                        onChangeText={(value) => changeBookingField(() => setCheckOut(value))}
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor="#718176"
+                        style={styles.bookingInput}
+                        value={checkOut}
+                      />
+                    </View>
+                  </View>
+                  <View style={styles.bookingField}>
+                    <Text style={styles.bookingLabel}>Guests (maximum {listing.maxGuests ?? 'not specified'})</Text>
+                    <TextInput
+                      accessibilityLabel="Number of guests"
+                      keyboardType="number-pad"
+                      onChangeText={(value) => changeBookingField(() => setGuestCount(value))}
+                      style={styles.bookingInput}
+                      value={guestCount}
+                    />
+                  </View>
+                  {!guestCountValid ? (
+                    <Text style={styles.bookingHint} accessibilityRole="alert">
+                      {guestCountLimit > 0
+                        ? `Enter between 1 and ${guestCountLimit} guests.`
+                        : 'Guest capacity is unavailable for this property. Contact the agent.'}
+                    </Text>
+                  ) : null}
+                  {stayQuote ? (
+                    <View style={styles.quoteCard}>
+                      <Text style={styles.quoteText}>
+                        {stayQuote.nights} {stayQuote.nights === 1 ? 'night' : 'nights'} × {listing.currency || 'TZS'} {Number(listing.nightlyPrice).toLocaleString()}
+                      </Text>
+                      {stayQuote.cleaningFee > 0 ? (
+                        <Text style={styles.quoteText}>
+                          Cleaning fee · {listing.currency || 'TZS'} {stayQuote.cleaningFee.toLocaleString()}
+                        </Text>
+                      ) : null}
+                      <Text style={styles.quoteTotal}>
+                        Estimated total · {listing.currency || 'TZS'} {stayQuote.total.toLocaleString()}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {checkIn && checkOut && !stayQuote ? (
+                    <Text style={styles.bookingHint} accessibilityRole="alert">
+                      Enter future dates and meet the minimum stay of {listing.minStayNights || 1} night(s).
+                    </Text>
+                  ) : null}
+                </>
+              ) : (
+                <View style={styles.bookingFieldRow}>
+                  <View style={styles.bookingField}>
+                    <Text style={styles.bookingLabel}>Viewing date</Text>
+                    <TextInput
+                      accessibilityLabel="Viewing date"
+                      autoCorrect={false}
+                      onChangeText={(value) => changeBookingField(() => setAppointmentDate(value))}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor="#718176"
+                      style={styles.bookingInput}
+                      value={appointmentDate}
+                    />
+                  </View>
+                  <View style={styles.bookingField}>
+                    <Text style={styles.bookingLabel}>Local time</Text>
+                    <TextInput
+                      accessibilityLabel="Viewing time"
+                      onChangeText={(value) => changeBookingField(() => setAppointmentTime(value))}
+                      placeholder="HH:MM"
+                      placeholderTextColor="#718176"
+                      style={styles.bookingInput}
+                      value={appointmentTime}
+                    />
+                  </View>
+                </View>
+              )}
+              {bookingError ? <Text style={styles.bookingError} accessibilityRole="alert">{bookingError}</Text> : null}
+              {bookingReceipt ? (
+                <View style={styles.bookingSuccess} accessibilityRole="status">
+                  <Text style={styles.bookingSuccessTitle}>Request sent · {bookingReceipt.bookingCode}</Text>
+                  <Text style={styles.bodyText}>
+                    {bookingReceipt.bookingKind === 'stay'
+                      ? `Estimated total ${listing.currency || 'TZS'} ${bookingReceipt.amount.toLocaleString()}. The agent will review your request.`
+                      : 'The agent will review your viewing request.'}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={bookingSubmitting || (activeBookingKind === 'stay' && (!stayQuote || !guestCountValid))}
+                  onPress={() => void submitBookingRequest()}
+                  style={[styles.submitBookingButton, (bookingSubmitting || (activeBookingKind === 'stay' && (!stayQuote || !guestCountValid))) && styles.disabledBookingButton]}>
+                  <Text style={styles.submitBookingText}>
+                    {bookingSubmitting
+                      ? 'Sending request…'
+                      : activeBookingKind === 'stay' ? 'Send stay request' : 'Send viewing request'}
+                  </Text>
+                </Pressable>
+              )}
+            </Section>
 
             <Section title="About this place">
               <Text style={styles.bodyText}>
@@ -338,6 +611,43 @@ export default function ListingScreen() {
   );
 }
 
+function getStayQuote(
+  checkIn: string,
+  checkOut: string,
+  nightlyPrice: number | null | undefined,
+  cleaningFee: number | null | undefined,
+  minimumNights: number | null | undefined,
+): { nights: number; cleaningFee: number; total: number } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)
+    || nightlyPrice === null || nightlyPrice === undefined || !Number.isFinite(nightlyPrice) || nightlyPrice <= 0) {
+    return null;
+  }
+  const start = new Date(`${checkIn}T00:00:00Z`);
+  const end = new Date(`${checkOut}T00:00:00Z`);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())
+    || start.toISOString().slice(0, 10) !== checkIn || end.toISOString().slice(0, 10) !== checkOut
+    || checkIn < new Date().toISOString().slice(0, 10)) return null;
+  const nights = (end.getTime() - start.getTime()) / 86_400_000;
+  const fee = cleaningFee ?? 0;
+  if (!Number.isInteger(nights) || nights < Math.max(1, minimumNights ?? 1)
+    || !Number.isFinite(fee) || fee < 0) return null;
+  return { nights, cleaningFee: fee, total: nightlyPrice * nights + fee };
+}
+
+function createLocalAppointmentIso(dateValue: string, timeValue: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue) || !/^\d{2}:\d{2}$/.test(timeValue)) {
+    throw new Error('Choose a valid viewing date and time.');
+  }
+  const [year, month, day] = dateValue.split('-').map(Number);
+  const [hour, minute] = timeValue.split(':').map(Number);
+  const date = new Date(year, month - 1, day, hour, minute);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day
+    || date.getHours() !== hour || date.getMinutes() !== minute || date <= new Date()) {
+    throw new Error('Viewing requests must be scheduled for a future local date and time.');
+  }
+  return date.toISOString();
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
@@ -418,6 +728,117 @@ const styles = StyleSheet.create({
     color: '#173222',
     fontWeight: '700',
   },
+  bookingModeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  bookingModeButton: {
+    minHeight: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: '#cbd9ce',
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+  },
+  bookingModeSelected: {
+    borderColor: '#087f5b',
+    backgroundColor: '#e5f2eb',
+  },
+  bookingModeText: {
+    color: '#345044',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  bookingModeSelectedText: {
+    color: '#075d43',
+  },
+  bookingFieldRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  bookingField: {
+    flex: 1,
+    minWidth: 0,
+    marginTop: 12,
+  },
+  bookingLabel: {
+    marginBottom: 6,
+    color: '#345044',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bookingInput: {
+    minHeight: 46,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#cbd9ce',
+    borderRadius: 9,
+    color: '#173222',
+    backgroundColor: '#ffffff',
+    fontSize: 15,
+  },
+  quoteCard: {
+    gap: 5,
+    marginTop: 12,
+    padding: 13,
+    borderRadius: 10,
+    backgroundColor: '#eef5ef',
+  },
+  quoteText: {
+    color: '#53665b',
+    fontSize: 13,
+  },
+  quoteTotal: {
+    marginTop: 3,
+    color: '#173222',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  bookingHint: {
+    marginTop: 10,
+    color: '#8a4c13',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  bookingError: {
+    marginTop: 10,
+    color: '#9b2727',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  bookingSuccess: {
+    gap: 5,
+    marginTop: 14,
+    padding: 13,
+    borderRadius: 10,
+    backgroundColor: '#e5f2eb',
+  },
+  bookingSuccessTitle: {
+    color: '#075d43',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  submitBookingButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: '#087f5b',
+  },
+  disabledBookingButton: {
+    opacity: 0.5,
+  },
+  submitBookingText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   heroImage: {
     width: '100%',
     height: 300,
@@ -494,6 +915,22 @@ const styles = StyleSheet.create({
     color: '#173222',
     fontSize: 20,
     fontWeight: '800',
+  },
+  savePropertyButton: {
+    minHeight: 44,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    marginTop: 13,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: '#b8d7c2',
+    borderRadius: 11,
+    backgroundColor: '#f4faf6',
+  },
+  savePropertyText: {
+    color: '#176b48',
+    fontSize: 14,
+    fontWeight: '700',
   },
   factsCard: {
     flexDirection: 'row',

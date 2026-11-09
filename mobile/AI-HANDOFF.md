@@ -2,6 +2,247 @@
 
 Read this file after `MOBILE-APP-ROADMAP.md` and `mobile/docs/feature-parity.md` whenever work resumes. The newest checkpoint is at the top. Check actual files and `git status` before relying on this note.
 
+## Checkpoint: Mobile messaging, notifications, and safety
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; product changes are being prepared for the requested checkpoint commit. Preserve the separate VS Code workspace settings.
+
+Goal:
+Extend the mobile app using existing Makazi Go web/API behavior, keeping private messages separate from system notifications and retaining server-side authorization and safety rules.
+
+Completed:
+- Added runtime-validated mobile API methods for conversation listing/history, unread counts, message sends, system notifications, notification read state, user block state, block/unblock, and user reports in `mobile/constants/marketplaceApi.ts`.
+- Added `mobile/app/messages.tsx`, `mobile/app/conversation.tsx`, and `mobile/app/compose-message.tsx`. The inbox refreshes when focused; threads page the API's 30-day history, show delivery-uncertainty guidance instead of blindly retrying sends, and expose confirmed block/unblock/report actions.
+- Added `mobile/app/notifications.tsx`, separate from messages, with server read-state updates and supported booking/listing-review links. `mobile/app/bookings.tsx` now expands a booking when reached with a validated `bookingId` parameter. Agent profiles provide a compose-message route, and Account links to inbox and notifications.
+- Added authenticated `GET /api/users/:id/block` so the mobile client can retrieve the current user's own block state. Existing POST/DELETE routes continue to perform state changes, and reporting uses the existing `/api/reports` handler.
+- Configured Expo Image Picker with clear photo-library permission copy and explicitly disabled unused camera/microphone permissions; added a regression check.
+- Updated the feature-parity ledger, Phase 6 roadmap, mobile README, and changelog.
+
+Verification:
+- `npm test` — 96 passed, 0 failed.
+- Corrected booking-detail SQL bindings after staged-diff review; the guest ID now matches the address-privacy placeholder and the booking/participant IDs remain in their corresponding query positions.
+- After that correction, `node --check server/index.js` and `git diff --check` passed.
+- `npm run typecheck --prefix mobile` — passed.
+- `npx expo export --platform web --output-dir .expo\release-readiness-check` — passed; output included compose-message, conversation, messages, notifications, and tenant-profile routes. The named temporary export was removed.
+- `npm run build`, `node --check server/index.js`, `git diff --check`, and `npx expo config --type public --json` — passed.
+- `npm audit --omit=dev --prefix mobile` reports 5 moderate advisories in Expo CLI transitive `glob`/`minimatch` packages. The suggested forced fix would downgrade Expo to a breaking SDK; no automated downgrade was applied.
+- No authenticated staging, supported-device, signed EAS, or app-store tests were possible.
+
+Parity status and blockers:
+- The 42-row workflow matrix currently contains 22 In progress, 19 Not started, 1 Blocked, and 0 Verified rows. Full feature parity and production readiness are not established.
+- Messaging/notifications and member block/report controls are implemented against the inspected API; actual cookie/session behavior, role permissions, cross-client persistence, duplicate-send edge cases, and device behavior still need staging verification.
+- Remaining major work includes agent listing/profile and sub-agent workflows, most admin functions, public discovery/profile actions, active-role selection, Google sign-in, MFA/email verification, push notifications, and broader trust/safety. Keep these visible in the matrix; do not mark the app store-ready.
+- Release also requires clearing/reviewing dependency advisories, confirming owner-controlled API and store identifiers, terms/privacy/support URLs and declarations, secure native cookie persistence, signed device builds, and authenticated test accounts.
+
+Next action:
+Continue with the highest-impact missing parity slice from `mobile/docs/feature-parity.md` (agent listing create/edit and media/document handling), using the existing server wizard contract and keeping status In progress until staging/device evidence exists.
+
+Secrets:
+No secrets, passwords, production tokens, signing keys, or private documents recorded.
+
+## Checkpoint: Tenant profile editing and photo upload
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. The worktree also contains unrelated prior web/mobile work; preserve it.
+
+Goal:
+Continue tenant parity against the existing Express profile contract. Use the existing shared profile record and uploaded media; do not create mobile-only profile state.
+
+Completed:
+- Added validated `getTenantProfile`, `updateTenantProfile`, and `uploadTenantProfilePhoto` API methods in `mobile/constants/marketplaceApi.ts`.
+- Added `mobile/app/tenant-profile.tsx`: tenant-only profile read/edit for first and last name, phone, city, and bio; permission-aware square photo selection and upload; upload size/type checks; visible fallback initials; separate profile/photo errors; followed-agent profile navigation; and shortcuts to saved properties and bookings.
+- Added the tenant Account navigation entry. Successful profile and photo writes refresh the shared auth session so updated name/avatar are reflected elsewhere.
+- Kept profile photo upload on the server's 20 MB limit and aligned profile validation to existing name/city/bio and phone rules. The image is sent as multipart `profilePic` using Expo File System's `File` Blob implementation.
+- Updated the AUTH-03 and TEN-01 parity rows, API inventory statuses, Phase 2/4 roadmap notes, and unreleased changelog.
+- Added `expo-image-picker` and `expo-file-system` dependencies for native image selection and Blob-compatible uploads. The package install reported five moderate dependency vulnerabilities; no automated audit fix was run.
+
+Verification:
+- `npm test` — 95 passed, 0 failed.
+- `npm run typecheck --prefix mobile` — passed after regenerating the ignored `.expo/types/router.d.ts` through Expo CLI's typed-route helper.
+- `npx expo export --platform web --output-dir .expo\tenant-profile-check` — passed and included the `tenant-profile` route.
+- `npm run build`, `node --check server/index.js`, and `git diff --check` — passed.
+- Removed temporary Expo export directories after verification.
+- No authenticated tenant upload or native-device journey was run; photo picker permissions and multipart processing still require Android/iOS staging validation.
+
+Outstanding:
+- The mobile client implements tenant profile editing only; professional/agent profile editing remains open.
+- MFA setup/reset, email verification, session persistence/revocation, Google OAuth, and the broader tenant/agent/sub-agent/admin parity backlog remain incomplete.
+- Verify profile/photo changes in an authenticated isolated staging environment and on supported devices before marking parity verified.
+- Full mobile parity and production readiness remain open. No commit/push was made.
+
+## Checkpoint: Mobile account security settings
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. Preserve all prior dirty and untracked work.
+
+Goal:
+Continue the full app parity effort with account/security workflows already supported by the server; do not imply that a deletion request immediately removes an account.
+
+Completed:
+- Added validated API contracts for reading/updating tenant notification preferences, changing passwords, and sending a password-confirmed account-deletion request.
+- Added `mobile/app/account-settings.tsx`, linked from Account. It presents tenant preference switches, current/new/confirmation password fields with the server's 12-character minimum, and an optional deletion reason with an explicit confirmation step.
+- Successful deletion requests explain that the request is reviewed, then refresh auth state and return to Account after server-side session destruction.
+- Updated AUTH-03/TEN-01, API status inventory, Phase 2 checklist, and changelog.
+
+Verification:
+- `npm test` — 95 passed, 0 failed.
+- Mobile TypeScript check passed after generating the ignored Expo typed-route declarations.
+- Expo web export passed and includes the `account-settings` route.
+- Production Vite build, `node --check server/index.js`, and `git diff --check` passed.
+- No authenticated tenant/agent device test was run.
+
+Outstanding:
+- Profile editing/photo upload, MFA enrollment/reset, session persistence/revocation, Google OAuth, and verified email flows are still missing or unverified.
+- Account deletion remains a review request per the current API; it is not immediate self-service deletion.
+- Tenant notification preference persistence is implemented, but actual notification delivery is not evidenced for all preference types.
+- Continue all remaining tenant, agent, sub-agent, admin, trust/safety, messaging, and release parity work; the full app remains incomplete.
+
+## Checkpoint: Tenant search-alert management
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. Preserve all prior dirty and untracked work.
+
+Goal:
+Continue the full mobile parity work beyond the previously implemented saved-property screen; use the existing search-alert API and reconcile its existing role and delivery gaps instead of inventing a second persistence path.
+
+Completed:
+- Added runtime-validated mobile `SearchAlert`, `getSearchAlerts`, and `deleteSearchAlert` contracts. Saved filter data accepts the JSON object/string shapes that the existing API/database may return; removal uses the API's 204 response.
+- Hardened the mobile `createSearchAlert` helper to reject blank/overlong names, empty criteria, invalid response IDs, and to retain a selected currency when price criteria are saved.
+- Added `mobile/app/search-alerts.tsx` with tenant session gating, loading/error/empty states, pull-to-refresh, filter summaries, active/paused state, and confirmed removal.
+- Added a tenant Account entry and a tenant sign-in prompt on Explore's existing Save this search action.
+- Updated the parity ledger, Phase 4 roadmap checklist, and unreleased changelog.
+
+Verification:
+- `npm test` — 95 passed, 0 failed.
+- Mobile TypeScript check passed after generating the ignored Expo typed-route declarations.
+- Expo web export passed and includes the `search-alerts` route.
+- Production Vite build, `node --check server/index.js`, and `git diff --check` passed.
+- No authenticated tenant/API or device journey was run.
+
+Outstanding:
+- `POST /api/search-alerts` permits any authenticated role, while list/delete are tenant-only; the mobile flow gates creation to tenants, but web policy needs reconciliation.
+- Repository search found no worker that sends alerts despite `frequency`, `last_sent_at`, and saved-search notification preferences. Delivery, scheduling, and preference integration are still missing/unverified; TEN-03 remains `In progress`.
+- Continue the broader tenant/agent/sub-agent/admin parity backlog. The full app is not yet production-ready.
+
+## Checkpoint: Tenant saved properties
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. Preserve all prior dirty and untracked work.
+
+Goal:
+Continue tenant parity with persisted saved properties using the existing Express routes; do not introduce separate mobile-only storage or broaden unrelated scope.
+
+Completed:
+- Added runtime-validated `SavedListing`, `getSavedListings`, and `setListingSaved` methods in `mobile/constants/marketplaceApi.ts`; saves use the existing CSRF-protected POST and unsaves use the existing 204 DELETE contract.
+- Extended `GET /api/account/saved-listings` with transaction type, price, listing status, rating, and cover media fields for a useful mobile list.
+- Added `mobile/app/saved.tsx` with tenant-session gating, loading/error/empty states, pull-to-refresh, removal, property summaries, and navigation only when the listing is published. Unavailable saved properties remain removable.
+- Added a tenant Account entry, save/unsave controls on Explore cards and property details, tenant-only prompts for guests/non-tenants, and a refetch of card saved state after account changes.
+- Updated TEN-01, TEN-02, PUB-03, the handler audit, and the unreleased changelog.
+
+Verification:
+- `npm test` — 95 passed, 0 failed.
+- `npm run typecheck --prefix mobile` — passed after regenerating the ignored Expo typed-route declarations for `/saved`.
+- `npx expo export --platform web --output-dir .expo\saved-properties-check` — passed and included the `saved` route.
+- `npm run build`, `node --check server/index.js`, and `git diff --check` — passed.
+- No authenticated staging or native-device save/unsave journey was available; cross-device persistence is not marked verified.
+
+Next:
+- Reconcile the existing save/unsave role-policy mismatch: write routes allow any authenticated user, whereas the saved-list GET is tenant-only and mobile gates mutations to tenants.
+- Continue tenant parity incrementally (search alerts require resolving the existing web/API create-contract mismatch first). Keep the full app marked incomplete until staging/device and roadmap verification are complete.
+
+## Checkpoint: Mobile release configuration gates
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. The worktree also contains existing web reliability and mobile booking changes; preserve all of them.
+
+Goal:
+Make local, preview, and production Expo configuration explicit and prevent an incorrectly identified or insecure API target from being built as production.
+
+Completed:
+- Added `mobile/app.config.js` with development/preview/production variants, isolated development identifiers, and release validation. Preview/production require an HTTPS API origin; production additionally requires `IOS_BUNDLE_IDENTIFIER` and `ANDROID_PACKAGE`.
+- Connected mobile API requests to the validated `extra.apiOrigin`, retaining the existing environment fallback for unconfigured development.
+- Added `mobile/eas.json` profiles for internal development/preview builds and production builds with remote app-version increments.
+- Documented EAS environment setup and owner-dependent prerequisites in `mobile/README.md`. No guessed production API hostname, store identifier, credential, or signing key was added.
+- Added `tests/mobile-app-config.test.js` for valid development/production profiles and rejected release configuration.
+
+Verification:
+- `npm test` — 95 passed, 0 failed.
+- `npm run typecheck --prefix mobile` — passed.
+- Expo CLI config validation — development and example production settings passed; HTTP production API was rejected.
+- `npx expo export --platform web --output-dir .expo\release-config-final` — passed; temporary export removed.
+- `npm run build`, `node --check mobile/app.config.js`, EAS JSON parsing, and `git diff --check` — passed.
+- EAS signed builds were not run; this repository has no linked EAS owner/project or owner-approved production identifiers.
+
+Parity/release status:
+- The mobile parity matrix has 42 workflow rows: 0 `Verified`, 17 `In progress`, 24 `Not started`, and 1 `Blocked`. It is not production-ready.
+- Remaining external release prerequisites: confirm production API origin, Apple/Android identifiers and account ownership, EAS/signing setup, privacy/terms/support URLs, and provide authenticated staging accounts plus supported iOS/Android devices.
+- Native cookie persistence/authentication, cross-client database behavior, and store policy/privacy declarations still need evidence.
+
+Next action:
+- Resume Phase 2 authentication readiness by validating session-cookie persistence and logout/session revocation on a supported iOS/Android build, then implement the secure cookie/session mechanism the tests demonstrate is needed.
+
+Secrets:
+No secrets, passwords, production tokens, signing keys, or private documents recorded.
+
+## Checkpoint: Tenant booking history and lifecycle
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch: `main`; task changes are uncommitted. Preserve the existing dirty worktree and untracked files.
+
+Completed:
+- Added runtime-validated mobile API methods and models for tenant booking history, participant booking details, cancellation, and rescheduling.
+- Added `mobile/app/bookings.tsx` and a tenant Account entry point. The screen supports pull-to-refresh, request/status/price display, booking details, explicit cancellation confirmation, and stay-date edits.
+- Hardened `GET /api/bookings/:id` so the guest does not receive the exact listing address before confirmation/completion; authorized hosts retain participant detail access.
+- Reworked tenant stay rescheduling as a transaction. It rejects invalid/past dates and non-reschedulable requests, locks the booking/listing, rechecks listing capacity/minimum nights and conflicting stays, recalculates nights/rate/subtotal/cleaning fee/total, replaces date locks, and returns the request to pending agent confirmation.
+- Exposed payment state in booking history/details and prevented cancellation or rescheduling of paid/authorized bookings through the mobile lifecycle; these require support because refund/payment reconciliation is not part of this flow.
+- Added `calculateStayBooking` and focused rule tests for capacity, minimum nights, and quote recalculation.
+- Updated `mobile/docs/feature-parity.md`, `MOBILE-APP-ROADMAP.md`, and `CHANGELOG.md`.
+
+Verification:
+- `npm test` — 91 passed, 0 failed.
+- `npm run typecheck --prefix mobile` — passed after the Expo dev server regenerated ignored typed-route declarations.
+- `npm run build` — passed.
+- Expo web export — passed and included the bookings route.
+- `node --check server/index.js`, `node --check server/rules.js`, and `git diff --check` — passed.
+- Live authenticated database behavior and native iOS/Android device journeys remain unverified; no schema changes were made.
+
+Next:
+- Verify booking creation/history/cancellation/rescheduling with an authenticated tenant and isolated staging database, then exercise on supported devices.
+- Continue tenant parity with saved homes, search alerts, profile/security, and other remaining workflows. Do not mark TEN-01/TEN-07 fully verified or the app production-complete yet.
+- Existing booking history GET marks past confirmed stays completed; use the existing completed-stay review flow for review eligibility.
+
+## Checkpoint: Native booking and viewing requests
+Updated: 2026-11-09
+Repository: StayNest (workspace `C:\Users\USER\Desktop\new project`)
+Branch/commit: `main` at `4be50ab` when this work began; not committed
+Worktree before/after: Started with existing modifications to the QA fixes and a pre-existing untracked `MOBILE-APP-ROADMAP.md`. Preserved them. Added changes in `mobile/app/listing.tsx`, `mobile/constants/marketplaceApi.ts`, `server/index.js`, `server/rules.js`, `tests/rules.test.js`, `CHANGELOG.md`, `DEVELOPMENT_ROADMAP.md`, and this parity record.
+
+Goal:
+Implement a bounded mobile booking parity slice using the existing request-based Express API; do not imply payment or instant confirmation.
+
+Completed:
+- Added stay and viewing request forms to `mobile/app/listing.tsx`, with role gating, date/guest inputs, an estimate derived from server-returned listing prices and fees, duplicate-tap protection, retry-stable idempotency keys, and a booking receipt.
+- Extended `GET /api/listings/:id/details` with cleaning-fee and minimum-night terms; added runtime-validated `createBookingRequest` API handling for CSRF, idempotency, and receipt fields in `mobile/constants/marketplaceApi.ts`.
+- Added server-side stay validation for future check-in dates and per-listing guest capacity in `server/index.js` and `server/rules.js`; covered capacity limits in `tests/rules.test.js`. Viewing requests remain available for non-stay listing inquiries.
+- Updated PUB-03 and TEN-07 and recorded the remaining gaps in `mobile/docs/feature-parity.md`.
+
+Verification:
+- `npm test` — 90 passed, 0 failed.
+- `npm run typecheck --prefix mobile` — passed.
+- `npm run build` — passed.
+- `node --check server/index.js` and `node --check server/rules.js` — passed.
+- Booking was not exercised against a live authenticated database or native device; no staging accounts/database were available.
+
+Parity status:
+- PUB-03 and TEN-07 remain `In progress`; booking history/detail/cancel/reschedule, native device testing, and shared-backend authenticated verification remain.
+- Full product/mobile release parity remains open; see incomplete rows in `mobile/docs/feature-parity.md`.
+
+Next:
+- Complete tenant booking history/detail/cancel/reschedule using current API contracts, then add focused mobile API/state tests.
+- Continue the prioritized parity matrix, keeping all admin, messaging, upload, agent and sub-agent workflows in scope.
+- Use `DATABASE_OPERATIONS.md` before applying schema changes; this slice made no schema changes.
+- Preserve the existing uncommitted reliability/QA work and pre-existing untracked roadmap; do not commit unrelated changes.
+
 ## Checkpoint: Mobile marketplace header layout
 Updated: 2026-11-07
 Scope: responsive public marketplace header in `styles.css`.

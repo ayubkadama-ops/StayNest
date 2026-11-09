@@ -1,6 +1,10 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { installImageFallbacks } from './image-fallback.js';
+import { bedroomSummary } from './listing-presentation.js';
 import { listingCanonicalPath } from './public-listing-url.js';
+
+installImageFallbacks();
 
 const page = document.querySelector('#listingDetailPage');
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
@@ -64,7 +68,7 @@ function toast(message) {
 function mediaMarkup(media, title) {
   return media.map((item, index) => item.mediaType === 'video'
     ? `<video class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(mediaUrl(item.mediaUrl))}" controls playsinline preload="metadata"></video>`
-    : `<img class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(mediaUrl(item.mediaUrl))}" alt="${escapeHtml(item.caption || title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'">`).join('');
+    : `<img class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(mediaUrl(item.mediaUrl))}" data-image-fallback="/assets/ezgif-frame-018.jpg" alt="${escapeHtml(item.caption || title)}" loading="lazy">`).join('');
 }
 function readComparedListings() {
   try {
@@ -153,7 +157,7 @@ export function markup(result) {
     : '';
   const agentName = `${listing.firstName || ''} ${listing.lastName || ''}`.trim() || listing.agencyName || 'Makazi Go agent';
   const enquiryOnly = !['stay', 'both'].includes(listing.transactionType);
-  const propertyFacts = enquiryOnly ? '<span>Contact agent for terms</span>' : `<span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span>`;
+  const propertyFacts = enquiryOnly ? '<span>Contact agent for terms</span>' : `<span>${escapeHtml(bedroomSummary(listing))}</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span>`;
   const categoryFacts = listing.propertyType === 'land'
     ? `<span>${listing.plotSize ? `${escapeHtml(listing.plotSize)} ${escapeHtml(listing.plotSizeUnit || '')}` : 'Plot size not provided'}</span><span>${escapeHtml(listing.landUse || 'Land use not provided')}</span><span>Advertiser reports ${escapeHtml((listing.titleStatus || 'unknown').replaceAll('_', ' '))} title status</span>`
     : listing.propertyType === 'commercial'

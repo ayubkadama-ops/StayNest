@@ -1,10 +1,13 @@
 import { installLiveFormValidation } from './form-validation.js';
+import { installImageFallbacks } from './image-fallback.js';
 import { addToComparison, markup as sharedDetailMarkup, wire as wireListingDetail } from './listing-detail-page.js';
 import { listingCanonicalPath } from './public-listing-url.js';
+import { bedroomSummary } from './listing-presentation.js';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 installLiveFormValidation();
+installImageFallbacks();
 
 const grid = document.querySelector('#allListingsGrid');
 const detail = document.querySelector('#listingDetailPage');
@@ -119,11 +122,11 @@ function renderDiscoveryMap(listings) {
 function cardMarkup(listing) {
   const cover = imageUrl(listing.coverUrl);
   const enquiryOnly = !['stay', 'both'].includes(listing.transactionType);
-  const facts = enquiryOnly ? 'Contact agent for area and terms' : `${listing.bedrooms || 0} bedrooms · Up to ${listing.maxGuests || 0} guests`;
+  const facts = enquiryOnly ? 'Contact agent for area and terms' : `${bedroomSummary(listing)} · Up to ${listing.maxGuests || 0} guests`;
   const agentName = [listing.agentFirstName, listing.agentLastName].filter(Boolean).join(' ') || listing.agencyName || 'Makazi Go agent';
   const agent = listing.agentId ? `<a class="all-listing-agent" href="/index.html?view=agent&agent=${encodeURIComponent(listing.agentId)}" data-agent-link>${escapeHtml(agentName)}</a>` : `<span class="all-listing-agent">${escapeHtml(agentName)}</span>`;
   return `<article class="all-listing-card" data-listing-id="${escapeHtml(listing.id)}">
-    <button class="all-listing-cover" type="button" aria-label="Open ${escapeHtml(listing.title)}"><img src="${escapeHtml(cover)}" alt="${escapeHtml(listing.title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'"><span class="cover-label">View property</span></button>
+    <button class="all-listing-cover" type="button" aria-label="Open ${escapeHtml(listing.title)}"><img src="${escapeHtml(cover)}" data-image-fallback="/assets/ezgif-frame-018.jpg" alt="${escapeHtml(listing.title)}" loading="lazy"><span class="cover-label">View property</span></button>
     <button class="all-listing-save ${listing.saved ? 'saved' : ''}" type="button" data-save-listing="${escapeHtml(listing.id)}" aria-label="${listing.saved ? 'Remove' : 'Save'} ${escapeHtml(listing.title)}" aria-pressed="${Boolean(listing.saved)}">${listing.saved ? '♥' : '♡'}</button>
     <div class="all-listing-actions"><button type="button" data-share-listing="${escapeHtml(listing.id)}">Share</button><button type="button" data-compare-listing="${escapeHtml(listing.id)}">Compare</button></div>
     <div class="all-listing-copy"><div><h2>${escapeHtml(listing.title)}</h2><p>${escapeHtml([listing.neighborhood, listing.city].filter(Boolean).join(', '))}</p></div><strong>${escapeHtml(money(listing))}</strong><p class="all-listing-meta">${escapeHtml(listing.propertyType || 'Property')} · ${facts}</p>${listing.propertyVerificationStatus === 'verified' ? '<p class="all-listing-verification">Makazi Go property checks complete</p>' : ''}<p class="all-listing-rating">${Number(listing.rating) > 0 ? `★ ${Number(listing.rating).toFixed(1)} (${Number(listing.reviewCount) || 0} reviews)` : 'No guest reviews yet'}</p><p class="all-listing-agent-row">Posted by ${agent}</p></div>
@@ -228,7 +231,7 @@ mapToggle.addEventListener('click', () => {
 function detailMediaMarkup(media, title) {
   return media.map((item, index) => item.mediaType === 'video'
     ? `<video class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(imageUrl(item.mediaUrl))}" controls playsinline preload="metadata"></video>`
-    : `<img class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(imageUrl(item.mediaUrl))}" alt="${escapeHtml(item.caption || title)}" loading="lazy" onerror="this.onerror=null;this.src='/assets/ezgif-frame-018.jpg'">`).join('');
+    : `<img class="listing-page-media ${index === 0 ? 'listing-page-cover-media' : ''}" src="${escapeHtml(imageUrl(item.mediaUrl))}" alt="${escapeHtml(item.caption || title)}" loading="lazy" data-image-fallback="/assets/ezgif-frame-018.jpg">`).join('');
 }
 function detailMarkup(result) {
   const listing = result.listing;
@@ -244,7 +247,7 @@ function detailMarkup(result) {
     <div class="listing-page-gallery">${detailMediaMarkup(media, listing.title)}</div>
     <div class="listing-page-layout">
       <article class="listing-page-main"><p class="eyebrow">${escapeHtml(listing.propertyType || 'Makazi Go home')} · ${escapeHtml(listing.transactionType || 'stay')} · ${listing.verifiedAgent ? 'Verified agent' : 'Makazi Go agent'}</p><h1>${escapeHtml(listing.title)}</h1><p class="listing-page-location">${escapeHtml([listing.neighborhood, listing.city, listing.region].filter(Boolean).join(', '))}</p><div class="listing-page-facts"><span>${listing.bedrooms || 0} bedrooms</span><span>${listing.bathrooms || 0} bathrooms</span><span>Up to ${listing.maxGuests || 0} guests</span><span>${escapeHtml(listing.rentalMode || 'Flexible stay')}</span></div>${categoryFacts}<p class="listing-page-description">${escapeHtml(listing.description || 'A carefully presented Makazi Go home in Tanzania.')}</p>${amenities.length ? `<h2>Amenities</h2><div class="listing-page-amenities">${amenities.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}<h2>About this location</h2><p class="listing-page-description">The exact address remains private until booking. Use the map and contact the responsible agent for more information about the area.</p></article>
-      <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(imageUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" onerror="this.onerror=null;this.src='/assets/staynest-mark.svg'"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">Request to book <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
+      <aside class="listing-page-aside"><div class="listing-page-price"><strong>${escapeHtml(money(listing))}</strong><span>${listing.rating ? `★ ${Number(listing.rating).toFixed(1)} (${listing.reviewCount || 0} reviews)` : 'New listing'}</span></div><div class="listing-page-agent"><img src="${escapeHtml(imageUrl(listing.profileImageUrl))}" alt="${escapeHtml(agentName)}" data-image-fallback="/assets/staynest-mark.svg"><div><strong>${escapeHtml(agentName)} ${listing.verifiedAgent ? '✓' : ''}</strong><small>${escapeHtml(listing.agencyName || 'Responsible Makazi Go agent')}</small></div><button type="button" class="outline-btn" id="viewAgent" data-agent-id="${escapeHtml(listing.agentId || '')}">View agent</button></div><button type="button" class="primary listing-page-book" id="requestBooking">Request to book <span>→</span></button><div class="listing-page-actions"><button type="button" class="outline-btn" id="saveListing">${listing.saved ? 'Saved' : 'Save'}</button><button type="button" class="outline-btn" id="shareListing">Share</button><button type="button" class="outline-btn" id="compareListing">Compare</button><button type="button" class="outline-btn" id="messageAgent">Message agent</button><button type="button" class="outline-btn" id="reportListing">Report listing</button></div></aside>
     </div>`;
 }
 async function getCsrf() { return (await api('/api/auth/csrf')).token; }

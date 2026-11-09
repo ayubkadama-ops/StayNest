@@ -5,6 +5,61 @@ commit history or release notes.
 
 ## Unreleased
 
+### Marketplace reliability and listing quality
+
+- Replaced inline image error handlers with a CSP-compatible fallback listener,
+  so unavailable listing media and avatars receive safe fallbacks without
+  relying on blocked `script-src-attr` execution.
+- Removed the duplicate homepage header markup and its cleanup workarounds.
+- Moved share and compare controls below listing images on narrow screens so
+  their overlays no longer intercept taps intended to open a property.
+- Added shared validation for bedroom, bed, bathroom, and guest-capacity values
+  so malformed listing submissions return a clear client error instead of
+  being silently coerced into plausible values. Apartment listings with zero
+  bedrooms are presented as studios.
+- Added native property-detail booking and viewing requests using the shared
+  Express API, including quote information, tenant-only submission, CSRF,
+  idempotent retry keys, request receipts, and server-side guest-capacity
+  validation.
+- Added tenant booking history and detail views with confirmed cancellation
+  and stay rescheduling. Rescheduling now recalculates the total, revalidates
+  listing terms and date conflicts, and refreshes booking date locks in one
+  transaction. Payment-attached bookings are routed to support rather than
+  silently changed or cancelled without refund handling. Exact addresses
+  remain hidden from guests until confirmation.
+- Added a tenant saved-properties screen with refresh, removal, listing
+  availability and pricing details, plus save/unsave actions on marketplace
+  cards and listing details. Actions use the shared authenticated API and
+  guest/non-tenant users are prompted to sign in as a tenant.
+- Added tenant saved-search management with criteria summaries, refresh, and
+  confirmed deletion; Explore search creation now validates the server receipt
+  and preserves selected-currency criteria. Search-alert delivery is not yet
+  implemented or verified.
+- Added mobile account settings for password changes, tenant notification
+  preferences, and password-confirmed account-deletion requests using the
+  existing shared endpoints.
+- Added tenant profile editing for names, phone, city, and bio; profile photos
+  can be selected, cropped, and uploaded to the existing shared profile
+  endpoint. The profile also links followed agents, saved properties, and
+  bookings.
+- Added mobile secure messaging with an inbox, unread counts, paged 30-day
+  conversation history, agent-profile message starts, and protected sends.
+  Conversation controls support user block/unblock and reporting. Added a
+  separate system-notification center with mark-read behavior and supported
+  booking/listing-review links; push notifications remain unimplemented.
+- Corrected booking-detail SQL parameter ordering so participant access works
+  while the exact-address privacy check remains bound to the signed-in guest.
+- Added isolated mobile development/preview/production variants and EAS build
+  profiles. Preview/production require an HTTPS API origin, and production
+  requires store-owner-supplied native identifiers rather than guessed IDs.
+- Verification: 95 Node tests, mobile TypeScript check and Expo web export,
+  production Vite build,
+  and a local browser interaction check passed. The 105-test Django suite and
+  Django system checks passed in the preceding QA run; they were not affected
+  by this mobile/API change. Authenticated staging journeys and native-device
+  testing remain unverified. No arbitrary maximum price was introduced;
+  outlier prices need a documented business rule and review of production data.
+
 ### Stages 16–17 — SEO and quality assurance
 
 - Added readable listing URLs using normalized title slugs and stable IDs.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Pressable,
@@ -23,6 +24,8 @@ import {
   type DiscoveryFilters,
   type DiscoveryResult,
   type ListingSummary,
+  type SessionUser,
+  setListingSaved,
 } from '@/constants/marketplaceApi';
 
 const propertyCategories = [
@@ -124,7 +127,7 @@ export default function ExploreScreen() {
     return () => {
       active = false;
     };
-  }, [filters, refreshKey]);
+  }, [filters, refreshKey, user?.id]);
 
   const scrollToResults = () => {
     listRef.current?.scrollToOffset({ offset: resultsOffset.current, animated: true });
@@ -170,6 +173,18 @@ export default function ExploreScreen() {
     setRefreshKey((key) => key + 1);
   };
   const saveCurrentSearch = async () => {
+    if (!user?.roles.includes('tenant')) {
+      Alert.alert(
+        'Sign in to save searches',
+        'A tenant account is required to manage search alerts.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => router.push('/(tabs)/account') },
+        ],
+      );
+      return;
+    }
+
     const activeFilters = Object.entries(filters).filter(([key, value]) => (
       !['sort', 'currency'].includes(key)
       && (Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim().length > 0)
@@ -230,6 +245,11 @@ export default function ExploreScreen() {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
+  };
+  const updateSavedState = (listingId: number, saved: boolean) => {
+    setListings((current) => current.map((listing) => (
+      listing.id === listingId ? { ...listing, saved } : listing
+    )));
   };
   const selectedCategory = propertyCategories.find(
     (category) => category.value === draft.propertyType,
@@ -788,7 +808,9 @@ export default function ExploreScreen() {
             tintColor="#087f5b"
           />
         }
-        renderItem={({ item }) => <ListingCard listing={item} />}
+        renderItem={({ item }) => (
+          <ListingCard listing={item} user={user} onSavedChange={updateSavedState} />
+        )}
       />
     </SafeAreaView>
   );
@@ -893,7 +915,21 @@ function FilterChip({
   );
 }
 
-function ListingCard({ listing }: { listing: ListingSummary }) {
+function ListingCard({
+  listing,
+  user,
+  onSavedChange,
+}: {
+  listing: ListingSummary;
+  user: SessionUser | null;
+  onSavedChange: (listingId: number, saved: boolean) => void;
+}) {
+  const router = useRouter();
+  const [saved, setSaved] = useState(listing.saved === true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setSaved(listing.saved === true);
+  }, [listing.saved]);
   const imageUri = resolveMediaUrl(listing.coverUrl, 900);
   const price = listing.salePrice ?? listing.nightlyPrice ?? listing.monthlyPrice ?? listing.yearlyPrice;
   const period = listing.salePrice !== null
@@ -908,44 +944,84 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
   const propertyLabel = listing.propertyType
     ? listing.propertyType.replace(/_/g, ' ')
     : 'Property';
+  const toggleSaved = async () => {
+    if (!user?.roles.includes('tenant')) {
+      Alert.alert(
+        'Sign in to save properties',
+        'A tenant account is required to manage saved properties.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Sign in', onPress: () => router.push('/(tabs)/account') },
+        ],
+      );
+      return;
+    }
+    if (saving) return;
+    const nextSaved = !saved;
+    setSaving(true);
+    try {
+      await setListingSaved(listing.id, nextSaved);
+      setSaved(nextSaved);
+      onSavedChange(listing.id, nextSaved);
+    } catch (requestError: unknown) {
+      Alert.alert(
+        'Could not update saved properties',
+        requestError instanceof Error ? requestError.message : 'Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <Link href={{ pathname: '/listing', params: { id: String(listing.id) } }} asChild>
+    <View style={styles.card}>
+      <Link href={{ pathname: '/listing', params: { id: String(listing.id) } }} asChild>
+        <Pressable
+          accessibilityLabel={`View ${listing.title}${listing.city ? ` in ${listing.city}` : ''}`}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.cardContent, pressed && styles.cardPressed]}>
+          <View style={styles.coverWrap}>
+            {imageUri ? (
+              <Image source={{ uri: imageUri }} resizeMode="cover" style={styles.cover} />
+            ) : (
+              <View style={[styles.cover, styles.coverPlaceholder]}>
+                <Text style={styles.placeholderText}>Makazi Go</Text>
+              </View>
+            )}
+            <Text style={styles.typeLabel}>{propertyLabel}</Text>
+          </View>
+          <View style={styles.cardBody}>
+            <Text numberOfLines={1} style={styles.location}>
+              {[listing.city, listing.neighborhood].filter(Boolean).join(' · ') || 'Location not listed'}
+            </Text>
+            <Text numberOfLines={2} style={styles.cardTitle}>{listing.title}</Text>
+            <Text numberOfLines={1} style={styles.facts}>
+              {[listing.structureType, listing.bedrooms ? `${listing.bedrooms} bedrooms` : null]
+                .filter(Boolean)
+                .join(' · ') || propertyLabel}
+            </Text>
+            {listing.propertyVerificationStatus === 'verified' ? (
+              <Text style={styles.facts}>Makazi Go property checks complete</Text>
+            ) : null}
+            <Text style={styles.price}>
+              {price !== null && period
+                ? `${listing.currency || 'TZS'} ${price.toLocaleString()} / ${period}`
+                : 'Contact agent'}
+            </Text>
+          </View>
+        </Pressable>
+      </Link>
       <Pressable
-        accessibilityLabel={`View ${listing.title}${listing.city ? ` in ${listing.city}` : ''}`}
         accessibilityRole="button"
-        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
-        <View style={styles.coverWrap}>
-          {imageUri ? (
-            <Image source={{ uri: imageUri }} resizeMode="cover" style={styles.cover} />
-          ) : (
-            <View style={[styles.cover, styles.coverPlaceholder]}>
-              <Text style={styles.placeholderText}>Makazi Go</Text>
-            </View>
-          )}
-          <Text style={styles.typeLabel}>{propertyLabel}</Text>
-        </View>
-        <View style={styles.cardBody}>
-          <Text numberOfLines={1} style={styles.location}>
-            {[listing.city, listing.neighborhood].filter(Boolean).join(' · ') || 'Location not listed'}
-          </Text>
-          <Text numberOfLines={2} style={styles.cardTitle}>{listing.title}</Text>
-          <Text numberOfLines={1} style={styles.facts}>
-            {[listing.structureType, listing.bedrooms ? `${listing.bedrooms} bedrooms` : null]
-              .filter(Boolean)
-              .join(' · ') || propertyLabel}
-          </Text>
-          {listing.propertyVerificationStatus === 'verified' ? (
-            <Text style={styles.facts}>Makazi Go property checks complete</Text>
-          ) : null}
-          <Text style={styles.price}>
-            {price !== null && period
-              ? `${listing.currency || 'TZS'} ${price.toLocaleString()} / ${period}`
-              : 'Contact agent'}
-          </Text>
-        </View>
+        accessibilityState={{ selected: saved, disabled: saving }}
+        disabled={saving}
+        onPress={() => void toggleSaved()}
+        style={styles.saveButton}>
+        <Text style={styles.saveButtonText}>
+          {saving ? 'Saving…' : saved ? 'Saved' : 'Save property'}
+        </Text>
       </Pressable>
-    </Link>
+    </View>
   );
 }
 
@@ -1508,8 +1584,28 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#ffffff',
   },
+  cardContent: {
+    flex: 1,
+  },
   cardPressed: {
     opacity: 0.9,
+  },
+  saveButton: {
+    minHeight: 40,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    marginHorizontal: 15,
+    marginBottom: 14,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: '#b8d7c2',
+    borderRadius: 10,
+    backgroundColor: '#f4faf6',
+  },
+  saveButtonText: {
+    color: '#176b48',
+    fontSize: 13,
+    fontWeight: '700',
   },
   coverWrap: {
     position: 'relative',

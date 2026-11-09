@@ -57,7 +57,7 @@ provide additional but not exhaustive evidence.
 | Search and filtering | **Implemented locally; database performance verification pending** | `/api/listings/discover` uses validated, parameterized filters for location, journey/category, period-specific currency-aware prices, bedrooms/bathrooms, size, furnishing, amenities, availability, and agent verification. Search uses TiDB-compatible `LIKE` clauses rather than relying on a FULLTEXT index that is not provisioned on upgraded databases. It returns bounded deterministic pages and count metadata. Static web, Django marketplace, and mobile preserve filters and expose page navigation/load-more. Unit tests cover filter combinations and bounds; a representative TiDB/MySQL `EXPLAIN` and production-engine compatibility check remain outstanding because no database service is available locally. |
 | Booking functionality | **Present for request-based stays/viewings** | Booking requests validate dates, apply transaction/idempotency logic, and use booking date locks. Preserve this path for stay bookings while separating it from purchase/rental inquiries and future payments. |
 | Host and agent functionality | **Implemented foundation; reputation expanded in Stage 10** | Agent/property-owner profiles support bounded specializations and service areas, agency/developer applications, a role-gated verification-officer queue, and listing/request metrics. Stage 10 adds distinct completed-booking-based agent reviews, moderation, responses, and published-review aggregates. Organization verification is not legal certification; team membership and subscription management remain future work. |
-| User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view currently requests agent bookings twice, duplicating a backend call. |
+| User dashboards | **Present, uneven completeness** | Tenant and agent summaries/workspaces exist on web, and mobile implements selected account/agent actions. The Django `agent_workspace` view requests listings, summary, and agent bookings from Express once each; authenticated cross-client results still need staging verification. |
 | Administrator dashboard | **Present** | Founder/delegated admin roles, feature permissions, moderation, reports, verification decisions, audit logs, and settings are represented. Django and Express have separate admin entry/session logic; maintain one explicit permission contract and test every mutation across both. |
 | Image/video uploads | **Present, operational risks** | File signatures are checked and images are resized/encoded with Sharp; listing videos and local/S3/Cloudinary storage paths exist. Public-media fallback to local disk after object-storage failure can lose uploaded media on ephemeral deployments. New identity documents are app-encrypted in private local/S3 storage, and Founder Console review now uses a short-lived single-use token; legacy unencrypted documents remain readable and require a future re-encryption plan. |
 | Notifications | **Present, partial delivery channels** | In-app notifications and email/SMS integration points exist. Delivery configuration and mobile push behavior still require end-to-end testing; do not report delivery as successful unless the provider confirms it. |
@@ -445,10 +445,11 @@ surgical and preserve current tenant bookings and agent approval behavior.
   behavior) against isolated staging with representative data; verify the
   deployed TiDB/MySQL operations and production provider integrations. These
   checks cannot be inferred from local unit tests or a successful build.
-- **Stage status:** Local QA passed: 84 Node tests, 105 Django tests, Django
-  checks, production web build, mobile TypeScript check, and diff validation.
-  Database-backed cross-service and physical-device end-to-end verification
-  remain open.
+- **Stage status:** Latest local QA on 2026-11-09 passed: 90 Node tests, 105
+  Django tests, Django system checks, production web build, mobile TypeScript
+  check, and diff validation. This is automated coverage, not a feature-by-
+  feature acceptance sign-off. Database-backed cross-service journeys and
+  physical-device testing remain open.
 
 Stage 8/9 verification:
 
@@ -542,7 +543,7 @@ Stage 7 verification:
 
 - Stages 1–14 and 16–17 have local implementations; Stage 15 is intentionally
   deferred as a future-feature horizon, not a missing implementation stage.
-  Current local verification: 84 Node tests, 105
+  Current local verification: 90 Node tests, 105
   Django tests, Django system checks, production Vite build, mobile TypeScript
   check, and `git diff --check` pass. SEO now uses slug-plus-ID listing URLs,
   canonical redirects, qualified location guides, and a dynamic sitemap.
