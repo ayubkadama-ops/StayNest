@@ -5121,3 +5121,4 @@ body.guest-view #settingsControl {
     align-items: flex-start;
   }
 }
+.makazi-avatar-fallback{display:grid;place-items:center;flex:0 0 auto;overflow:hidden;border-radius:50%;background:#dfe9e2;color:#2d5a3d;font-size:.8rem;font-weight:800;line-height:1}

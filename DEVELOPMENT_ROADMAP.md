@@ -1,7 +1,7 @@
 # Makazi Go Development Roadmap
 
-- **Status:** Stages 1–13 implemented locally; production-engine and operational verification remain pending
-- **Audit date:** 2026-11-08
+- **Status:** Stages 1–14 implemented locally; production-engine and operational verification remain pending
+- **Audit date:** 2026-11-09
 - **Baseline revision:** `1ccb3d3` (`main`)
 **Scope:** Current repository working tree, including existing uncommitted changes
 
@@ -371,6 +371,24 @@ surgical and preserve current tenant bookings and agent approval behavior.
   intentionally disabled; schema deployment remains subject to the backup
   and isolated-staging restore gate in `DATABASE_OPERATIONS.md`.
 
+### Stage 14 follow-up — Professional workspace and moderation access
+
+- [x] Make the existing professional profile and analytics workspace directly
+  accessible from agent settings, respecting delegated sub-agent permissions.
+- [x] Mount professional API endpoints before the API not-found handler.
+- [x] Replace unsupported correlated listing/document joins and rebase stored
+  listing media URLs to the marketplace origin for Django admin previews.
+- [x] Embed the expiring, single-use identity-document preview in the protected
+  listing moderation wizard without allowing other admin pages to be framed.
+- [x] Show duplicate candidates separately from decision history so listings
+  remain reviewable when the duplicate-history table is unavailable.
+- [x] Restrict legacy AI aliases to read-only redirects and return explicit
+  errors for unsupported methods and nested paths.
+- **Stage status:** Application-level fixes only; no database schema changes.
+  Production verification and private-document end-to-end testing remain
+  pending the backup and isolated-staging restore gate in
+  `DATABASE_OPERATIONS.md`.
+
 Stage 8/9 verification:
 
 - Production `https://staynest-fb9b.onrender.com/sitemap.xml`,
@@ -461,21 +479,26 @@ Stage 7 verification:
 
 ## Current handoff for the next development session
 
-- Stages 1–13 are implemented locally. The saved master prompt reference is
-  `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Current Node and Django tests,
-  Django system checks, web build, mobile type-check, Expo web export,
-  JavaScript syntax checks, and diff checks pass locally. No database or
-  object-storage credentials were used, so TiDB DDL, query plans, S3 reads,
-  property migration, and live document review are not end-to-end verified.
-- Render's latest logs showed startup stopping at `category_details`. The
-  sequential migration repair and delegated administrator login fix are
-  pushed as `1d5b62f`; the Node readiness endpoint now reports database `ok`,
-  while the Django health endpoint and updated username/email login form both
-  return HTTP 200. Direct production login using a real administrator account
-  was not attempted because no account credentials were provided.
-- Admin review now opens identity evidence inline in a separate tab using the
-  existing audited, expiring, single-use grant. Listing moderation links to a
-  detail page with property media and structured location/category facts.
+- Stages 1–14 are implemented locally. The saved master prompt reference is
+  `MAKAZI_GO_MASTER_PROMPT_REFERENCE.txt`. Current local verification: 81 Node
+  tests, 102 Django tests, Django system checks, production Vite build,
+  JavaScript/Python syntax checks, and `git diff --check` pass. The professional
+  workspace is accessible from agent settings; API mounting order, TiDB-safe
+  moderation joins, admin media origin handling, inline document preview,
+  profile-image fallback, and strict legacy AI alias behavior have regression
+  coverage.
+- No schema changes were made for the latest admin/workspace reliability work.
+  No production database or object-storage credentials were used; TiDB query
+  plans, migration state, stored media reachability, and the secure document
+  preview remain unverified end-to-end against production.
+- Admin review embeds private identity evidence in the listing wizard through
+  an audited, expiring, single-use grant. Only that document response can be
+  framed by the same admin origin. Listing image URLs are rebased to the
+  marketplace origin because Django admin runs on a separate service.
+- The agent ecosystem API is now mounted before its API not-found handler.
+  Preserve this order when adding routes. Legacy `/ai` and `/makazi-go-ai`
+  aliases redirect only safe read requests; no AI provider or recommendation
+  service is configured.
 - The new migration runner is `server/schema-migrations.js`; its ordered list
   includes `property-categories-migration.sql` and the new
   `private-document-access-migration.sql`.
@@ -485,12 +508,12 @@ Stage 7 verification:
 - Django issues two-minute SHA-256-hashed review grants; Express consumes
   each grant once and never returns storage keys. Confirm `MARKETPLACE_URL`
   points to the Express API host in deployment.
-- Next: verify migration bootstrap, Stage 3 query plans, Stage 5/6 schema
-  changes, and private storage
-  against TiDB/S3 in a controlled environment; execute a backup/restore test
-  before production rollout. Stage 4 migration:
-  `database/property-verification-migration.sql`. Preserve unrelated worktree
-  changes.
+- Next: follow `DATABASE_OPERATIONS.md` before applying any production schema
+  changes: record an authorized provider recovery point, create a protected
+  logical backup, restore it to isolated staging, verify migrations and
+  representative records, then smoke-test admin document/media review. The
+  `EMAIL-TEMPLATES.txt` content is reference material; those messages are not
+  sent by the application yet. Preserve unrelated worktree changes.
 
 ## Working rules for future stages
 

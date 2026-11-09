@@ -29,6 +29,7 @@ import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
 import { securityHeaders } from './security-headers.js';
 import { isEmailVerificationRequired } from './email-verification-policy.js';
+import { resolveLegacyAiRoute } from './legacy-ai-route.js';
 import {
   nextPropertyVerificationCheck,
   resetPropertyLocationChecks,
@@ -3946,8 +3947,6 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
   } finally { connection.release(); }
 });
 
-app.use('/api', (_req, res) => res.status(404).json({ error: 'Makazi Go API route not found. Refresh the page and restart the application.' }));
-
 // The Django service owns the administrator console.
 const redirectToDjangoAdmin = (_req, res) => res.redirect(302, `${djangoAdminUrl}/admin/`);
 app.get('/admin/', redirectToDjangoAdmin);
@@ -3996,8 +3995,14 @@ app.use('/api', createAgentEcosystemRouter({
   agentOwnerId,
   audit
 }));
-app.get(['/ai', '/ai/', '/makazi-go-ai', '/makazi-go-ai/'], (_req, res) => {
-  res.redirect(302, '/?feature=makazi-go-ai#explore');
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Makazi Go API route not found. Refresh the page and restart the application.' }));
+app.use((req, res, next) => {
+  const route = resolveLegacyAiRoute(req.method, req.path);
+  if (!route) return next();
+  res.set('Cache-Control', 'no-store');
+  if (route.location) return res.redirect(route.status, route.location);
+  if (route.allow) res.set('Allow', route.allow);
+  return res.status(route.status).json({ error: route.error });
 });
 app.get(['/', '/index.html', '/listings.html'], async (req, res, next) => {
   try {

@@ -4,6 +4,7 @@ import hashlib
 import io
 from email.message import Message
 from decimal import Decimal
+from django.db import DatabaseError
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
@@ -28,6 +29,19 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
         self.assertIn("script-src 'self'", admin_response['Content-Security-Policy'])
         self.assertNotIn('Content-Security-Policy', public_response)
+
+    def test_only_secure_document_preview_allows_same_origin_embedding(self):
+        from console.security import ContentSecurityPolicyMiddleware
+        from django.http import HttpResponse
+
+        middleware = ContentSecurityPolicyMiddleware(lambda request: HttpResponse())
+
+        preview = middleware(RequestFactory().get('/admin/identity-documents/42/'))
+        dashboard = middleware(RequestFactory().get('/admin/'))
+
+        self.assertIn("frame-ancestors 'self'", preview['Content-Security-Policy'])
+        self.assertEqual(preview['X-Frame-Options'], 'SAMEORIGIN')
+        self.assertIn("frame-ancestors 'none'", dashboard['Content-Security-Policy'])
 
     def authenticate_admin(self):
         with patch.dict(os.environ, {'ADMIN_GATE_USERNAME': 'founder', 'ADMIN_GATE_PASSWORD_HASH': 'test-hash'}):
@@ -175,11 +189,14 @@ class AdminConsoleAccessTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    @patch('console.views.rows', return_value=[{
-        'id': 17, 'title': 'Garden flat', 'city': 'Arusha', 'status': 'pending_review',
-        'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None, 'yearly_price': None,
-        'updated_at': '2026-10-17', 'owner_user_id': 42, 'owner_name': 'Asha Mrema',
-    }])
+    @patch('console.views.rows', side_effect=[
+        [],
+        [{
+            'id': 17, 'title': 'Garden flat', 'city': 'Arusha', 'status': 'pending_review',
+            'currency': 'TZS', 'nightly_price': 70000, 'monthly_price': None, 'yearly_price': None,
+            'updated_at': '2026-10-17', 'owner_user_id': 42, 'owner_name': 'Asha Mrema',
+        }],
+    ])
     def test_listing_moderation_exposes_clickable_listing_and_owner_ids(self, rows):
         self.authenticate_admin()
 
@@ -212,6 +229,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
           'low_city': 'Arusha', 'high_city': 'Arusha', 'low_status': 'published',
           'high_status': 'pending_review', 'match_reason': 'Same normalized street address and city'}],
         [],
+        [],
     ])
     @patch('console.views.scalar', return_value=0)
     def test_listing_moderation_surfaces_duplicate_candidates_as_review_signals(self, scalar, rows):
@@ -226,8 +244,30 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, 'Confirm duplicate')
         self.assertContains(response, 'do not prove misconduct')
         self.assertIn('LIMIT 500', query)
-        self.assertIn('listing_duplicate_reviews', query)
         self.assertIn('LOWER(TRIM(a.address_line1))', query)
+        self.assertIn('listing_duplicate_reviews', rows.call_args_list[1].args[0])
+
+    @patch('console.views.rows', side_effect=[
+        [{'low_id': 3, 'high_id': 9, 'low_title': 'Garden flat', 'high_title': 'Garden flat',
+          'low_city': 'Arusha', 'high_city': 'Arusha', 'low_status': 'published',
+          'high_status': 'pending_review', 'match_reason': 'Same normalized street address and city'}],
+        DatabaseError('table unavailable'),
+        [],
+    ])
+    @patch('console.views.scalar', return_value=0)
+    def test_duplicate_queue_database_error_does_not_hide_listing_moderation(self, scalar, rows):
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/?section=listings')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Duplicate review history is unavailable')
+        self.assertContains(response, 'Candidate pairs are shown read-only')
+        self.assertContains(response, 'Garden flat')
+        self.assertContains(response, 'disabled title="Duplicate review history is unavailable"')
+        self.assertContains(response, 'Listings moderation')
+        self.assertEqual(rows.call_count, 3)
+        self.assertIn('FROM listings l', rows.call_args_list[2].args[0])
 
     @patch('console.views.audit')
     @patch('console.views.execute')
@@ -272,7 +312,6 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertIn('ORDER BY l.updated_at DESC', query)
         self.assertEqual(params, ['published', '%Arusha%', '%Arusha%', '%Arusha%', '%Arusha%'])
         self.assertEqual(rows.call_count, 2)
-        self.assertIn('listing_duplicate_reviews', rows.call_args_list[0].args[0])
         self.assertNotIn('ON iv.id=(', query)
         self.assertIn('MAX(id) latest_id', query)
 
@@ -466,14 +505,18 @@ class AdminConsoleAccessTests(SimpleTestCase):
     def test_admin_listing_detail_renders_listing_and_media(self, rows):
         self.authenticate_admin()
 
-        response = self.client.get('/admin/listings/17/')
+        with patch.dict(os.environ, {'MARKETPLACE_URL': 'https://marketplace.example'}):
+            response = self.client.get('/admin/listings/17/')
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Garden flat')
         self.assertContains(response, '/admin/users/42/')
-        self.assertContains(response, '/media/listings/17/cover.webp')
+        self.assertContains(response, 'https://marketplace.example/media/listings/17/cover.webp')
         self.assertContains(response, 'Address and area')
         self.assertContains(response, 'Property type · journey')
+        listing_query = rows.call_args_list[0].args[0]
+        self.assertNotIn('ON iv.id=(', listing_query)
+        self.assertIn('MAX(id) latest_id', listing_query)
 
     @patch('console.views.rows', side_effect=[
         [{
@@ -531,6 +574,8 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertContains(response, '/media/listings/17/plot.webp')
         self.assertContains(response, 'Agent identity document')
         self.assertContains(response, '/admin/action/listing-document/')
+        self.assertContains(response, 'target="secureDocumentPreview"')
+        self.assertContains(response, 'name="secureDocumentPreview"')
         self.assertContains(response, 'Step 1: Identity')
 
     @patch('console.views.rows', return_value=[{

@@ -13,7 +13,7 @@ import bcrypt
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.contrib import messages
-from django.db import IntegrityError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -476,7 +476,7 @@ def dashboard(request):
         section = 'overview'
     if section not in permissions:
         return redirect(f'/admin/?section={available_sections[0][0]}')
-    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'reviews': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'duplicate_error': '', 'duplicate_decisions_available': True, 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'reviews': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -529,39 +529,77 @@ def dashboard(request):
                    ORDER BY b.status='pending' DESC,b.created_at DESC LIMIT 200"""
             )
         elif section == 'listings':
-            data['duplicate_candidates'] = rows(
-                """SELECT a.id low_id,b.id high_id,a.title low_title,b.title high_title,
-                          a.city low_city,b.city high_city,a.status low_status,b.status high_status,
-                          CASE
-                            WHEN LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1))
-                              THEN 'Same normalized street address and city'
-                            ELSE 'Same title, property category, description, and city'
-                          END match_reason
-                   FROM (
-                     SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
-                     FROM listings
-                     WHERE status IN ('pending_review','published','unpublished','rejected')
-                       AND deleted_at IS NULL
-                     ORDER BY updated_at DESC,id DESC LIMIT 500
-                   ) a
-                   JOIN (
-                     SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
-                     FROM listings
-                     WHERE status IN ('pending_review','published','unpublished','rejected')
-                       AND deleted_at IS NULL
-                     ORDER BY updated_at DESC,id DESC LIMIT 500
-                   ) b ON a.id<b.id AND LOWER(TRIM(a.city))=LOWER(TRIM(b.city))
-                     AND (
-                       (TRIM(a.address_line1)<>'' AND LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1)))
-                       OR (a.property_type_id=b.property_type_id
-                         AND LOWER(TRIM(a.title))=LOWER(TRIM(b.title))
-                         AND LOWER(TRIM(a.description))=LOWER(TRIM(b.description)))
-                     )
-                   LEFT JOIN listing_duplicate_reviews d
-                     ON d.listing_low_id=a.id AND d.listing_high_id=b.id
-                   WHERE d.id IS NULL
-                   ORDER BY a.updated_at DESC,b.updated_at DESC LIMIT 100"""
-            )
+            try:
+                data['duplicate_candidates'] = rows(
+                    """SELECT a.id low_id,b.id high_id,a.title low_title,b.title high_title,
+                              a.city low_city,b.city high_city,a.status low_status,b.status high_status,
+                              CASE
+                                WHEN LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1))
+                                  THEN 'Same normalized street address and city'
+                                ELSE 'Same title, property category, description, and city'
+                              END match_reason
+                       FROM (
+                         SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
+                         FROM listings
+                         WHERE status IN ('pending_review','published','unpublished','rejected')
+                           AND deleted_at IS NULL
+                         ORDER BY updated_at DESC,id DESC LIMIT 500
+                       ) a
+                       JOIN (
+                         SELECT id,title,description,address_line1,city,property_type_id,status,deleted_at,updated_at
+                         FROM listings
+                         WHERE status IN ('pending_review','published','unpublished','rejected')
+                           AND deleted_at IS NULL
+                         ORDER BY updated_at DESC,id DESC LIMIT 500
+                       ) b ON a.id<b.id
+                       WHERE
+                         LOWER(TRIM(a.city))=LOWER(TRIM(b.city))
+                         AND (
+                           (TRIM(a.address_line1)<>'' AND LOWER(TRIM(a.address_line1))=LOWER(TRIM(b.address_line1)))
+                           OR (a.property_type_id=b.property_type_id
+                             AND LOWER(TRIM(a.title))=LOWER(TRIM(b.title))
+                             AND LOWER(TRIM(a.description))=LOWER(TRIM(b.description)))
+                         )
+                       ORDER BY a.updated_at DESC,b.updated_at DESC LIMIT 100"""
+                )
+                if data['duplicate_candidates']:
+                    reviewed_conditions = ' OR '.join(
+                        '(listing_low_id=%s AND listing_high_id=%s)'
+                        for _ in data['duplicate_candidates']
+                    )
+                    reviewed_params = [
+                        value
+                        for candidate in data['duplicate_candidates']
+                        for value in (candidate['low_id'], candidate['high_id'])
+                    ]
+                    try:
+                        reviewed_pairs = rows(
+                            'SELECT listing_low_id,listing_high_id FROM listing_duplicate_reviews WHERE '
+                            + reviewed_conditions,
+                            reviewed_params,
+                        )
+                    except DatabaseError:
+                        logger.exception('Duplicate listing review history query failed.')
+                        data['duplicate_decisions_available'] = False
+                        data['duplicate_error'] = (
+                            'Duplicate review history is unavailable. Candidate pairs are shown read-only; '
+                            'you can still open and review each listing.'
+                        )
+                    else:
+                        reviewed = {
+                            (int(item['listing_low_id']), int(item['listing_high_id']))
+                            for item in reviewed_pairs
+                        }
+                        data['duplicate_candidates'] = [
+                            candidate for candidate in data['duplicate_candidates']
+                            if (int(candidate['low_id']), int(candidate['high_id'])) not in reviewed
+                        ]
+            except DatabaseError:
+                logger.exception('Possible duplicate listing comparison query failed.')
+                data['duplicate_error'] = (
+                    'Possible duplicate comparisons are temporarily unavailable. '
+                    'You can still open and review listings below.'
+                )
             listing_tab = request.GET.get('listing_tab', 'review')
             if listing_tab not in {'review', 'available'}:
                 listing_tab = 'review'
@@ -1073,10 +1111,7 @@ def listing_detail(request, listing_id):
                   l.floor_area,l.commercial_use,l.category_details,l.advertising_authorization,
                   l.authorization_notes,l.authorization_attested_at,l.structure_type,l.privacy_type,
                   l.bedrooms,l.beds,l.bathrooms,l.max_guests,l.created_at,l.updated_at,
-                  pt.name property_type,
-                  (SELECT GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ')
-                   FROM listing_amenity_map am JOIN listing_amenities a ON a.id=am.amenity_id
-                   WHERE am.listing_id=l.id) amenities,
+                  pt.name property_type,amenities.amenities,
                   u.id owner_user_id,l.agent_user_id listing_agent_user_id,
                   CASE WHEN v.verification_status='verified' AND v.expires_at<UTC_DATE() THEN 'expired'
                        ELSE COALESCE(v.verification_status,'unverified') END verification_status,
@@ -1085,22 +1120,33 @@ def listing_detail(request, listing_id):
                   COALESCE(v.authority_status,'not_reviewed') authority_status,
                   COALESCE(v.documents_status,'not_reviewed') documents_status,
                   v.verified_at,v.expires_at,
-                  iv.id owner_document_id,iv.user_id owner_document_user_id,iv.document_type owner_document_type,
-                  iv.status owner_document_status,iv.document_last4 owner_document_last4,
-                  iv.created_at owner_document_created_at,
+                  COALESCE(agent_doc.id,owner_doc.id) owner_document_id,
+                  COALESCE(agent_doc.user_id,owner_doc.user_id) owner_document_user_id,
+                  COALESCE(agent_doc.document_type,owner_doc.document_type) owner_document_type,
+                  COALESCE(agent_doc.status,owner_doc.status) owner_document_status,
+                  COALESCE(agent_doc.document_last4,owner_doc.document_last4) owner_document_last4,
+                  COALESCE(agent_doc.created_at,owner_doc.created_at) owner_document_created_at,
                   COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) owner_name,
                   u.email owner_email
            FROM listings l JOIN users u ON u.id=l.owner_user_id
            JOIN property_types pt ON pt.id=l.property_type_id
            LEFT JOIN user_profiles p ON p.user_id=u.id
            LEFT JOIN listing_verifications v ON v.listing_id=l.id
-           LEFT JOIN identity_verifications iv ON iv.id=(
-             SELECT latest.id FROM identity_verifications latest
-             WHERE latest.user_id IN (l.owner_user_id,l.agent_user_id)
-               AND latest.document_file_key IS NOT NULL
-             ORDER BY CASE WHEN latest.user_id=l.agent_user_id THEN 0 ELSE 1 END,
-               latest.created_at DESC,latest.id DESC LIMIT 1
-           )
+           LEFT JOIN (
+             SELECT am.listing_id,GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') amenities
+             FROM listing_amenity_map am JOIN listing_amenities a ON a.id=am.amenity_id
+             GROUP BY am.listing_id
+           ) amenities ON amenities.listing_id=l.id
+           LEFT JOIN (
+             SELECT user_id,MAX(id) latest_id FROM identity_verifications
+             WHERE document_file_key IS NOT NULL GROUP BY user_id
+           ) agent_latest ON agent_latest.user_id=l.agent_user_id
+           LEFT JOIN identity_verifications agent_doc ON agent_doc.id=agent_latest.latest_id
+           LEFT JOIN (
+             SELECT user_id,MAX(id) latest_id FROM identity_verifications
+             WHERE document_file_key IS NOT NULL GROUP BY user_id
+           ) owner_latest ON owner_latest.user_id=l.owner_user_id
+           LEFT JOIN identity_verifications owner_doc ON owner_doc.id=owner_latest.latest_id
            WHERE l.id=%s""",
         [listing_id],
     )
@@ -1133,17 +1179,25 @@ def listing_detail(request, listing_id):
         (step for step in verification_steps if step['status'] != 'checked'),
         None,
     )
+    marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
+    media = rows(
+        'SELECT media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id',
+        [listing_id],
+    )
+    for item in media:
+        item['admin_url'] = _admin_profile_image_url(item.get('public_url'), marketplace_url)
     return render(request, 'content_detail.html', {
         'sections': [(key, label) for key, label in CONSOLE_SECTIONS if key in admin_feature_permissions(request)],
         'is_founder': is_founder_session(request),
         'content_type': 'Listing',
         'page_title': listing['title'],
         'content': listing,
+        'marketplace_url': marketplace_url,
         'category_detail_rows': category_detail_rows,
         'verification_steps': verification_steps,
         'next_verification_step': next_verification_step,
         'all_verification_checks_complete': next_verification_step is None,
-        'media': rows('SELECT media_type media_type,public_url,caption,is_cover FROM listing_media WHERE listing_id=%s ORDER BY is_cover DESC,sort_order,id', [listing_id]),
+        'media': media,
         'verification_events': rows(
             """SELECT check_name,previous_status,new_status,reason,created_at,actor_user_id,actor_label
                FROM listing_verification_events WHERE listing_id=%s
@@ -1737,11 +1791,19 @@ def action(request, action):
                     """SELECT iv.id FROM identity_verifications iv
                        WHERE iv.document_file_key IS NOT NULL AND iv.id=%s"""
                     if action == 'verification-document'
-                    else """SELECT iv.id FROM identity_verifications iv
-                            JOIN listings l ON iv.user_id IN (l.owner_user_id,l.agent_user_id)
-                            WHERE l.id=%s AND iv.document_file_key IS NOT NULL
-                            ORDER BY CASE WHEN iv.user_id=l.agent_user_id THEN 0 ELSE 1 END,
-                              iv.created_at DESC,iv.id DESC LIMIT 1""",
+                    else """SELECT COALESCE(agent_doc.id,owner_doc.id) id
+                            FROM listings l
+                            LEFT JOIN (
+                              SELECT user_id,MAX(id) latest_id FROM identity_verifications
+                              WHERE document_file_key IS NOT NULL GROUP BY user_id
+                            ) agent_latest ON agent_latest.user_id=l.agent_user_id
+                            LEFT JOIN identity_verifications agent_doc ON agent_doc.id=agent_latest.latest_id
+                            LEFT JOIN (
+                              SELECT user_id,MAX(id) latest_id FROM identity_verifications
+                              WHERE document_file_key IS NOT NULL GROUP BY user_id
+                            ) owner_latest ON owner_latest.user_id=l.owner_user_id
+                            LEFT JOIN identity_verifications owner_doc ON owner_doc.id=owner_latest.latest_id
+                            WHERE l.id=%s AND COALESCE(agent_doc.id,owner_doc.id) IS NOT NULL""",
                     [record_id],
                 )
                 if not document_rows:

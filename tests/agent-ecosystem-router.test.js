@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import express from 'express';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createAgentEcosystemRouter } from '../server/agent-ecosystem-router.js';
 
@@ -60,6 +61,16 @@ test('professional workspace can load its authenticated profile', async t => {
     businessType: null,
     businessName: null
   });
+});
+
+test('agent ecosystem routes are mounted before the API not-found handler', async () => {
+  const source = await readFile(new URL('../server/index.js', import.meta.url), 'utf8');
+  const routerPosition = source.indexOf("app.use('/api', createAgentEcosystemRouter");
+  const notFoundPosition = source.indexOf("app.use('/api', (_req, res) => res.status(404)");
+
+  assert.notEqual(routerPosition, -1);
+  assert.notEqual(notFoundPosition, -1);
+  assert.ok(routerPosition < notFoundPosition);
 });
 
 test('professional analytics remain available while agent-review migration is pending', async t => {

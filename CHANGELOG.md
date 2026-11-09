@@ -5,6 +5,37 @@ commit history or release notes.
 
 ## Unreleased
 
+### Agent workspace access and admin review reliability
+
+- Added a direct professional dashboard and analytics action in agent settings.
+  The action respects sub-agent permissions and opens the existing authenticated
+  profile, analytics, verification, and plan-preview workspace.
+- Mounted the agent ecosystem API before the API not-found handler, so its
+  authenticated professional profile and analytics endpoints can be reached.
+- Reworked listing-detail amenity and identity-document lookups to use
+  pre-aggregated joins instead of correlated join conditions unsupported by
+  TiDB. The listing detail page now serves stored `/media` previews from the
+  marketplace origin rather than the separate Django admin host.
+- Added an inline, same-origin admin document preview inside the listing
+  moderation wizard. Only the identity-document preview response may be
+  framed by its own origin; other admin routes retain `frame-ancestors 'none'`.
+- Separated possible-duplicate matching from decision history. When duplicate
+  history is unavailable, candidate pairs still appear read-only with disabled
+  decision controls, while the rest of listing moderation remains usable.
+- Improved broken profile-photo handling: profile images now use a JavaScript
+  fallback compatible with the admin CSP and render a styled initials avatar
+  if both the submitted image and fallback asset fail.
+- Legacy AI aliases are restricted to safe GET/HEAD redirects. Writes and
+  nested paths return explicit 405/404 responses; no AI recommendation
+  endpoint or provider is configured.
+- Local verification: 81 Node tests, 102 Django tests, Django system checks,
+  production Vite build, JavaScript/Python syntax checks, and
+  `git diff --check` pass. The bundled default-avatar asset was confirmed in
+  `dist`.
+- No schema changes were made. Production database and private-document
+  behavior remain subject to the backup and isolated-staging verification gate
+  in `DATABASE_OPERATIONS.md`.
+
 ### Professional workspace, search, avatars, and Stage 14
 
 - Added the authenticated professional-profile read route that the workspace
