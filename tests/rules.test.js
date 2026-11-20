@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, calculateStayBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, calculateStayBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 import { decryptBuffer, encryptBuffer } from '../server/crypto.js';
 import sharp from 'sharp';
+
+test('optional listing coordinates accept a skipped pin and reject incomplete coordinates', () => {
+  assert.deepEqual(validateOptionalListingCoordinates('', ''), {
+    value: { latitude: null, longitude: null }
+  });
+  assert.deepEqual(validateOptionalListingCoordinates('-6.82', '39.20'), {
+    value: { latitude: -6.82, longitude: 39.20 }
+  });
+  assert.match(validateOptionalListingCoordinates('-6.82', '').error, /skip the map pin/i);
+  assert.match(validateOptionalListingCoordinates('100', '39.20').error, /valid map pin/i);
+});
 
 test('private document encryption preserves binary content and rejects tampering', () => {
   const original = Buffer.from([0x00, 0xff, 0x89, 0x50, 0x4e, 0x47]);

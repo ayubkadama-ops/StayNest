@@ -202,6 +202,18 @@ export function approximateListingCoordinates(latitude, longitude) {
   return { latitude: roundedLat || 0, longitude: roundedLng || 0 };
 }
 
+export function validateOptionalListingCoordinates(latitude, longitude) {
+  const hasLatitude = latitude !== undefined && latitude !== null && String(latitude).trim() !== '';
+  const hasLongitude = longitude !== undefined && longitude !== null && String(longitude).trim() !== '';
+  if (!hasLatitude && !hasLongitude) return { value: { latitude: null, longitude: null } };
+  if (!hasLatitude || !hasLongitude) return { error: 'Add both latitude and longitude, or skip the map pin.' };
+  const lat = Number(latitude), lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return { error: 'Choose a valid map pin, or skip it and use the text location.' };
+  }
+  return { value: { latitude: lat, longitude: lng } };
+}
+
 export function withPublicListingCoordinates(listing) {
   const {
     approximate_latitude: approximateLatitude,

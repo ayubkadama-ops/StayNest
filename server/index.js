@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -2007,13 +2007,16 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
       await connection.rollback();
       return res.status(400).json({ error: 'Choose a valid property category' });
     }
-    const latitude = value('latitude', listing.latitude);
-    const longitude = value('longitude', listing.longitude);
-    if (latitude == null || longitude == null || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))
-      || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) {
+    const coordinates = validateOptionalListingCoordinates(
+      value('latitude', listing.latitude),
+      value('longitude', listing.longitude)
+    );
+    if (coordinates.error) {
       await connection.rollback();
-      return res.status(400).json({ error: 'Choose a valid location on the map' });
+      return res.status(400).json({ error: coordinates.error });
     }
+    const latitude = coordinates.value.latitude;
+    const longitude = coordinates.value.longitude;
     const { bedrooms, beds, bathrooms, maxGuests } = occupancy.value;
     const privacyType = value('privacyType', listing.privacy_type) || null;
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) {
@@ -2040,6 +2043,7 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
        authorization_attested_at=IF(?, UTC_TIMESTAMP(), authorization_attested_at),
        bedrooms=?, beds=?, bathrooms=?, max_guests=?, address_line1=?, neighborhood=?, district=?, ward=?,
        city=?, region=?, property_size=?, furnished=?, latitude=?, longitude=?,
+       approximate_latitude=?, approximate_longitude=?,
        status=?
        WHERE id=?`,
       [
@@ -2051,6 +2055,7 @@ app.patch('/api/agent/listings/:id', requireAuth, requireAgentAccess('listings.m
         hasAuthorizationInput,
         bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished, latitude, longitude,
+        latitude, longitude,
         nextListingStatus, listingId
       ]
     );
@@ -2332,7 +2337,9 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     const propertySize = propertySizeInput ? Number(propertySizeInput) : null;
     const furnished = String(req.body.furnished || '').trim() || null;
     const amenities = String(req.body.amenities || '').split(',').map(value => value.trim()).filter(Boolean).slice(0, 20);
-    const latitude = Number(req.body.latitude), longitude = Number(req.body.longitude);
+    const coordinates = validateOptionalListingCoordinates(req.body.latitude, req.body.longitude);
+    if (coordinates.error) return res.status(400).json({ error: coordinates.error });
+    const latitude = coordinates.value.latitude, longitude = coordinates.value.longitude;
     const document = req.files?.document?.[0], media = req.files?.media || [];
     if (!title || !description || !city || !addressLine1) return res.status(400).json({ error: 'Title, description, address, and city are required' });
     if (journey.error) return res.status(400).json({ error: journey.error });
@@ -2342,7 +2349,6 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (propertySize !== null && (!Number.isFinite(propertySize) || propertySize <= 0)) return res.status(400).json({ error: 'Enter a valid property size in square metres' });
     if (furnished && !['furnished', 'unfurnished', 'partially_furnished'].includes(furnished)) return res.status(400).json({ error: 'Choose a valid furnishing option' });
     if (['land', 'commercial'].includes(journey.propertyType) && (propertySize !== null || furnished)) return res.status(400).json({ error: 'Use the category-specific land or commercial area fields for this property' });
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return res.status(400).json({ error: 'Choose the listing location on the OpenStreetMap preview' });
     if (!document) return res.status(400).json({ error: 'Agent registration document is required before publishing a property' });
     if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
     if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
@@ -2396,13 +2402,14 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         plot_size, plot_size_unit, land_use, title_status, floor_area, commercial_use,
         category_details, advertising_authorization, authorization_notes, authorization_attested_at,
         bedrooms, beds, bathrooms, max_guests, address_line1, neighborhood,
-        district, ward, city, region, property_size, furnished, country_code, latitude, longitude
+        district, ward, city, region, property_size, furnished, country_code, latitude, longitude,
+        approximate_latitude, approximate_longitude
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, "pending_review",
         ?, ?, ?, "TZS",
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         UTC_TIMESTAMP(),
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )`,
       [
         agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null,
@@ -2412,7 +2419,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         journey.floorArea, journey.commercialUse, JSON.stringify(categoryDetails.value),
         authorization.value.authorization, authorization.value.notes, bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
-        countryCode, latitude, longitude
+        countryCode, latitude, longitude, latitude, longitude
       ]
     );
     await connection.execute(

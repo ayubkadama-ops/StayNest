@@ -69,6 +69,12 @@
   areaFields.innerHTML = '<label>Region<input name="region" maxlength="100" autocomplete="address-level1"></label><label>District<input name="district" maxlength="100"></label><label>Ward<input name="ward" maxlength="100"></label><label>Neighborhood<input name="neighborhood" maxlength="120"></label>';
   locationPanel.append(areaFields);
   if (geoFields) locationPanel.append(geoFields);
+  const skipMap = document.createElement('button');
+  skipMap.type = 'button';
+  skipMap.className = 'button listing-wizard-skip-map';
+  skipMap.dataset.skipMapPin = '';
+  skipMap.textContent = 'Skip map pin';
+  locationPanel.append(skipMap);
   move(detailsPanel, ['title', 'description']);
 
   const stayFields = document.createElement('div');
@@ -180,6 +186,15 @@
     }
     locationStatus.textContent = `${message}: ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}`;
   };
+  skipMap.addEventListener('click', () => {
+    field('latitude').value = '';
+    field('longitude').value = '';
+    if (locationMarker && map) {
+      map.removeLayer(locationMarker);
+      locationMarker = null;
+    }
+    locationStatus.textContent = 'Map pin skipped. The text location will be used.';
+  });
   if (window.L && locationMap) {
     map = window.L.map(locationMap, { scrollWheelZoom: false }).setView([-6.369, 34.888], 6);
     window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -297,10 +312,6 @@
     return [];
   };
   const validateStep = index => {
-    if (index === 1 && (!field('latitude').value || !field('longitude').value)) {
-      form.querySelector('[data-geocode-status]').textContent = 'Find and confirm the property location before continuing.';
-      return false;
-    }
     for (const name of requiredNames(index)) {
       const control = field(name);
       if (!control.value.trim()) {
