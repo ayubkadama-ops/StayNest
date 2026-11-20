@@ -298,11 +298,13 @@ def agent_workspace(request):
     listings = _api_json(request, 'api/host/listings').get('listings', [])
     summary = _api_json(request, 'api/agent/summary')
     bookings = _api_json(request, 'api/agent/bookings').get('bookings', [])
+    invitations = _api_json(request, 'api/agent/invitations').get('invitations', [])
     return render(request, 'marketplace/agent_workspace.html', {
         'user': user,
         'listings': listings,
         'summary': summary,
         'bookings': bookings,
+        'invitations': invitations,
         'property_types': PROPERTY_TYPES,
     })
 

@@ -2466,13 +2466,13 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         category_details, advertising_authorization, authorization_notes, authorization_attested_at,
         bedrooms, beds, bathrooms, max_guests, address_line1, neighborhood,
         district, ward, city, region, property_size, furnished, country_code, latitude, longitude,
-        approximate_latitude, approximate_longitude
+        approximate_latitude, approximate_longitude, ownership_proof_key, ownership_proof_status
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, "pending_review",
         ?, ?, ?, "TZS",
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         UTC_TIMESTAMP(),
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )`,
       [
         agentOwnerId(req), agentOwnerId(req), types[0].id, structureType || null, privacyType || null,
@@ -2482,7 +2482,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         journey.floorArea, journey.commercialUse, JSON.stringify(categoryDetails.value),
         authorization.value.authorization, authorization.value.notes, bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
-        countryCode, latitude, longitude, latitude, longitude
+        countryCode, latitude, longitude, latitude, longitude, storedDocument.key, 'pending'
       ]
     );
     await connection.execute(
@@ -2682,11 +2682,105 @@ app.patch('/api/bookings/:id/reschedule', requireAuth, requireRole('tenant'), as
   }
 });
 
+app.post('/api/owner/listings/:id/invite-agent', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    const agentId = positiveId(req.body.agentId);
+    if (!agentId) return res.status(400).json({ error: 'Choose a valid agent' });
+    const [[listing]] = await pool.execute(
+      'SELECT id,owner_user_id FROM listings WHERE id=? AND owner_user_id=?',
+      [listingId, agentOwnerId(req)]
+    );
+    if (!listing) return res.status(404).json({ error: 'Listing not found or you do not own it' });
+    const [[agent]] = await pool.execute(
+      `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+       WHERE u.id=? AND u.status='active' AND r.name='agent'`,
+      [agentId]
+    );
+    if (!agent) return res.status(400).json({ error: 'Choose an active agent account' });
+    await pool.execute(
+      `INSERT INTO listing_agent_invitations (listing_id,owner_user_id,agent_user_id,status)
+       VALUES (?, ?, ?, 'pending')
+       ON DUPLICATE KEY UPDATE status='pending',invited_at=UTC_TIMESTAMP(),responded_at=NULL`,
+      [listingId, agentOwnerId(req), agentId]
+    );
+    await notifyUser(agentId, {
+      type: 'listing_agent_invitation',
+      title: 'Property management invitation',
+      body: 'A property owner invited you to manage one of their listings.',
+      data: { listingId, ownerId: agentOwnerId(req) }
+    });
+    await audit(req, 'listing_agent_invitation_sent', 'listing', listingId, { agentId });
+    res.status(201).json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/owner/listings/:id/revoke-agent', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    const [[listing]] = await pool.execute(
+      'SELECT id FROM listings WHERE id=? AND owner_user_id=?',
+      [listingId, agentOwnerId(req)]
+    );
+    if (!listing) return res.status(404).json({ error: 'Listing not found or you do not own it' });
+    await pool.execute(
+      'UPDATE listing_agent_invitations SET status="revoked",responded_at=UTC_TIMESTAMP() WHERE listing_id=? AND status="accepted"',
+      [listingId]
+    );
+    await pool.execute('UPDATE listings SET managing_agent_id=NULL WHERE id=?', [listingId]);
+    await audit(req, 'listing_agent_revoked', 'listing', listingId);
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/agent/invitations', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const [invitations] = await pool.execute(
+      `SELECT lai.id,lai.listing_id,lai.owner_user_id,lai.status,lai.invited_at,
+              l.title,COALESCE(p.first_name,'') ownerFirstName,COALESCE(p.last_name,'') ownerLastName
+       FROM listing_agent_invitations lai JOIN listings l ON l.id=lai.listing_id
+       LEFT JOIN user_profiles p ON p.user_id=lai.owner_user_id
+       WHERE lai.agent_user_id=? ORDER BY lai.invited_at DESC`,
+      [agentOwnerId(req)]
+    );
+    res.json({ invitations });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/agent/invitations/:id/decision', requireAuth, requireAgentAccess('listings.manage'), async (req, res, next) => {
+  try {
+    const invitationId = positiveId(req.params.id);
+    const status = req.body.status === 'accepted' ? 'accepted' : req.body.status === 'declined' ? 'declined' : null;
+    if (!status) return res.status(400).json({ error: 'Choose accepted or declined' });
+    const [[invitation]] = await pool.execute(
+      'SELECT id,listing_id,owner_user_id FROM listing_agent_invitations WHERE id=? AND agent_user_id=? AND status="pending"',
+      [invitationId, agentOwnerId(req)]
+    );
+    if (!invitation) return res.status(404).json({ error: 'Invitation not found' });
+    await pool.execute(
+      'UPDATE listing_agent_invitations SET status=?,responded_at=UTC_TIMESTAMP() WHERE id=?',
+      [status, invitationId]
+    );
+    if (status === 'accepted') {
+      await pool.execute('UPDATE listings SET managing_agent_id=? WHERE id=? AND owner_user_id=?', [agentOwnerId(req), invitation.listing_id, invitation.owner_user_id]);
+    }
+    await audit(req, `listing_agent_invitation_${status}`, 'listing', invitation.listing_id, { invitationId });
+    res.json({ ok: true, status });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/host/bookings/:id/decision', requireAuth, requireAgentAccess('bookings.manage'), async (req, res, next) => {
   try {
     const status = req.body.status === 'confirmed' ? 'confirmed' : req.body.status === 'declined' ? 'declined' : null;
     if (!status) return res.status(400).json({ error: 'Invalid booking decision' });
-    const [result] = await pool.execute('UPDATE bookings SET status=?, confirmed_at=IF(?="confirmed", UTC_TIMESTAMP(), confirmed_at) WHERE id=? AND host_user_id=? AND status="pending"', [status, status, req.params.id, agentOwnerId(req)]);
+    const hostId = agentOwnerId(req);
+    const [result] = await pool.execute(
+      `UPDATE bookings b JOIN listings l ON l.id=b.listing_id
+       SET b.status=?,b.confirmed_at=IF(?="confirmed",UTC_TIMESTAMP(),b.confirmed_at)
+       WHERE b.id=? AND b.status="pending"
+       AND (l.owner_user_id=? OR l.agent_user_id=? OR l.managing_agent_id=?)`,
+      [status, status, req.params.id, hostId, hostId, hostId]
+    );
     if (!result.affectedRows) return res.status(404).json({ error: 'Pending booking not found' });
     const [[booking]] = await pool.query(
       'SELECT b.guest_user_id guestId, l.title, b.check_in checkIn, b.check_out checkOut FROM bookings b JOIN listings l ON l.id=b.listing_id WHERE b.id=?',
@@ -3939,13 +4033,33 @@ app.get('/api/admin/audit-logs', requireAuth, requireAdminAccess('audit'), async
   } catch (error) { next(error); }
 });
 
+app.post('/api/admin/listings/:id/ownership-proof', requireAuth, requireAdminAccess('listings'), async (req, res, next) => {
+  try {
+    const listingId = positiveId(req.params.id);
+    const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
+    if (!listingId || !status) return res.status(400).json({ error: 'Choose approved or rejected for ownership proof' });
+    const reason = String(req.body.reason || '').trim().slice(0, 500);
+    if (status === 'rejected' && !reason) return res.status(400).json({ error: 'Add a rejection reason' });
+    const [result] = await pool.execute(
+      'UPDATE listings SET ownership_proof_status=? WHERE id=?',
+      [status, listingId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'Listing not found' });
+    await audit(req, `listing_ownership_proof_${status}`, 'listing', listingId, { reason: reason || null });
+    res.json({ ok: true, status });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('listings'), async (req, res, next) => {
   try {
     const status = ['published', 'rejected', 'unpublished'].includes(req.body.status) ? req.body.status : null;
     if (!status) return res.status(400).json({ error: 'Invalid listing moderation status' });
-    const [[listing]] = await pool.query('SELECT id, title, agent_user_id, owner_user_id FROM listings WHERE id=? AND status != "archived"', [req.params.id]);
+    const [[listing]] = await pool.query('SELECT id, title, agent_user_id, owner_user_id, ownership_proof_status FROM listings WHERE id=? AND status != "archived"', [req.params.id]);
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
     if (status === 'published') {
+      if (listing.ownership_proof_status !== 'approved') {
+        return res.status(409).json({ error: 'Approve ownership or advertising proof before publishing this property' });
+      }
       const [[verification]] = await pool.query(
         `SELECT verification_status,
                 (expires_at IS NULL OR expires_at>=CURRENT_DATE()) is_current
@@ -4191,7 +4305,7 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
         return res.status(200).json(JSON.parse(prior[0].response_json));
       }
     }
-    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights, max_guests FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
+    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, managing_agent_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights, max_guests FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
     const listing = listingRows[0];
     if (!listing) {
       await connection.rollback();
@@ -4238,14 +4352,21 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
     if (idempotencyKey) await connection.execute('INSERT INTO request_idempotency (user_id, idempotency_key, response_json) VALUES (?, ?, ?)', [req.session.user.id, idempotencyKey, JSON.stringify(response)]);
     await connection.commit();
     await audit(req, 'booking_created', 'booking', result.insertId, { listingId: validListingId });
-    void notifyUser(bookingHost, {
-      type: 'booking_request',
-      title: isViewing ? 'New viewing request' : 'New stay request',
-      body: isViewing
-        ? `Viewing requested for ${listing.title || 'your listing'} at ${normalizedAppointment} UTC.`
-        : `Stay requested for ${listing.title || 'your listing'} from ${checkIn} to ${checkOut}.`,
-      data: { bookingId: result.insertId, listingId }
-    }).catch(error => console.error('Agent booking notification failed:', error.message));
+    const bookingRecipients = [...new Set([
+      listing.owner_user_id,
+      listing.agent_user_id,
+      listing.managing_agent_id
+    ].filter(Boolean))];
+    for (const recipientId of bookingRecipients) {
+      void notifyUser(recipientId, {
+        type: 'booking_request',
+        title: isViewing ? 'New viewing request' : 'New stay request',
+        body: isViewing
+          ? `Viewing requested for ${listing.title || 'your listing'} at ${normalizedAppointment} UTC.`
+          : `Stay requested for ${listing.title || 'your listing'} from ${checkIn} to ${checkOut}.`,
+        data: { bookingId: result.insertId, listingId }
+      }).catch(error => console.error('Owner/agent booking notification failed:', error.message));
+    }
     void notifyUser(req.session.user.id, {
       type: 'booking_created',
       title: isViewing ? 'Viewing request sent' : 'Stay request sent',

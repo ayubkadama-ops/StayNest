@@ -312,6 +312,7 @@ class MarketplaceRoutingTests(SimpleTestCase):
             'api/host/listings': {'listings': []},
             'api/agent/summary': {'assignedListings': 0, 'pendingBookings': 0, 'verificationStatus': 0},
             'api/agent/bookings': {'bookings': []},
+            'api/agent/invitations': {'invitations': []},
         }[path]
         response = self.client.get('/agent/')
         self.assertEqual(response.status_code, 200)

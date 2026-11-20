@@ -223,6 +223,13 @@ export function loginLockoutForFailureCount(failedCount, previousRound = 0) {
   return { round, minutes };
 }
 
+export function canRespondToListingBooking(userId, listing) {
+  const id = Number(userId);
+  if (!Number.isSafeInteger(id) || id < 1 || !listing) return false;
+  return [listing.ownerUserId, listing.agentUserId, listing.managingAgentId]
+    .some(responsibleId => Number(responsibleId) === id);
+}
+
 export function withPublicListingCoordinates(listing) {
   const {
     approximate_latitude: approximateLatitude,
