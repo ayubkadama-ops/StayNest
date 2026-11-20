@@ -1851,8 +1851,14 @@ def action(request, action):
                 execute('UPDATE bookings SET status=%s WHERE id=%s AND status NOT IN (\'completed\',\'cancelled\')', [status, booking_id]); audit(f'booking_{status}', 'booking', booking_id)
             elif action == 'verification-status':
                 verification_id = int(request.POST['id']); status = request.POST['status']
-                if status not in {'approved', 'rejected'}: raise ValueError('Invalid verification status')
-                execute('UPDATE identity_verifications SET status=%s, reviewed_at=UTC_TIMESTAMP(), rejection_reason=%s WHERE id=%s', [status, None if status == 'approved' else 'Rejected by administrator', verification_id]); audit(f'verification_{status}', 'identity_verification', verification_id)
+                if status not in {'approved', 'rejected', 'needs_resubmission'}: raise ValueError('Invalid verification status')
+                reason = request.POST.get('reason', '').strip()[:500]
+                if status in {'rejected', 'needs_resubmission'} and not reason: raise ValueError('A reason is required')
+                execute(
+                    'UPDATE identity_verifications SET status=%s,reviewed_at=UTC_TIMESTAMP(),rejection_reason=%s,resubmission_reason=%s WHERE id=%s',
+                    [status, reason if status == 'rejected' else None, reason if status == 'needs_resubmission' else None, verification_id],
+                )
+                audit(f'verification_{status}', 'identity_verification', verification_id, {'reason': reason or None})
             elif action in {'verification-document', 'listing-document'}:
                 record_id = int(request.POST.get('id', '0'))
                 if record_id < 1:

@@ -36,6 +36,7 @@ import {
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
+import { validateIdentitySubmission } from './identity-verification.js';
 import { securityHeaders } from './security-headers.js';
 import { isEmailVerificationRequired } from './email-verification-policy.js';
 import { resolveLegacyAiRoute } from './legacy-ai-route.js';
@@ -3635,7 +3636,7 @@ app.get('/api/admin/bookings', requireAuth, requireAdminAccess('bookings'), asyn
 
 app.get('/api/admin/verifications', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   try {
-    const status = ['pending', 'approved', 'rejected', 'expired'].includes(req.query.status) ? req.query.status : null;
+    const status = ['pending', 'approved', 'rejected', 'needs_resubmission', 'expired'].includes(req.query.status) ? req.query.status : null;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
     const params = [];
     const where = [];
@@ -4060,6 +4061,16 @@ app.post('/api/admin/listings/:id/moderation', requireAuth, requireAdminAccess('
       if (listing.ownership_proof_status !== 'approved') {
         return res.status(409).json({ error: 'Approve ownership or advertising proof before publishing this property' });
       }
+      const actorIds = [...new Set([listing.owner_user_id, listing.agent_user_id].filter(Boolean))];
+      for (const actorId of actorIds) {
+        const [[identity]] = await pool.query(
+          `SELECT id FROM identity_verifications
+           WHERE user_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>=CURRENT_DATE())
+           LIMIT 1`,
+          [actorId]
+        );
+        if (!identity) return res.status(409).json({ error: 'Approve identity verification for the property owner and advertising agent before publishing' });
+      }
       const [[verification]] = await pool.query(
         `SELECT verification_status,
                 (expires_at IS NULL OR expires_at>=CURRENT_DATE()) is_current
@@ -4219,9 +4230,14 @@ app.post('/api/admin/listings/:id/verification', requireAuth, requireAdminAccess
 
 app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdminAccess('verifications'), async (req, res, next) => {
   try {
-    const status = req.body.status === 'approved' ? 'approved' : req.body.status === 'rejected' ? 'rejected' : null;
+    const status = ['approved', 'rejected', 'needs_resubmission'].includes(req.body.status) ? req.body.status : null;
+    const reason = String(req.body.reason || '').trim().slice(0, 500);
     if (!status) return res.status(400).json({ error: 'Invalid verification decision' });
-    const [result] = await pool.execute('UPDATE identity_verifications SET status=?, reviewed_by=?, reviewed_at=UTC_TIMESTAMP(), rejection_reason=? WHERE id=? AND status="pending"', [status, req.session.user.id, status === 'rejected' ? String(req.body.reason || 'Not approved') : null, req.params.id]);
+    if (['rejected', 'needs_resubmission'].includes(status) && !reason) return res.status(400).json({ error: 'A reason is required for rejection or resubmission' });
+    const [result] = await pool.execute(
+      'UPDATE identity_verifications SET status=?,reviewed_by=?,reviewed_at=UTC_TIMESTAMP(),rejection_reason=?,resubmission_reason=? WHERE id=? AND status IN ("pending","needs_resubmission")',
+      [status, req.session.user.id, status === 'rejected' ? reason : null, status === 'needs_resubmission' ? reason : null, req.params.id]
+    );
     if (!result.affectedRows) return res.status(404).json({ error: 'Verification not found' });
     await audit(req, `verification_${status}`, 'identity_verification', req.params.id);
     res.json({ ok: true });
@@ -4245,18 +4261,44 @@ app.post('/api/listings/:id/media', requireAuth, requireAgentAccess('media.manag
 
 app.post('/api/identity-documents', requireAuth, requireAgentAccess('identity.manage'), multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 8 * 1024 * 1024, files: 3 },
   fileFilter: (_req, file, cb) => cb(null, ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype))
-}).single('document'), async (req, res, next) => {
+}).fields([
+  { name: 'document', maxCount: 1 },
+  { name: 'backDocument', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 }
+]), async (req, res, next) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'A PDF, JPEG, or PNG document is required' });
-    const { documentType, documentCountry, documentLast4 } = req.body;
-    if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid document type' });
-    if (documentLast4 && !/^\d{4}$/.test(documentLast4)) return res.status(400).json({ error: 'Document suffix must contain four digits' });
-    const stored = await storePrivateDocument(req.file, req.session.user.id);
+    const document = req.files?.document?.[0];
+    const backDocument = req.files?.backDocument?.[0];
+    const selfie = req.files?.selfie?.[0];
+    if (!document || !selfie) return res.status(400).json({ error: 'Add the ID document and a selfie holding the ID' });
+    if (req.body.documentType === 'national_id' && !backDocument) return res.status(400).json({ error: 'Add the back of the NIDA document' });
+    const submission = validateIdentitySubmission(req.body);
+    if (submission.error) return res.status(400).json({ error: submission.error });
+    const stored = await storePrivateDocument(document, req.session.user.id);
+    const storedBack = backDocument ? await storePrivateDocument(backDocument, req.session.user.id) : null;
+    const storedSelfie = await storePrivateDocument(selfie, req.session.user.id);
+    const idNumberEncrypted = encryptSecret(submission.value.idNumber);
+    const documentLast4 = submission.value.idNumber.slice(-4);
     const [result] = await pool.execute(
-      'INSERT INTO identity_verifications (user_id, document_type, document_country, document_last4, document_file_key, encryption_version) VALUES (?, ?, ?, ?, ?, ?)',
-      [req.session.user.id, documentType, documentCountry || null, documentLast4 || null, stored.key, stored.encryptionVersion]
+      `INSERT INTO identity_verifications
+       (user_id,document_type,document_country,document_last4,document_file_key,encryption_version,
+        id_number_encrypted,full_name,date_of_birth,back_document_file_key,selfie_file_key,consent_at,status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), "pending")`,
+      [
+        req.session.user.id,
+        submission.value.documentType,
+        req.body.documentCountry || null,
+        documentLast4,
+        stored.key,
+        stored.encryptionVersion,
+        idNumberEncrypted,
+        submission.value.fullName,
+        submission.value.dateOfBirth,
+        storedBack?.key || null,
+        storedSelfie.key
+      ]
     );
     await audit(req, 'identity_document_uploaded', 'identity_verification', result.insertId);
     res.status(201).json({ id: result.insertId, status: 'pending' });
