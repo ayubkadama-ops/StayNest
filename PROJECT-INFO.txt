@@ -198,6 +198,30 @@ Booking:
 Messaging:
 1. Authenticated users can message permitted users.
 2. Blocked users cannot message each other.
+
+
+OWNER, VERIFICATION, AND VENUE ROLES
+------------------------------------
+
+Property owner:
+- Registers as a property owner and may create listings directly.
+- Can manage own listings and booking requests.
+- Can invite an agent to manage a listing and revoke that assignment.
+- Must provide ownership/advertising proof for listing review.
+
+Identity verification:
+- Agents and owners can submit NIDA or passport details, front/back documents,
+  and a selfie holding the ID.
+- Documents are private and ID numbers are encrypted and masked in public UI.
+- Administrators can approve, reject, or request resubmission.
+- Listing publication requires approved owner and agent identities.
+
+Venue:
+- Venues are booking-only listings with venue type, capacity, amenities, rules,
+  slot pricing, availability, and blocked dates.
+- Venue requests validate guest count, opening hours, minimum duration,
+  setup/cleanup buffers, blocked dates, and confirmed booking overlap.
+- Existing stay and viewing booking flows remain unchanged.
 3. Message bodies are limited to 2,000 characters.
 4. Messages and conversation summaries display only the latest 30 days.
 

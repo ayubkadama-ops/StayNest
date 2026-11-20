@@ -1,0 +1,23 @@
+# Final Regression Checklist
+
+- [ ] Existing tenant, agent, and administrator login works.
+- [ ] Failed login lockout, unlock, and password recovery queue work.
+- [ ] Password recovery response does not reveal whether an account exists.
+- [ ] Tenant, property owner, and agent signup preserve existing roles.
+- [ ] Agent and owner account dashboards load.
+- [ ] Existing listing wizard creates stays, rentals, sales, land, commercial, and hotel listings.
+- [ ] Listings can be saved, edited, paused, submitted, and moderated.
+- [ ] Listings without map coordinates publish and display text location only.
+- [ ] Listings with coordinates show map or approximate map views.
+- [ ] Search by region, district, ward, neighborhood, city, and category works.
+- [ ] Map view excludes unpinned listings gracefully.
+- [ ] Owner invitation, agent acceptance/decline, and agent revoke work.
+- [ ] Owner or assigned agent can respond; first booking response wins.
+- [ ] Agent and owner identity verification supports approval, rejection, and resubmission.
+- [ ] ID numbers and private documents are not exposed publicly.
+- [ ] Venue wizard saves type, capacity, amenities, rules, pricing, and availability.
+- [ ] Venue booking rejects capacity, duration, opening-hours, blocked-date, and overlap conflicts.
+- [ ] Stay booking night calculations and viewing booking flows remain unchanged.
+- [ ] Tenant booking history, owner/agent dashboards, and admin listing review load.
+- [ ] Posts and post moderation still work.
+- [ ] PWA manifest, service worker, install prompt, and offline fallback remain functional.
