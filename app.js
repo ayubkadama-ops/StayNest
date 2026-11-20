@@ -59,7 +59,7 @@ function configureMarketplaceSearch(){
   if(locationInput)locationInput.placeholder='City, neighbourhood, or property name';
 }
 configureMarketplaceSearch();
-document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(link=>{link.href='/assets/makazi-go-icon.png';link.type='image/png'});
+document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(link=>{link.href='/assets/makazi-go-icon-192.png';link.type='image/png'});
 const cacheBustUrl=value=>{const url=String(value||'');return url&&url.startsWith('/')?`${url}${url.includes('?')?'&':'?'}v=${Date.now()}`:url};
 const agentBadge=active=>active?'<span class="agent-badge" role="img" aria-label="Verified agent" title="Verified agent">✓</span>':'';
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));

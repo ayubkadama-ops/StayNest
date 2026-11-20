@@ -207,9 +207,3 @@ window.addEventListener('unhandledrejection', event => {
 document.addEventListener('keydown', trapModalFocus);
 updateConnectionStatus();
 enhanceModal();
-
-if ('serviceWorker' in navigator && window.location.protocol === 'http:') {
-  navigator.serviceWorker.register('/service-worker.js').catch(error => {
-    console.warn('Makazi Go offline cache is unavailable', error);
-  });
-}
