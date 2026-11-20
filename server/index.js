@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, loginLockoutForFailureCount, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, validateVenueBooking, loginLockoutForFailureCount, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -1407,6 +1407,12 @@ app.get('/api/listings/discover', async (req, res, next) => {
         l.rental_mode rentalMode, pt.name propertyType, l.structure_type structureType, l.privacy_type privacyType,
         l.plot_size plotSize, l.plot_size_unit plotSizeUnit, l.land_use landUse, l.title_status titleStatus,
         l.floor_area floorArea, l.commercial_use commercialUse, l.category_details categoryDetails,
+        l.venue_type venueType,l.seated_capacity seatedCapacity,l.standing_capacity standingCapacity,
+        l.venue_room_count venueRoomCount,l.venue_details venueDetails,l.venue_rules venueRules,
+        l.venue_pricing venuePricing,l.venue_availability venueAvailability,
+        l.venue_type venueType,l.seated_capacity seatedCapacity,l.standing_capacity standingCapacity,
+        l.venue_room_count venueRoomCount,l.venue_details venueDetails,l.venue_rules venueRules,
+        l.venue_pricing venuePricing,l.venue_availability venueAvailability,
         l.beds, l.bedrooms, l.bathrooms, l.max_guests maxGuests,
         (SELECT GROUP_CONCAT(la.name ORDER BY la.name SEPARATOR ',') FROM listing_amenity_map lam JOIN listing_amenities la ON la.id=lam.amenity_id WHERE lam.listing_id=l.id) amenities,
         l.average_rating rating, l.review_count reviewCount, l.agent_user_id agentId,
@@ -2387,6 +2393,29 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
       maxGuests: req.body.maxGuests
     });
     const categoryDetails = normalizeListingCategoryDetails(req.body.categoryDetails);
+    const venueDetails = {
+      type: req.body.venueType || categoryDetails.value?.venueType || null,
+      rooms: categoryDetails.value?.venueRoomCount || null
+    };
+    const seatedCapacity = Number(categoryDetails.value?.seatedCapacity || req.body.seatedCapacity || 0) || null;
+    const standingCapacity = Number(categoryDetails.value?.standingCapacity || req.body.standingCapacity || 0) || null;
+    const venueRoomCount = Number(categoryDetails.value?.venueRoomCount || req.body.venueRoomCount || 0) || null;
+    const venueRules = {
+      minimumHours: Number(categoryDetails.value?.minimumHours || req.body.minimumHours || 0),
+      bufferMinutes: Math.round(Number(categoryDetails.value?.bufferHours || req.body.bufferHours || 0) * 60),
+      allowedEventTypes: categoryDetails.value?.allowedEventTypes || '',
+      noiseCutoff: categoryDetails.value?.noiseCutoff || '',
+      alcoholAllowed: categoryDetails.value?.alcoholAllowed || '',
+      outsideCateringAllowed: categoryDetails.value?.outsideCateringAllowed || ''
+    };
+    const venuePricing = {
+      model: categoryDetails.value?.pricingModel || req.body.pricingModel || 'hourly',
+      basePrice: Number(categoryDetails.value?.basePrice || req.body.basePrice || 0),
+      addons: []
+    };
+    const venueAvailability = categoryDetails.value?.openingHours
+      ? (() => { try { return JSON.parse(categoryDetails.value.openingHours); } catch { return {}; } })()
+      : {};
     const authorization = validateAdvertisingAuthorization({
       authorization: req.body.advertisingAuthorization,
       notes: req.body.authorizationNotes,
@@ -2417,7 +2446,7 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
     if (media.length < 5) return res.status(400).json({ error: 'Upload at least five estate photos or videos' });
     if (!['request', 'instant'].includes(bookingMode)) return res.status(400).json({ error: 'Choose a valid booking mode' });
     if (journey.transactionType !== 'stay' && journey.transactionType !== 'both' && bookingMode !== 'request') return res.status(400).json({ error: 'Only short stays can use instant booking' });
-    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
+    if (structureType && !['house', 'apartment', 'room', 'land_plot', 'guesthouse', 'serviced_apartment', 'hotel', 'commercial', 'venue'].includes(structureType)) return res.status(400).json({ error: 'Choose a valid structure type' });
     if (privacyType && !['entire_place', 'private_room', 'shared_room'].includes(privacyType)) return res.status(400).json({ error: 'Choose a valid privacy type' });
     if (!['national_id', 'passport', 'drivers_license', 'business_license'].includes(documentType)) return res.status(400).json({ error: 'Invalid registration document type' });
     savePhase = 'lookup_property_type';
@@ -2467,7 +2496,8 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         category_details, advertising_authorization, authorization_notes, authorization_attested_at,
         bedrooms, beds, bathrooms, max_guests, address_line1, neighborhood,
         district, ward, city, region, property_size, furnished, country_code, latitude, longitude,
-        approximate_latitude, approximate_longitude, ownership_proof_key, ownership_proof_status
+        approximate_latitude, approximate_longitude, ownership_proof_key, ownership_proof_status,
+        venue_type,seated_capacity,standing_capacity,venue_room_count,venue_details,venue_rules,venue_pricing,venue_availability
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?, "pending_review",
         ?, ?, ?, "TZS",
@@ -2483,7 +2513,9 @@ app.post('/api/agent/listings', requireAuth, requireAgentAccess('listings.create
         journey.floorArea, journey.commercialUse, JSON.stringify(categoryDetails.value),
         authorization.value.authorization, authorization.value.notes, bedrooms, beds, bathrooms, maxGuests,
         addressLine1, neighborhood, district, ward, city, region, propertySize, furnished,
-        countryCode, latitude, longitude, latitude, longitude, storedDocument.key, 'pending'
+        countryCode, latitude, longitude, latitude, longitude, storedDocument.key, 'pending',
+        venueDetails.type, seatedCapacity, standingCapacity, venueRoomCount,
+        JSON.stringify(venueDetails), JSON.stringify(venueRules), JSON.stringify(venuePricing), JSON.stringify(venueAvailability)
       ]
     );
     await connection.execute(
@@ -4309,7 +4341,8 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
   const connection = await pool.getConnection();
   try {
     if (!(await isFeatureEnabled('bookings'))) return res.status(503).json({ error: 'Booking requests are temporarily paused' });
-    let { listingId, checkIn, checkOut, guests = 1, bookingKind = 'stay', appointmentAt = null } = req.body;
+    let { listingId, checkIn, checkOut, guests = 1, bookingKind = 'stay', appointmentAt = null,
+      startTime = null, endTime = null, eventType = null, addons = [] } = req.body;
     const validListingId = positiveId(listingId);
     const idempotencyKey = req.get('idempotency-key')?.trim();
     const isViewing = bookingKind === 'viewing';
@@ -4330,7 +4363,13 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
       checkOut = nextDay.toISOString().slice(0, 10);
       guests = 1;
     }
-    if (!validListingId || !['stay', 'viewing'].includes(bookingKind)
+    if (bookingKind === 'venue') {
+      if (!isValidDate(checkIn)) return res.status(400).json({ error: 'Choose a valid venue date' });
+      checkOut = checkIn;
+      startTime = typeof startTime === 'string' ? startTime : '';
+      endTime = typeof endTime === 'string' ? endTime : '';
+    }
+    if (!validListingId || !['stay', 'viewing', 'venue'].includes(bookingKind)
       || (!isViewing && (!isValidDate(checkIn) || !isValidDate(checkOut)
         || !Number.isSafeInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > 100))) {
       return res.status(400).json({ error: 'Invalid listing, dates, or guest count' });
@@ -4347,13 +4386,20 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
         return res.status(200).json(JSON.parse(prior[0].response_json));
       }
     }
-    const [listingRows] = await connection.execute('SELECT id, owner_user_id, agent_user_id, managing_agent_id, title, currency, transaction_type, nightly_price, cleaning_fee, min_stay_nights, max_guests FROM listings WHERE id=? AND status="published" FOR UPDATE', [validListingId]);
+    const [listingRows] = await connection.execute(
+      `SELECT l.id,l.owner_user_id,l.agent_user_id,l.managing_agent_id,l.title,l.currency,l.transaction_type,
+              l.nightly_price,l.cleaning_fee,l.min_stay_nights,l.max_guests,pt.name propertyType,
+              l.seated_capacity,l.standing_capacity,l.venue_rules,l.venue_pricing,l.venue_availability
+       FROM listings l JOIN property_types pt ON pt.id=l.property_type_id
+       WHERE l.id=? AND l.status="published" FOR UPDATE`,
+      [validListingId]
+    );
     const listing = listingRows[0];
     if (!listing) {
       await connection.rollback();
       return res.status(404).json({ error: 'Listing not found' });
     }
-    if (!isViewing && !['stay', 'both'].includes(listing.transaction_type)) {
+    if (!isViewing && bookingKind !== 'venue' && !['stay', 'both'].includes(listing.transaction_type)) {
       await connection.rollback();
       return res.status(400).json({ error: 'Only short-stay listings accept booking requests. Contact the agent about this property instead.' });
     }
@@ -4366,7 +4412,46 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
       guests = guestValidation.guestCount;
     }
     let booking;
-    if (isViewing) {
+    if (bookingKind === 'venue') {
+      if (listing.propertyType !== 'venue') {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Venue booking requests require a venue listing' });
+      }
+      const [blockedRows] = await connection.execute(
+        'SELECT available_from,available_to FROM listing_availability WHERE listing_id=? AND status="blocked" AND available_from<=? AND available_to>=?',
+        [listing.id, checkIn, checkIn]
+      );
+      const [confirmedRows] = await connection.execute(
+        `SELECT check_in date,start_time startTime,end_time endTime
+         FROM bookings WHERE listing_id=? AND booking_kind="venue"
+         AND status IN ("pending","payment_pending","confirmed") AND check_in=?`,
+        [listing.id, checkIn]
+      );
+      const venueRules = typeof listing.venue_rules === 'string' ? JSON.parse(listing.venue_rules || '{}') : listing.venue_rules || {};
+      const venuePricing = typeof listing.venue_pricing === 'string' ? JSON.parse(listing.venue_pricing || '{}') : listing.venue_pricing || {};
+      const venueAvailability = typeof listing.venue_availability === 'string' ? JSON.parse(listing.venue_availability || '{}') : listing.venue_availability || {};
+      const validation = validateVenueBooking({
+        venue: {
+          seated_capacity: listing.seated_capacity,
+          standing_capacity: listing.standing_capacity,
+          venue_rules: venueRules,
+          venue_pricing: venuePricing,
+          venue_availability: venueAvailability
+        },
+        date: checkIn,
+        startTime,
+        endTime,
+        guests,
+        addons: Array.isArray(addons) ? addons : [],
+        confirmedBookings: confirmedRows,
+        blockedDates: blockedRows.length ? [checkIn] : []
+      });
+      if (validation.error) {
+        await connection.rollback();
+        return res.status(validation.error.includes('overlaps') ? 409 : 400).json(validation);
+      }
+      booking = { nights: 1, subtotal: validation.value.subtotal, total: validation.value.subtotal };
+    } else if (isViewing) {
       booking = { nights: 1, subtotal: 0, total: 0 };
     } else {
       const [overlaps] = await connection.execute('SELECT id FROM bookings WHERE listing_id=? AND booking_kind="stay" AND status IN ("pending","payment_pending","confirmed") AND check_in < ? AND check_out > ? FOR UPDATE', [listingId, checkOut, checkIn]);
@@ -4384,7 +4469,25 @@ app.post('/api/bookings', requireAuth, requireRole('tenant'), async (req, res, n
     const bookingCode = `SN${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     const { nights, subtotal, total } = booking;
     const bookingHost = listing.agent_user_id || listing.owner_user_id;
-    const [result] = await connection.execute('INSERT INTO bookings (booking_code, listing_id, guest_user_id, host_user_id, booking_kind, appointment_at, check_in, check_out, guests, currency, nightly_rate, nights, subtotal, cleaning_fee, total_amount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending")', [bookingCode, validListingId, req.session.user.id, bookingHost, bookingKind, normalizedAppointment, checkIn, checkOut, guests, listing.currency, isViewing ? 0 : listing.nightly_price || 0, nights, subtotal, isViewing ? 0 : listing.cleaning_fee || 0, total]);
+    const venueBuffer = bookingKind === 'venue'
+      ? Number(typeof listing.venue_rules === 'string' ? JSON.parse(listing.venue_rules || '{}').bufferMinutes : listing.venue_rules?.bufferMinutes || 0)
+      : 0;
+    const [result] = await connection.execute(
+      `INSERT INTO bookings
+       (booking_code,listing_id,guest_user_id,host_user_id,booking_kind,appointment_at,check_in,check_out,guests,currency,
+        nightly_rate,nights,subtotal,cleaning_fee,total_amount,start_time,end_time,event_type,venue_addons,venue_buffer_minutes,status)
+       VALUES (       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending")`,
+      [
+        bookingCode, validListingId, req.session.user.id, bookingHost, bookingKind, normalizedAppointment,
+        checkIn, checkOut, guests, listing.currency, isViewing ? 0 : listing.nightly_price || 0,
+        booking.nights || 1, subtotal, isViewing ? 0 : listing.cleaning_fee || 0, total,
+        bookingKind === 'venue' ? startTime : null,
+        bookingKind === 'venue' ? endTime : null,
+        bookingKind === 'venue' ? String(eventType || '').slice(0, 80) || null : null,
+        bookingKind === 'venue' ? JSON.stringify(Array.isArray(addons) ? addons : []) : null,
+        venueBuffer
+      ]
+    );
     if (!isViewing) {
       for (let date = new Date(`${checkIn}T00:00:00Z`); date < new Date(`${checkOut}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1)) {
         await connection.execute('INSERT INTO booking_date_locks (listing_id, stay_date, booking_id, expires_at) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE))', [validListingId, date.toISOString().slice(0, 10), result.insertId]);

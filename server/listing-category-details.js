@@ -5,7 +5,11 @@ const CATEGORY_DETAIL_KEYS = new Set([
   'plotSize', 'plotSizeUnit', 'landUse', 'titleStatus',
   'guestRooms', 'mealService', 'receptionHours',
   'housekeeping', 'utilitiesIncluded', 'kitchenSetup',
-  'hotelRooms', 'floorArea', 'businessUse', 'customerAccess', 'loadingAccess'
+  'hotelRooms', 'floorArea', 'businessUse', 'customerAccess', 'loadingAccess',
+  'venueType', 'seatedCapacity', 'standingCapacity', 'venueRoomCount',
+  'venueAmenities', 'allowedEventTypes', 'noiseCutoff', 'alcoholAllowed',
+  'outsideCateringAllowed', 'bufferHours', 'securityDeposit',
+  'pricingModel', 'basePrice', 'minimumHours', 'openingHours'
 ]);
 
 export function normalizeListingCategoryDetails(value) {

@@ -9,7 +9,8 @@ const STRUCTURE_CATEGORIES = Object.freeze({
   guesthouse: 'hotel',
   serviced_apartment: 'apartment',
   hotel: 'hotel',
-  commercial: 'commercial'
+  commercial: 'commercial',
+  venue: 'venue'
 });
 
 function parseIpNetwork(value) {
@@ -66,7 +67,7 @@ export function validateListingJourney({
   commercialUse
 }) {
   const resolvedType = resolvePropertyType(propertyType, structureType);
-  const allowedTypes = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay']);
+  const allowedTypes = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay', 'venue']);
   if (!allowedTypes.has(resolvedType)) return { error: 'Choose a valid property category' };
   const mappedStructureType = STRUCTURE_CATEGORIES[String(structureType || '').trim().toLowerCase()];
   if (propertyType && mappedStructureType && String(propertyType).trim().toLowerCase() !== mappedStructureType) {
@@ -221,6 +222,64 @@ export function loginLockoutForFailureCount(failedCount, previousRound = 0) {
     : previousRound;
   const minutes = [0, 15, 30, 60][Math.min(round, 3)];
   return { round, minutes };
+}
+
+export function validateVenueBooking({
+  venue,
+  date,
+  startTime,
+  endTime,
+  guests,
+  addons = [],
+  confirmedBookings = [],
+  blockedDates = []
+}) {
+  if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return { error: 'Choose a valid venue date' };
+  const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!timePattern.test(String(startTime || '')) || !timePattern.test(String(endTime || ''))) return { error: 'Choose valid start and end times' };
+  const startMinutes = Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3));
+  const endMinutes = Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3));
+  if (endMinutes <= startMinutes) return { error: 'End time must be after start time' };
+  const durationHours = (endMinutes - startMinutes) / 60;
+  const rules = venue.venue_rules || {};
+  const minimumHours = Number(rules.minimumHours || 0);
+  if (minimumHours > 0 && durationHours < minimumHours) return { error: `Venue bookings require at least ${minimumHours} hours` };
+  const capacity = Number(rules.seatedMode ? venue.seated_capacity : venue.standing_capacity || venue.seated_capacity);
+  if (!Number.isSafeInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > capacity) {
+    return { error: `Guest count must be between 1 and ${capacity}` };
+  }
+  if (blockedDates.includes(date)) return { error: 'The venue is blocked on that date' };
+  const availability = venue.venue_availability || {};
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const weekdayKey = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][weekday];
+  const opening = availability[weekdayKey];
+  if (opening && (!opening.closed) && (startTime < opening.open || endTime > opening.close)) {
+    return { error: `The venue is available ${opening.open} to ${opening.close} on this weekday` };
+  }
+  const bufferMinutes = Number(rules.bufferMinutes || 0);
+  for (const booking of confirmedBookings) {
+    if (booking.date !== date) continue;
+    const bookingStart = Number(String(booking.startTime).slice(0, 2)) * 60 + Number(String(booking.startTime).slice(3));
+    const bookingEnd = Number(String(booking.endTime).slice(0, 2)) * 60 + Number(String(booking.endTime).slice(3));
+    if (startMinutes < bookingEnd + bufferMinutes && endMinutes + bufferMinutes > bookingStart) {
+      return {
+        error: 'The requested time overlaps an existing confirmed booking',
+        nearestFreeSlots: []
+      };
+    }
+  }
+  const pricing = venue.venue_pricing || {};
+  const basePrice = Number(pricing.basePrice || 0);
+  let subtotal = 0;
+  if (pricing.model === 'hourly') subtotal = basePrice * durationHours;
+  else if (pricing.model === 'half_day') subtotal = basePrice * (durationHours > 4 ? 1 : 1);
+  else if (pricing.model === 'full_day') subtotal = basePrice;
+  else subtotal = basePrice;
+  for (const addonName of addons) {
+    const addon = (pricing.addons || []).find(item => item.name === addonName);
+    if (addon) subtotal += Number(addon.price || 0);
+  }
+  return { value: { subtotal: Number(subtotal.toFixed(2)), durationHours, guests: Number(guests) } };
 }
 
 export function canRespondToListingBooking(userId, listing) {

@@ -1,7 +1,7 @@
 import { isValidDate } from './validation.js';
 
 const TRANSACTION_TYPES = new Set(['sale', 'rent', 'stay', 'both']);
-const PROPERTY_TYPES = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay']);
+const PROPERTY_TYPES = new Set(['apartment', 'house', 'room', 'commercial', 'land', 'hotel', 'short_stay', 'venue']);
 const MAX_DISCOVERY_PAGE = 10000;
 const MAX_DISCOVERY_LIMIT = 60;
 const SEARCH_COLUMNS = Object.freeze([
@@ -69,6 +69,7 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = MAX_D
     rentalMode: boundedText(input.rentalMode, 20).toLowerCase(),
     furnished: boundedText(input.furnished, 30).toLowerCase(),
     verificationStatus: boundedText(input.verificationStatus, 20).toLowerCase(),
+    venueType: boundedText(input.venueType, 40).toLowerCase(),
     pricePeriod: boundedText(input.pricePeriod, 20).toLowerCase(),
     currency: boundedText(input.currency, 12).toUpperCase(),
     sort: boundedText(input.sort, 20).toLowerCase() || 'new',
@@ -107,7 +108,8 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = MAX_D
     maxBedrooms: { integer: true },
     minBathrooms: {},
     minSize: {},
-    maxSize: {}
+    maxSize: {},
+    minVenueCapacity: { integer: true }
   })) {
     const parsed = optionalNumber(input[name], options);
     if (parsed.error) return parsed;
@@ -204,6 +206,14 @@ export function createDiscoveryPlan(input, { defaultLimit = 24, maxLimit = MAX_D
   if (filters.propertyType) {
     where.push('pt.name=?');
     params.push(filters.propertyType);
+  }
+  if (filters.venueType) {
+    where.push('l.venue_type=?');
+    params.push(filters.venueType);
+  }
+  if (numbers.minVenueCapacity !== null) {
+    where.push('(l.seated_capacity>=? OR l.standing_capacity>=?)');
+    params.push(numbers.minVenueCapacity, numbers.minVenueCapacity);
   }
   if (filters.transactionType) {
     where.push(filters.transactionType === 'rent' || filters.transactionType === 'stay'

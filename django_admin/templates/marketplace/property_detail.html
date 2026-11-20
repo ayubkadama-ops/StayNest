@@ -51,9 +51,16 @@
           <p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send enquiry</button>
         </form>
       {% else %}
-        <form data-booking-form data-auth-required novalidate data-auth-message="Sign in or create a tenant account to request this booking." data-auth-role="tenant" data-listing-id="{{ listing.id }}">
+        <form data-booking-form {% if listing.propertyType == 'venue' %}data-venue{% endif %} data-auth-required novalidate data-auth-message="Sign in or create a tenant account to request this booking." data-auth-role="tenant" data-listing-id="{{ listing.id }}">
+          {% if listing.propertyType == 'venue' %}
+          <label>Event date<input type="date" name="checkIn" required></label>
+          <label>Start time<input type="time" name="startTime" required></label>
+          <label>End time<input type="time" name="endTime" required></label>
+          <label>Event type<input name="eventType" maxlength="80" placeholder="Wedding, conference, party" required></label>
+          {% else %}
           <label>Check-in<input type="date" name="checkIn" required></label>
           <label>Check-out<input type="date" name="checkOut" required></label>
+          {% endif %}
           <label>Guests<input type="number" name="guests" min="1" max="100" value="1" required></label>
           <p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Request to book</button>
         </form>

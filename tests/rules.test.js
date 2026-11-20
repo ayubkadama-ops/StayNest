@@ -1,12 +1,54 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, calculateStayBooking, canRespondToListingBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, loginLockoutForFailureCount, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, calculateStayBooking, canRespondToListingBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, loginLockoutForFailureCount, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, validateVenueBooking, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 import { decryptBuffer, encryptBuffer } from '../server/crypto.js';
 import sharp from 'sharp';
+
+test('venue booking validates capacity, duration, blocked dates, and overlap buffer', () => {
+  const venue = {
+    seated_capacity: 100,
+    standing_capacity: 200,
+    venue_rules: { minimumHours: 2, bufferMinutes: 60, seatedMode: true },
+    venue_pricing: { model: 'hourly', basePrice: 50000, addons: [] },
+    venue_availability: { mon: { open: '09:00', close: '18:00' } }
+  };
+  assert.match(validateVenueBooking({
+    venue,
+    date: '2026-11-23',
+    startTime: '10:00',
+    endTime: '11:00',
+    guests: 80
+  }).error, /at least 2 hours/i);
+  assert.match(validateVenueBooking({
+    venue,
+    date: '2026-11-23',
+    startTime: '10:00',
+    endTime: '13:00',
+    guests: 120,
+    blockedDates: [],
+    confirmedBookings: []
+  }).error, /1 and 100/i);
+  assert.match(validateVenueBooking({
+    venue,
+    date: '2026-11-23',
+    startTime: '10:00',
+    endTime: '13:00',
+    guests: 80,
+    blockedDates: ['2026-11-23']
+  }).error, /blocked/i);
+  assert.match(validateVenueBooking({
+    venue,
+    date: '2026-11-23',
+    startTime: '11:00',
+    endTime: '13:00',
+    guests: 80,
+    confirmedBookings: [{ date: '2026-11-23', startTime: '10:00', endTime: '12:00' }]
+  }).error, /overlaps/i);
+});
 
 test('owner and assigned agent can respond to their listing bookings only', () => {
   const listing = { ownerUserId: 10, agentUserId: 20, managingAgentId: 30 };

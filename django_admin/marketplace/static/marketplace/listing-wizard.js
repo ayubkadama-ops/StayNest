@@ -99,11 +99,16 @@
   commercialFields.dataset.commercialFields = '';
   commercialFields.hidden = true;
   commercialFields.innerHTML = '<label>Floor area (m²)<input name="floorArea" type="number" min="1" step="0.01" placeholder="e.g. 120" data-category-detail></label><label>Commercial use<select name="commercialUse" data-category-detail><option value="">Choose use</option><option value="office">Office</option><option value="retail">Retail or shop</option><option value="hospitality">Hospitality</option><option value="warehouse">Warehouse or industrial</option><option value="mixed_use">Mixed use</option><option value="other">Other</option></select></label>';
+  const venueFields = document.createElement('div');
+  venueFields.className = 'listing-wizard-field-grid';
+  venueFields.dataset.venueFields = '';
+  venueFields.hidden = true;
+  venueFields.innerHTML = '<label>Venue type<select name="venueType" data-category-detail><option value="">Choose venue type</option><option value="wedding_hall">Wedding/reception hall</option><option value="conference_room">Conference/meeting room</option><option value="event_ground">Event ground/garden</option><option value="party_space">Party/club space</option><option value="photo_studio">Photo/film studio</option><option value="function_room">Restaurant/hotel function room</option><option value="other">Other</option></select></label><label>Seated capacity<input name="seatedCapacity" type="number" min="1" step="1" data-category-detail></label><label>Standing capacity<input name="standingCapacity" type="number" min="1" step="1" data-category-detail></label><label>Number of rooms/halls<input name="venueRoomCount" type="number" min="1" step="1" data-category-detail></label><label>Allowed event types<input name="allowedEventTypes" maxlength="500" placeholder="Weddings, meetings, parties" data-category-detail></label><label>Noise cutoff time<input name="noiseCutoff" type="time" data-category-detail></label><label>Setup/cleanup buffer (hours)<input name="bufferHours" type="number" min="0" step="0.5" data-category-detail></label><label>Pricing model<select name="pricingModel" data-category-detail><option value="hourly">Per hour</option><option value="half_day">Half-day</option><option value="full_day">Full-day</option><option value="per_event">Per event</option></select></label><label>Base price (TZS)<input name="basePrice" type="number" min="1" step="1" data-category-detail></label><label>Minimum hours<input name="minimumHours" type="number" min="0" step="0.5" data-category-detail></label><label>Security deposit (informational)<input name="securityDeposit" type="number" min="0" step="1" data-category-detail></label>';
   const generalPropertyFields = document.createElement('div');
   generalPropertyFields.className = 'listing-wizard-field-grid';
   generalPropertyFields.dataset.generalPropertyFields = '';
   generalPropertyFields.innerHTML = '<label>Property area (m²)<input name="propertySize" type="number" min="1" step="0.01" placeholder="e.g. 95"></label><label>Furnishing<select name="furnished"><option value="">Not specified</option><option value="furnished">Furnished</option><option value="partially_furnished">Partially furnished</option><option value="unfurnished">Unfurnished</option></select></label>';
-  detailsPanel.append(stayFields, landFields, commercialFields, generalPropertyFields);
+  detailsPanel.append(stayFields, landFields, commercialFields, venueFields, generalPropertyFields);
 
   const priceFields = document.createElement('div');
   priceFields.className = 'listing-wizard-field-grid';
@@ -121,7 +126,8 @@
     room: ['Shared kitchen', 'Shared bathroom', 'Secure entry', 'Wi-Fi', 'Laundry', 'Parking'],
     hotel: ['Restaurant', 'Swimming pool', 'Conference room', 'Security', 'Parking', 'Generator', 'Laundry', 'Wi-Fi'],
     land_plot: ['Road access', 'Water connection', 'Electricity nearby', 'Fenced plot', 'Surveyed title', 'Drainage'],
-    commercial: ['Street frontage', 'Parking', 'Loading access', 'Power backup', 'Fiber internet', 'Security', 'Air conditioning', 'Public transport']
+    commercial: ['Street frontage', 'Parking', 'Loading access', 'Power backup', 'Fiber internet', 'Security', 'Air conditioning', 'Public transport'],
+    venue: ['Stage', 'Sound system', 'Air conditioning', 'Generator', 'Parking', 'Kitchen/catering area', 'Tables and chairs', 'Decor allowed', 'Outdoor space', 'Indoor space', 'Accessibility', 'Restrooms', 'Wi-Fi']
   };
   const amenityChoices = document.createElement('div');
   amenityChoices.className = 'listing-amenity-grid';
@@ -221,17 +227,19 @@
     const transaction = field('transactionType').value;
     const isLand = category.value === 'land_plot';
     const isCommercial = category.value === 'commercial';
+    const isVenue = category.value === 'venue';
     const isApartment = category.value === 'apartment' || category.value === 'serviced_apartment';
     const isLeaseCategory = isLand || isCommercial;
     const stayOption = [...field('transactionType').options].find(option => option.value === 'stay');
     stayOption.disabled = isLeaseCategory;
     if (isLeaseCategory && transaction === 'stay') field('transactionType').value = 'sale';
-    stayFields.hidden = isLeaseCategory;
+    stayFields.hidden = isLeaseCategory || isVenue;
     label('rentalMode').hidden = true;
     apartmentBedsLabel.hidden = !isApartment;
     landFields.hidden = !isLand;
     commercialFields.hidden = !isCommercial;
-    generalPropertyFields.hidden = isLand || isCommercial;
+    venueFields.hidden = !isVenue;
+    generalPropertyFields.hidden = isLand || isCommercial || isVenue;
     if (generalPropertyFields.hidden) {
       field('propertySize').value = '';
       field('furnished').value = '';
@@ -240,7 +248,9 @@
     field('bookingMode').value = field('transactionType').value === 'stay' ? field('bookingMode').value || 'request' : 'request';
     field('privacyType').value = isLeaseCategory ? '' : field('privacyType').value || 'entire_place';
     updatePriceFields();
-    categoryHelp.textContent = isLand
+    categoryHelp.textContent = isVenue
+      ? 'Venues are rented by time slot. Add capacity, pricing, rules, availability, and at least five photos.'
+      : isLand
       ? 'Add plot size, land use, and the title information reported by the advertiser. Land is available to buy or rent.'
       : isCommercial
         ? 'Add floor area and intended business use. Commercial properties are available to buy or rent.'
