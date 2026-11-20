@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from contextlib import nullcontext
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 
@@ -687,7 +688,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.rows')
     @patch('console.views.bcrypt.checkpw', return_value=True)
     @patch('console.views.load_founder_profile', return_value=None)
-    def test_unverified_admin_can_sign_in_when_email_verification_is_disabled(
+    def test_unverified_admin_can_sign_in_without_email_verification_setting(
         self, founder_profile, checkpw, rows, execute, scalar
     ):
         rows.side_effect = [
@@ -700,7 +701,6 @@ class AdminConsoleAccessTests(SimpleTestCase):
                 'mfa_enabled': False,
                 'display_name': 'Asha Mrema',
             }],
-            [{'setting_value': '0'}],
         ]
 
         response = self.client.post('/admin/login/', {
@@ -1066,26 +1066,18 @@ class AdminConsoleAccessTests(SimpleTestCase):
     @patch('console.views.audit')
     @patch('console.views.execute')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
-    def test_admin_can_disable_email_verification_after_signup(self, atomic, execute, audit):
+    def test_admin_cannot_enable_email_verification_requirement(self, atomic, execute, audit):
         self.authenticate_admin()
 
         response = self.client.post('/admin/action/setting/', {
             'key': 'require_email_verification',
-            'value': '0',
+            'value': '1',
             'section': 'settings',
         })
 
         self.assertRedirects(response, '/admin/?section=settings', fetch_redirect_response=False)
-        execute.assert_called_once_with(
-            'INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)',
-            ['require_email_verification', '0'],
-        )
-        audit.assert_called_once_with(
-            'admin_setting_updated',
-            'app_setting',
-            None,
-            {'key': 'require_email_verification'},
-        )
+        execute.assert_not_called()
+        audit.assert_not_called()
 
     @patch('console.views.execute')
     @patch('console.views.transaction.atomic', return_value=nullcontext())
@@ -1119,17 +1111,15 @@ class AdminConsoleAccessTests(SimpleTestCase):
         [],
         [],
     ])
-    def test_admin_settings_show_email_verification_state_and_enable_action(self, rows):
+    def test_admin_settings_keep_legacy_verification_setting_disabled(self, rows):
         self.authenticate_admin()
 
         response = self.client.get('/admin/?section=settings')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['require_email_verification'], '0')
-        self.assertContains(response, 'Email verification after signup')
-        self.assertContains(response, 'Current setting:</strong> Not required')
-        self.assertContains(response, 'name="value" value="1"')
-        self.assertContains(response, 'Require email verification after signup')
+        self.assertContains(response, 'Email verification is not required for signup or sign-in.')
+        self.assertNotContains(response, 'Require email verification after signup')
+        self.assertNotContains(response, 'name="key" value="require_email_verification"')
 
     @patch('console.views.rows', return_value=[{
         'id': 8, 'plan_key': 'agency-growth', 'name': 'Agency Growth', 'audience': 'agencies',
@@ -1429,7 +1419,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'identity_document_access_granted',
             'identity_verification',
             42,
-            {'source': 'identity_queue'},
+            {'source': 'identity_queue', 'kind': 'front'},
         )
 
     @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
@@ -1453,6 +1443,25 @@ class AdminConsoleAccessTests(SimpleTestCase):
         self.assertEqual(response.content, response_body)
         called_request = urlopen.call_args.args[0]
         self.assertEqual(called_request.full_url, 'https://makazigo.example/api/admin/verifications/42/document?token=' + ('a' * 43))
+
+    @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
+    @patch('console.views.urlopen')
+    def test_identity_document_preview_selects_nida_reverse(self, urlopen):
+        headers = Message()
+        headers['Content-Type'] = 'image/jpeg'
+        upstream = io.BytesIO(b'\xff\xd8\xffprivate-image')
+        upstream.headers = headers
+        urlopen.return_value.__enter__.return_value = upstream
+        self.authenticate_admin()
+
+        response = self.client.get('/admin/identity-documents/42/?token=' + ('a' * 43) + '&kind=back')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('verification-42-back.jpg', response['Content-Disposition'])
+        self.assertEqual(
+            urlopen.call_args.args[0].full_url,
+            'https://makazigo.example/api/admin/verifications/42/document?token=' + ('a' * 43) + '&kind=back',
+        )
 
     @patch.dict(os.environ, {'MARKETPLACE_URL': 'https://makazigo.example'})
     @patch('console.views.urlopen', side_effect=HTTPError('https://makazigo.example/document', 404, 'Not found', {}, io.BytesIO(b'{"error":"expired"}')))
@@ -1489,7 +1498,7 @@ class AdminConsoleAccessTests(SimpleTestCase):
             'identity_document_access_granted',
             'identity_verification',
             42,
-            {'source': 'listing_review'},
+            {'source': 'listing_review', 'kind': 'front'},
         )
 
     @patch('console.views.rows', return_value=[{
@@ -1500,6 +1509,9 @@ class AdminConsoleAccessTests(SimpleTestCase):
         'document_last4': '1234',
         'created_at': '2026-11-08 09:00:00',
         'has_document': 1,
+        'has_back_document': 1,
+        'has_selfie': 1,
+        'applicant_role': 'Property owner',
         'email': 'asha@example.test',
         'applicant_name': 'Asha Mrema',
     }])
@@ -1509,10 +1521,49 @@ class AdminConsoleAccessTests(SimpleTestCase):
         response = self.client.get('/admin/?section=verifications')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'View secure document')
+        self.assertContains(response, 'Identity checks')
+        self.assertContains(response, 'Property owner')
+        self.assertContains(response, 'View ID photo')
+        self.assertContains(response, 'View reverse')
+        self.assertContains(response, 'View ID selfie')
+        self.assertContains(response, 'Approve identity')
         self.assertContains(response, 'target="_blank"')
         self.assertContains(response, 'Ending 1234')
         self.assertContains(response, '2026-11-08 09:00:00')
+
+    @patch('console.views.admin_has_feature_access', return_value=True)
+    @patch('console.views.scalar', return_value=1)
+    @patch('console.views.audit')
+    @patch('console.views.execute')
+    @patch('console.views.transaction.atomic', return_value=nullcontext())
+    def test_identity_approval_records_status_reviewer_and_time(
+        self, atomic, execute, audit, scalar, has_feature_access
+    ):
+        self.authenticate_admin()
+        session = self.client.session
+        session['admin_is_founder'] = False
+        session['admin_user_id'] = 7
+        session.save()
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = session.session_key
+        self.assertEqual(self.client.session.get('admin_user_id'), 7)
+
+        response = self.client.post('/admin/action/verification-status/', {
+            'id': '42',
+            'status': 'approved',
+            'section': 'verifications',
+        })
+
+        self.assertRedirects(response, '/admin/?section=verifications', fetch_redirect_response=False)
+        execute.assert_called_once_with(
+            'UPDATE identity_verifications SET status=%s,reviewed_by=%s,reviewed_at=UTC_TIMESTAMP(),rejection_reason=%s,resubmission_reason=%s WHERE id=%s',
+            ['approved', 7, None, None, 42],
+        )
+        audit.assert_called_once_with(
+            'verification_approved',
+            'identity_verification',
+            42,
+            {'reason': None},
+        )
 
     @patch('console.views.rows', return_value=[{'id': 21, 'email': 'agent@example.test', 'user_status': 'pending', 'subaccount_id': 33, 'label': 'Bookings', 'subaccount_status': 'pending', 'name': 'Asha', 'main_agent': 'Neema'}])
     def test_agent_approval_page_renders_approve_and_reject_actions(self, rows):

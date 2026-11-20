@@ -92,10 +92,13 @@ if(signupForm){
   const messages=[...signupForm.querySelectorAll('[data-signup-error]')];
   const stepNames=['Account type','Contact details','Secure your account'];
   let currentStep=0;
-  const syncRole=()=>{const agent=signupForm.elements.role.value==='agent';agentFields.forEach(field=>{field.hidden=!agent})};
+  const identityFields=signupForm.querySelector('[data-identity-fields]');
+  const documentType=signupForm.elements.documentType;
+  const syncRole=()=>{const role=signupForm.elements.role.value,agent=role==='agent',requiresIdentity=agent||role==='property_owner';agentFields.forEach(field=>{field.hidden=!agent});if(identityFields){identityFields.hidden=!requiresIdentity;identityFields.disabled=!requiresIdentity;identityFields.querySelectorAll('[data-identity-required]').forEach(field=>{field.required=requiresIdentity});signupForm.elements.backDocument.required=requiresIdentity&&documentType.value==='national_id'}};
   const showStep=index=>{currentStep=index;steps.forEach((step,stepIndex)=>{step.hidden=stepIndex!==index});progress.style.width=`${((index+1)/steps.length)*100}%`;stepLabel.textContent=`Step ${index+1} of ${steps.length} · ${stepNames[index]}`;steps[index].querySelector('input:not([type="hidden"]),select,textarea')?.focus()};
   const validateStep=index=>{for(const field of steps[index].querySelectorAll('input,select,textarea')){if(field.type==='radio'){if(!signupForm.querySelector(`[name="${field.name}"]:checked`))return false;continue}if(field.required&&!field.reportValidity())return false}return true};
   roleInputs.forEach(input=>input.addEventListener('change',syncRole));
+  documentType?.addEventListener('change',syncRole);
   signupForm.querySelectorAll('[data-signup-next]').forEach(button=>button.addEventListener('click',()=>{if(!validateStep(currentStep))return;if(currentStep===0)syncRole();if(currentStep<steps.length-1)showStep(currentStep+1)}));
   signupForm.querySelectorAll('[data-signup-back]').forEach(button=>button.addEventListener('click',()=>showStep(Math.max(0,currentStep-1))));
   signupForm.addEventListener('input',()=>{
@@ -117,8 +120,10 @@ if(signupForm){
     const submit=signupForm.querySelector('[type="submit"]');
     submit.disabled=true;
     try{
-      const result=await authRequest('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await authCsrf()},body:JSON.stringify(data)});
-      if(result.pendingApproval){signupForm.parentElement.innerHTML='<div class="signup-success"><p class="eyebrow">Application received</p><h2>Your agent profile is under review.</h2><p>We saved your contact and agency details. You’ll be able to list properties after approval.</p><a class="button primary" href="/login/">Continue to sign in</a></div>';return}
+      const submission=new FormData(signupForm);
+      submission.delete('confirmPassword');
+      const result=await authRequest('/api/auth/register',{method:'POST',headers:{'X-CSRF-Token':await authCsrf()},body:submission});
+      if(result.pendingApproval){signupForm.parentElement.innerHTML='<div class="signup-success"><p class="eyebrow">Application received</p><h2>Your agent profile is under review.</h2><p>Your NIDA or passport documents are in the admin identity-check queue. Your agent account also needs administrator approval.</p><a class="button primary" href="/login/">Continue to sign in</a></div>';return}
       location.assign(data.next||'/account/dashboard/');
     }catch(error){messages[currentStep].textContent=error.message}
     finally{submit.disabled=false}

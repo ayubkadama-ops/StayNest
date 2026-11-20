@@ -48,6 +48,11 @@ class MarketplaceRoutingTests(SimpleTestCase):
         self.assertContains(signup, 'data-signup-form')
         self.assertContains(signup, 'Agency or business name')
         self.assertContains(signup, 'Phone number')
+        self.assertContains(signup, 'data-identity-fields')
+        self.assertContains(signup, 'name="documentType"')
+        self.assertContains(signup, 'name="document"')
+        self.assertContains(signup, 'name="backDocument"')
+        self.assertContains(signup, 'name="selfie"')
         self.assertContains(signup, '/login/?next=')
 
     def test_google_signup_completion_sends_new_user_to_login_with_password_notice(self):

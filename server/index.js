@@ -36,9 +36,8 @@ import {
 import { createAgentEcosystemRouter } from './agent-ecosystem-router.js';
 import { canAssignRole, hasListingRolePermission, isSupportedRole } from './role-matrix.js';
 import { normalizeListingCategoryDetails, validateAdvertisingAuthorization } from './listing-category-details.js';
-import { validateIdentitySubmission } from './identity-verification.js';
+import { validateIdentityDocuments } from './identity-verification.js';
 import { securityHeaders } from './security-headers.js';
-import { isEmailVerificationRequired } from './email-verification-policy.js';
 import { resolveLegacyAiRoute } from './legacy-ai-route.js';
 import {
   nextPropertyVerificationCheck,
@@ -127,6 +126,15 @@ const agentListingUpload = multer({
     ? ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype)
     : ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4', 'video/webm'].includes(file.mimetype))
 });
+const identityDocumentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 3 },
+  fileFilter: (_req, file, cb) => cb(null, ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype))
+}).fields([
+  { name: 'document', maxCount: 1 },
+  { name: 'backDocument', maxCount: 1 },
+  { name: 'selfie', maxCount: 1 }
+]);
 const sessionStore = new MySqlSessionStore();
 const googleOAuthEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL
@@ -145,8 +153,7 @@ let runtimeConfig = {
   contactPhone: '0794 442 907',
   timezone: 'Africa/Dar_es_Salaam',
   maintenanceMode: false,
-  maintenanceMessage: 'Makazi Go is being updated. Please check back shortly.',
-  requireEmailVerification: true
+  maintenanceMessage: 'Makazi Go is being updated. Please check back shortly.'
 };
 const adminSettingKeys = {
   site_name: 'siteName',
@@ -161,8 +168,7 @@ const adminSettingKeys = {
   social_youtube_url: 'socialYoutubeUrl',
   timezone: 'timezone',
   maintenance_mode: 'maintenanceMode',
-  maintenance_message: 'maintenanceMessage',
-  require_email_verification: 'requireEmailVerification'
+  maintenance_message: 'maintenanceMessage'
 };
 async function loadRuntimeConfig() {
   try {
@@ -170,7 +176,7 @@ async function loadRuntimeConfig() {
     for (const row of rows) {
       const key = adminSettingKeys[row.setting_key];
       if (!key) continue;
-      runtimeConfig[key] = ['maintenance_mode', 'require_email_verification'].includes(row.setting_key)
+      runtimeConfig[key] = row.setting_key === 'maintenance_mode'
         ? row.setting_value !== '0'
         : row.setting_value;
     }
@@ -282,13 +288,6 @@ async function isFeatureEnabled(featureKey) {
     console.warn('Feature flags unavailable; allowing the requested operation:', error.code || error.message);
     return true;
   }
-}
-async function requiresEmailVerification() {
-  const [settings] = await pool.query(
-    'SELECT setting_value FROM app_settings WHERE setting_key=?',
-    ['require_email_verification']
-  );
-  return isEmailVerificationRequired(settings[0]?.setting_value);
 }
 const strongPassword = password => typeof password === 'string'
   && password.length >= 12
@@ -532,7 +531,7 @@ app.get('/api/auth/google/callback', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/auth/google/complete', async (req, res, next) => {
+app.post('/api/auth/google/complete', identityDocumentUpload, async (req, res, next) => {
   const pending = req.session.googlePending;
   if (!pending) return res.status(400).json({ error: 'Your Google sign-in session expired. Please try again.' });
   const phone = String(req.body.phone || '').trim();
@@ -540,9 +539,13 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
   const role = String(req.body.role || '');
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const confirmPassword = typeof req.body.confirmPassword === 'string' ? req.body.confirmPassword : '';
+  const identity = ['agent', 'property_owner'].includes(role)
+    ? validateIdentityDocuments(req.body, req.files)
+    : null;
   if (!/^\+?[0-9][0-9\s().-]{6,24}$/.test(phone)) return res.status(400).json({ error: 'Enter a valid phone number.' });
   if (!location || location.length > 100) return res.status(400).json({ error: 'Enter your city or location.' });
   if (!['tenant', 'property_owner', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant, Property owner, or Agent.' });
+  if (identity?.error) return res.status(400).json({ error: identity.error });
   if (!strongPassword(password)) return res.status(400).json({ error: 'Choose a strong password with at least 12 characters, including three character types.' });
   if (password !== confirmPassword) return res.status(400).json({ error: 'Passwords do not match.' });
   const connection = await pool.getConnection();
@@ -569,6 +572,7 @@ app.post('/api/auth/google/complete', async (req, res, next) => {
       await connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE name=?', [result.insertId, role]);
     }
     if (['agent', 'property_owner'].includes(role)) await connection.execute('INSERT INTO agent_profiles (user_id, phone) VALUES (?, ?)', [result.insertId, phone]);
+    if (identity?.value) await saveIdentityVerification(connection, result.insertId, identity.value);
     await connection.commit();
     delete req.session.googlePending;
     if (role === 'agent') {
@@ -729,7 +733,35 @@ async function notifyAdministrators(notification) {
   await Promise.all(admins.map(admin => notifyUser(admin.id, notification)));
 }
 
-app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
+async function saveIdentityVerification(database, userId, submission) {
+  const stored = await storePrivateDocument(submission.document, userId);
+  const storedBack = submission.backDocument
+    ? await storePrivateDocument(submission.backDocument, userId)
+    : null;
+  const storedSelfie = await storePrivateDocument(submission.selfie, userId);
+  const [result] = await database.execute(
+    `INSERT INTO identity_verifications
+     (user_id,document_type,document_country,document_last4,document_file_key,encryption_version,
+      id_number_encrypted,full_name,date_of_birth,back_document_file_key,selfie_file_key,consent_at,status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), "pending")`,
+    [
+      userId,
+      submission.documentType,
+      submission.documentCountry,
+      submission.idNumber.slice(-4),
+      stored.key,
+      stored.encryptionVersion,
+      encryptSecret(submission.idNumber),
+      submission.fullName,
+      submission.dateOfBirth,
+      storedBack?.key || null,
+      storedSelfie.key
+    ]
+  );
+  return result.insertId;
+}
+
+app.post('/api/auth/register', signupLimiter, identityDocumentUpload, async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     if (!(await isFeatureEnabled('new_registrations'))) return res.status(503).json({ error: 'New registrations are temporarily paused' });
@@ -739,17 +771,20 @@ app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
     const lastName = String(req.body.lastName || '').trim();
     const role = String(req.body.role || 'tenant');
     const details = registrationDetails(req.body);
+    const identity = ['agent', 'property_owner'].includes(role)
+      ? validateIdentityDocuments(req.body, req.files)
+      : null;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !strongPassword(password)) return res.status(400).json({ error: 'Enter a valid email and a strong password with at least 12 characters, including three character types' });
     if (!firstName || !lastName) return res.status(400).json({ error: 'First name and last name are required' });
     if (!['tenant', 'property_owner', 'agent'].includes(role)) return res.status(400).json({ error: 'Choose Tenant, Property owner, or Agent' });
+    if (identity?.error) return res.status(400).json({ error: identity.error });
     if (details.error) return res.status(400).json({ error: details.error });
-    const verificationRequired = await requiresEmailVerification();
     await connection.beginTransaction();
     const initialStatus = role === 'agent' ? 'pending' : 'active';
     const [result] = await connection.execute(
       `INSERT INTO users (email,phone,password_hash,status,email_verified_at)
-       VALUES (?,?,?,?,IF(?=1,NULL,UTC_TIMESTAMP()))`,
-      [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus, verificationRequired ? 1 : 0]
+       VALUES (?,?,?,?,UTC_TIMESTAMP())`,
+      [email, details.phone || null, await bcrypt.hash(password, 12), initialStatus]
     );
     await connection.execute('INSERT INTO user_profiles (user_id, first_name, last_name, avatar_url, city, bio) VALUES (?, ?, ?, ?, ?, ?)', [result.insertId, firstName, lastName, DEFAULT_PROFILE_AVATAR, details.city || null, details.bio || null]);
     if (role === 'property_owner') {
@@ -763,15 +798,8 @@ app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
         [result.insertId, details.phone || null, details.bio || null, role === 'agent' ? details.agencyName || null : null]
       );
     }
+    if (identity?.value) await saveIdentityVerification(connection, result.insertId, identity.value);
     await connection.commit();
-    let emailVerificationSent = false;
-    if (verificationRequired) {
-      try {
-        emailVerificationSent = await sendEmailVerification(result.insertId, email, req.ip);
-      } catch (emailError) {
-        console.error('Account verification email failed:', emailError.message);
-      }
-    }
     if (role === 'agent') {
       void notifyAdministrators({
         type: 'agent_registration_pending',
@@ -779,9 +807,9 @@ app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
         body: `${firstName} ${lastName} (${email}) submitted an agent registration for founder approval.`,
         data: { userId: result.insertId, role }
       }).catch(error => console.error('Agent registration notification failed:', error.message));
-      return res.status(201).json({ ok: true, role, roles: [role], pendingApproval: true, emailVerificationSent, message: 'Your agent registration is pending founder approval.', approvalContact });
+      return res.status(201).json({ ok: true, role, roles: [role], pendingApproval: true, message: 'Your agent registration is pending founder approval.', approvalContact });
     }
-    res.status(201).json({ ok: true, role, roles: [role], requiresLogin: true, email, emailVerificationSent });
+    res.status(201).json({ ok: true, role, roles: [role], requiresLogin: true, email });
   } catch (error) {
     await connection.rollback();
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An account with that email or phone already exists. Try signing in instead.' });
@@ -793,7 +821,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
   try {
     const identifier = String(req.body.identifier || req.body.email || req.body.username || '').toLowerCase().trim();
     const [rows] = await pool.execute(
-      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, u.failed_login_count, u.failed_login_round, u.login_locked_until, u.require_password_change, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE (u.email=? OR u.username=? OR u.phone=?) AND u.status IN ("active","pending","suspended") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
+      'SELECT u.id, u.status, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, u.failed_login_count, u.failed_login_round, u.login_locked_until, u.require_password_change, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE (u.email=? OR u.username=? OR u.phone=?) AND u.status IN ("active","pending","suspended") GROUP BY u.id, u.status, p.first_name, p.last_name',
       [identifier, identifier, identifier]
     );
     const user = rows[0];
@@ -874,9 +902,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
     }
     if (user.status === 'pending') {
       return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
-    }
-    if (!user.email_verified_at && await requiresEmailVerification()) {
-      return res.status(403).json({ emailVerificationRequired: true, error: 'Verify your email address before signing in.' });
     }
     if (!roles.some(isSupportedRole)) return res.status(403).json({ error: 'This account role is no longer supported. Contact Makazi Go support.' });
     if (user.mfa_enabled) {
@@ -3330,11 +3355,6 @@ app.patch('/api/admin/settings', requireAuth, requireAdminAccess('settings'), as
       let value;
       if (key === 'maintenance_mode') {
         value = values[key] ? '1' : '0';
-      } else if (key === 'require_email_verification') {
-        if (![true, false, 0, 1, '0', '1'].includes(values[key])) {
-          return res.status(400).json({ error: 'Email verification requirement must be enabled or disabled' });
-        }
-        value = isEmailVerificationRequired(values[key]) ? '1' : '0';
       } else {
         value = String(values[key]).trim().slice(0, 5000);
       }
@@ -3690,7 +3710,14 @@ app.get('/api/admin/verifications', requireAuth, requireAdminAccess('verificatio
 app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
   const verificationId = positiveId(req.params.id);
   const token = typeof req.query.token === 'string' ? req.query.token : '';
-  if (!verificationId || !/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(404).json({ error: 'Document access link is invalid or expired' });
+  const documentKind = String(req.query.kind || 'front');
+  const documentColumns = {
+    front: 'document_file_key',
+    back: 'back_document_file_key',
+    selfie: 'selfie_file_key'
+  };
+  const documentColumn = documentColumns[documentKind];
+  if (!verificationId || !documentColumn || !/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(404).json({ error: 'Document access link is invalid or expired' });
   const tokenHash = crypto.createHash('sha256').update(token).digest();
   const connection = await pool.getConnection();
   try {
@@ -3704,10 +3731,10 @@ app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
       return res.status(404).json({ error: 'Document access link is invalid or expired' });
     }
     const [[document]] = await connection.execute(
-      'SELECT document_file_key, encryption_version FROM identity_verifications WHERE id=?',
+      `SELECT ${documentColumn} document_file_key, encryption_version FROM identity_verifications WHERE id=?`,
       [verificationId]
     );
-    if (!document) {
+    if (!document?.document_file_key) {
       await connection.rollback();
       return res.status(404).json({ error: 'Verification document not found' });
     }
@@ -3717,11 +3744,11 @@ app.get('/api/admin/verifications/:id/document', async (req, res, next) => {
     );
     await connection.commit();
     const { buffer, contentType } = await readPrivateDocument(document.document_file_key, document.encryption_version);
-    await audit(req, 'identity_document_downloaded', 'identity_verification', verificationId);
+    await audit(req, 'identity_document_downloaded', 'identity_verification', verificationId, { kind: documentKind });
     const extension = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' }[contentType];
     res.set({
       'Cache-Control': 'private, no-store, max-age=0',
-      'Content-Disposition': `inline; filename="verification-${verificationId}.${extension}"`,
+      'Content-Disposition': `inline; filename="verification-${verificationId}-${documentKind}.${extension}"`,
       'Content-Type': contentType,
       'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff'
@@ -4291,49 +4318,13 @@ app.post('/api/listings/:id/media', requireAuth, requireAgentAccess('media.manag
   } catch (error) { next(error); }
 });
 
-app.post('/api/identity-documents', requireAuth, requireAgentAccess('identity.manage'), multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: 3 },
-  fileFilter: (_req, file, cb) => cb(null, ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype))
-}).fields([
-  { name: 'document', maxCount: 1 },
-  { name: 'backDocument', maxCount: 1 },
-  { name: 'selfie', maxCount: 1 }
-]), async (req, res, next) => {
+app.post('/api/identity-documents', requireAuth, requireAgentAccess('identity.manage'), identityDocumentUpload, async (req, res, next) => {
   try {
-    const document = req.files?.document?.[0];
-    const backDocument = req.files?.backDocument?.[0];
-    const selfie = req.files?.selfie?.[0];
-    if (!document || !selfie) return res.status(400).json({ error: 'Add the ID document and a selfie holding the ID' });
-    if (req.body.documentType === 'national_id' && !backDocument) return res.status(400).json({ error: 'Add the back of the NIDA document' });
-    const submission = validateIdentitySubmission(req.body);
+    const submission = validateIdentityDocuments(req.body, req.files);
     if (submission.error) return res.status(400).json({ error: submission.error });
-    const stored = await storePrivateDocument(document, req.session.user.id);
-    const storedBack = backDocument ? await storePrivateDocument(backDocument, req.session.user.id) : null;
-    const storedSelfie = await storePrivateDocument(selfie, req.session.user.id);
-    const idNumberEncrypted = encryptSecret(submission.value.idNumber);
-    const documentLast4 = submission.value.idNumber.slice(-4);
-    const [result] = await pool.execute(
-      `INSERT INTO identity_verifications
-       (user_id,document_type,document_country,document_last4,document_file_key,encryption_version,
-        id_number_encrypted,full_name,date_of_birth,back_document_file_key,selfie_file_key,consent_at,status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), "pending")`,
-      [
-        req.session.user.id,
-        submission.value.documentType,
-        req.body.documentCountry || null,
-        documentLast4,
-        stored.key,
-        stored.encryptionVersion,
-        idNumberEncrypted,
-        submission.value.fullName,
-        submission.value.dateOfBirth,
-        storedBack?.key || null,
-        storedSelfie.key
-      ]
-    );
-    await audit(req, 'identity_document_uploaded', 'identity_verification', result.insertId);
-    res.status(201).json({ id: result.insertId, status: 'pending' });
+    const verificationId = await saveIdentityVerification(pool, req.session.user.id, submission.value);
+    await audit(req, 'identity_document_uploaded', 'identity_verification', verificationId);
+    res.status(201).json({ id: verificationId, status: 'pending' });
   } catch (error) { next(error); }
 });
 

@@ -2,6 +2,37 @@ document.querySelector('.menu-toggle')?.addEventListener('click',event=>{const h
 document.querySelectorAll('[data-auth-tab]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-auth-tab]').forEach(tab=>{const selected=tab===button;tab.classList.toggle('active',selected);tab.setAttribute('aria-selected',String(selected))});document.querySelectorAll('[data-auth-form]').forEach(form=>{form.hidden=form.dataset.authForm!==button.dataset.authTab})}));
 async function api(path,options={}){const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});const data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.error||`Request failed (${response.status})`);error.status=response.status;throw error}return data}
 async function csrf(){return (await api('/api/auth/csrf')).token}
+document.querySelectorAll('form[data-auth-form="register"]').forEach(form=>{
+  const identityFields=form.querySelector('[data-identity-fields]');
+  const syncIdentityFields=()=>{
+    const role=form.elements.role.value,required=['agent','property_owner'].includes(role);
+    identityFields.hidden=!required;
+    identityFields.disabled=!required;
+    identityFields.querySelectorAll('[data-identity-required]').forEach(field=>{field.required=required});
+    form.elements.backDocument.required=required&&form.elements.documentType.value==='national_id';
+  };
+  form.elements.role.addEventListener('change',syncIdentityFields);
+  form.elements.documentType.addEventListener('change',syncIdentityFields);
+  syncIdentityFields();
+});
+document.addEventListener('submit',async event=>{
+  const form=event.target;
+  if(!(form instanceof HTMLFormElement)||form.dataset.authForm!=='register')return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const message=form.querySelector('.form-message'),submit=form.querySelector('[type="submit"]');
+  submit.disabled=true;
+  message.textContent='';
+  try{
+    const result=await api('/api/auth/register',{method:'POST',headers:{'X-CSRF-Token':await csrf()},body:new FormData(form)});
+    if(result.pendingApproval){
+      form.parentElement.innerHTML='<div class="signup-success"><p class="eyebrow">Application received</p><h2>Your agent profile is under review.</h2><p>Your NIDA or passport documents are in the admin identity-check queue. Your agent account also needs administrator approval.</p><a class="button primary" href="/login/">Continue to sign in</a></div>';
+      return;
+    }
+    location.assign(form.elements.next.value||'/account/dashboard/');
+  }catch(error){message.textContent=error.message}
+  finally{submit.disabled=false}
+},true);
 (window.cloudinaryConfigReady||api('/api/public-config')).then(config=>{const email=document.querySelector('[data-footer-contact="email"]'),phone=document.querySelector('[data-footer-contact="phone"]');if(email&&config.contactEmail){email.href=`mailto:${config.contactEmail}`;email.textContent=config.contactEmail;email.hidden=false}if(phone&&config.contactPhone){phone.href=`tel:${config.contactPhone.replace(/[^+\d]/g,'')}`;phone.textContent=config.contactPhone;phone.hidden=false}for(const [network,address] of Object.entries(config.socialLinks||{})){const link=document.querySelector(`[data-social-link="${network}"]`);try{const url=new URL(address);if(link&&url.protocol==='https:'){link.href=url.href;link.hidden=false}}catch{}}}).catch(()=>{});
 api('/api/auth/me').then(({user})=>{if(!user)return;const account=document.querySelector('.account-link'),create=document.querySelector('.account-create-link'),host=document.querySelector('.host-link'),isAgent=user.roles?.includes('agent');if(account){account.href=isAgent?'/agent/':'/account/dashboard/';account.textContent=isAgent?'Agent workspace':'My account'}if(create)create.hidden=true;if(host){host.href=isAgent?'/agent/':'/account/dashboard/';host.textContent=isAgent?'Manage listings':'My account'}}).catch(()=>{});
 document.querySelectorAll('[data-auth-form]').forEach(form=>form.addEventListener('submit',async event=>{event.preventDefault();const message=form.querySelector('.form-message'),submit=form.querySelector('[type="submit"]');submit.disabled=true;message.textContent='';const values=Object.fromEntries(new FormData(form));values.rememberMe=form.elements.rememberMe.checked;try{const token=await csrf();const result=await api(`/api/auth/${form.dataset.authForm==='register'?'register':'login'}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify(values)});if(result.mfaRequired){const field=form.querySelector('[data-mfa-field]');field.hidden=false;field.querySelector('input').required=true;field.querySelector('input').focus();message.textContent='Enter your authenticator code, then sign in again.';return}if(result.pendingApproval){message.textContent=result.message||'Your agent application is waiting for approval.';return}location.assign(values.next||'/')}catch(error){message.textContent=error.message}finally{submit.disabled=false}}));

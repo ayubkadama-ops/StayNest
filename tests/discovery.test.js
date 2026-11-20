@@ -59,6 +59,15 @@ test('price filters use matching price periods and currencies, defaulting to TZS
   assert.ok(!yearlyRent.params.includes('TZS'));
 });
 
+test('venue is a supported property type in discovery filters', () => {
+  const plan = createDiscoveryPlan({ propertyType: 'venue' });
+
+  assert.equal(plan.error, undefined);
+  assert.equal(plan.filters.propertyType, 'venue');
+  assert.match(plan.whereSql, /pt\.name=\?/);
+  assert.ok(plan.params.includes('venue'));
+});
+
 test('discovery rejects invalid ranges, units, and incomplete availability dates', () => {
   assert.match(createDiscoveryPlan({ minPrice: '20', maxPrice: '10', pricePeriod: 'monthly' }).error, /Minimum price/);
   assert.match(createDiscoveryPlan({ transactionType: 'stay', pricePeriod: 'monthly' }).error, /nightly/);

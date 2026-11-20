@@ -27,7 +27,8 @@ const categoryCopy = {
   apartment: ['Apartments', 'Apartments for city living', 'Browse published apartments from Makazi Go agents.'],
   land: ['Land', 'Land ready for your plans', 'Browse published land listings and contact the responsible agents.'],
   hotel: ['Hotels', 'Stays with a warm welcome', 'Browse hotels and guesthouses posted by Makazi Go agents.'],
-  commercial: ['Commercial', 'Space for your business', 'Browse published commercial properties and contact their agents.']
+  commercial: ['Commercial', 'Space for your business', 'Browse published commercial properties and contact their agents.'],
+  venue: ['Venues', 'Spaces for celebrations and events', 'Browse published venues and contact the responsible agents.']
 };
 function updateCategoryHeading() {
   const category = filters.elements.propertyType.value;

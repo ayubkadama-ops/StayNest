@@ -25,7 +25,7 @@ from urllib.request import Request as URLRequest, urlopen
 from django.views.decorators.http import require_http_methods
 
 SECTIONS = {'overview', 'users', 'access', 'agents', 'businesses', 'listings', 'posts', 'badges', 'bookings', 'verifications', 'reviews', 'reports', 'audit', 'settings', 'analytics', 'monetization'}
-SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message', 'require_email_verification'}
+SETTING_KEYS = {'site_name', 'site_logo_url', 'contact_email', 'contact_phone', 'social_facebook_url', 'social_instagram_url', 'social_linkedin_url', 'social_tiktok_url', 'social_whatsapp_url', 'social_youtube_url', 'timezone', 'maintenance_mode', 'maintenance_message'}
 ROLES = {'tenant', 'property_owner', 'agent', 'agency', 'developer', 'verification_officer', 'administrator'}
 ADMIN_FEATURES = [
     ('overview', 'Overview', 'View marketplace summary metrics.'),
@@ -103,13 +103,6 @@ ADMIN_ACTION_FEATURES = {
 }
 FOUNDER_ONLY_ACTIONS = {'admin-create', 'admin-access-save', 'admin-delete'}
 logger = logging.getLogger(__name__)
-
-def email_verification_required():
-    settings = rows(
-        'SELECT setting_value FROM app_settings WHERE setting_key=%s',
-        ['require_email_verification'],
-    )
-    return not settings or settings[0]['setting_value'] != '0'
 
 def rows(sql, params=()):
     with connection.cursor() as cursor:
@@ -370,13 +363,7 @@ def login_view(request):
                 )
             except (TypeError, ValueError):
                 account_valid = False
-            if (
-                account_valid
-                and not account.get('email_verified_at')
-                and email_verification_required()
-            ):
-                messages.error(request, 'Verify the email address on this administrator account before signing in.')
-            elif account_valid and account.get('mfa_enabled'):
+            if account_valid and account.get('mfa_enabled'):
                 messages.error(request, 'This administrator account requires multi-factor authentication. Contact the Founder Console for assistance.')
             elif account_valid:
                 request.session.cycle_key()
@@ -416,6 +403,9 @@ def document_preview(request, verification_id):
     token = request.GET.get('token', '')
     if not re.fullmatch(r'[A-Za-z0-9_-]{43}', token):
         return HttpResponse('The secure document link is invalid or expired. Reopen it from the admin queue.', status=404)
+    document_kind = request.GET.get('kind', 'front')
+    if document_kind not in {'front', 'back', 'selfie'}:
+        return HttpResponse('The requested identity document is unavailable. Reopen it from the admin queue.', status=404)
 
     marketplace_url = os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')
     origin = urlparse(marketplace_url)
@@ -429,9 +419,12 @@ def document_preview(request, verification_id):
         logger.error('Identity document preview is unavailable because MARKETPLACE_URL is invalid.')
         return HttpResponse('Document preview is unavailable. Contact the system administrator.', status=502)
 
+    document_query = {'token': token}
+    if document_kind != 'front':
+        document_query['kind'] = document_kind
     document_url = (
         f'{marketplace_url}/api/admin/verifications/{verification_id}/document'
-        f'?{urlencode({"token": token})}'
+        f'?{urlencode(document_query)}'
     )
     upstream_request = URLRequest(
         document_url,
@@ -459,7 +452,8 @@ def document_preview(request, verification_id):
     extension = {'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png'}[content_type]
     response = HttpResponse(content, content_type=content_type)
     response['Cache-Control'] = 'private, no-store, max-age=0'
-    response['Content-Disposition'] = f'inline; filename="verification-{verification_id}.{extension}"'
+    suffix = '' if document_kind == 'front' else f'-{document_kind}'
+    response['Content-Disposition'] = f'inline; filename="verification-{verification_id}{suffix}.{extension}"'
     response['Referrer-Policy'] = 'no-referrer'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
@@ -681,7 +675,19 @@ def dashboard(request):
         elif section == 'bookings':
             data['rows'] = rows("SELECT b.id,b.guest_user_id,b.host_user_id,b.booking_code,b.status,b.check_in,b.check_out,b.total_amount,b.currency,l.title,COALESCE(gp.display_name,guest.email) guest_name,COALESCE(hp.display_name,host.email) host_name FROM bookings b JOIN listings l ON l.id=b.listing_id JOIN users guest ON guest.id=b.guest_user_id LEFT JOIN user_profiles gp ON gp.user_id=guest.id JOIN users host ON host.id=b.host_user_id LEFT JOIN user_profiles hp ON hp.user_id=host.id ORDER BY b.created_at DESC LIMIT 200")
         elif section == 'verifications':
-            data['rows'] = rows("SELECT v.id,v.user_id,v.status,v.document_type,v.document_last4,v.created_at,(v.document_file_key IS NOT NULL) has_document,u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name FROM identity_verifications v JOIN users u ON u.id=v.user_id LEFT JOIN user_profiles p ON p.user_id=u.id ORDER BY v.created_at DESC LIMIT 200")
+            data['rows'] = rows(
+                """SELECT v.id,v.user_id,v.status,v.document_type,v.document_last4,v.created_at,
+                          (v.document_file_key IS NOT NULL) has_document,
+                          (v.back_document_file_key IS NOT NULL) has_back_document,
+                          (v.selfie_file_key IS NOT NULL) has_selfie,
+                          COALESCE((SELECT GROUP_CONCAT(CASE r.name WHEN 'property_owner' THEN 'Property owner' ELSE 'Agent' END ORDER BY r.name SEPARATOR ', ')
+                            FROM user_roles ur JOIN roles r ON r.id=ur.role_id
+                            WHERE ur.user_id=v.user_id AND r.name IN ('agent','property_owner')),'tenant') applicant_role,
+                          u.email,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) applicant_name
+                   FROM identity_verifications v JOIN users u ON u.id=v.user_id
+                   LEFT JOIN user_profiles p ON p.user_id=u.id
+                   ORDER BY v.created_at DESC LIMIT 200"""
+            )
         elif section == 'reviews':
             data['reviews'] = rows(
                 """SELECT review_id,review_type,status,rating,comment,created_at,reviewer_name,target_name,target_detail
@@ -733,13 +739,6 @@ def dashboard(request):
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
             all_settings = rows('SELECT setting_key,setting_value,updated_at FROM app_settings ORDER BY setting_key')
-            verification_setting = next(
-                (setting for setting in all_settings if setting['setting_key'] == 'require_email_verification'),
-                None,
-            )
-            data['require_email_verification'] = (
-                '0' if verification_setting and verification_setting['setting_value'] == '0' else '1'
-            )
             footer_labels = {
                 'contact_email': 'Public contact email',
                 'contact_phone': 'Public contact phone',
@@ -1855,17 +1854,25 @@ def action(request, action):
                 reason = request.POST.get('reason', '').strip()[:500]
                 if status in {'rejected', 'needs_resubmission'} and not reason: raise ValueError('A reason is required')
                 execute(
-                    'UPDATE identity_verifications SET status=%s,reviewed_at=UTC_TIMESTAMP(),rejection_reason=%s,resubmission_reason=%s WHERE id=%s',
-                    [status, reason if status == 'rejected' else None, reason if status == 'needs_resubmission' else None, verification_id],
+                    'UPDATE identity_verifications SET status=%s,reviewed_by=%s,reviewed_at=UTC_TIMESTAMP(),rejection_reason=%s,resubmission_reason=%s WHERE id=%s',
+                    [status, request.session.get('admin_user_id') or None, reason if status == 'rejected' else None, reason if status == 'needs_resubmission' else None, verification_id],
                 )
                 audit(f'verification_{status}', 'identity_verification', verification_id, {'reason': reason or None})
             elif action in {'verification-document', 'listing-document'}:
                 record_id = int(request.POST.get('id', '0'))
                 if record_id < 1:
                     raise ValueError('Choose a valid document record')
+                document_kind = request.POST.get('kind', 'front') if action == 'verification-document' else 'front'
+                document_columns = {
+                    'front': 'document_file_key',
+                    'back': 'back_document_file_key',
+                    'selfie': 'selfie_file_key',
+                }
+                document_column = document_columns.get(document_kind)
+                if not document_column:
+                    raise ValueError('Choose a valid identity document')
                 document_rows = rows(
-                    """SELECT iv.id FROM identity_verifications iv
-                       WHERE iv.document_file_key IS NOT NULL AND iv.id=%s"""
+                    f'SELECT iv.id FROM identity_verifications iv WHERE iv.{document_column} IS NOT NULL AND iv.id=%s'
                     if action == 'verification-document'
                     else """SELECT COALESCE(agent_doc.id,owner_doc.id) id
                             FROM listings l
@@ -1901,9 +1908,10 @@ def action(request, action):
                     )
                     audit('identity_document_access_granted', 'identity_verification', verification_id, {
                         'source': 'listing_review' if action == 'listing-document' else 'identity_queue',
+                        'kind': document_kind,
                     })
                 return redirect(
-                    f'/admin/identity-documents/{verification_id}/?{urlencode({"token": token})}'
+                    f'/admin/identity-documents/{verification_id}/?{urlencode({"token": token, "kind": document_kind})}'
                 )
             elif action == 'feature':
                 execute('UPDATE feature_flags SET enabled=%s WHERE feature_key=%s', [1 if request.POST.get('enabled') == '1' else 0, request.POST['key']]); audit('feature_updated', 'feature', None, {'key': request.POST['key']})
@@ -1937,8 +1945,6 @@ def action(request, action):
                 value = request.POST.get('value', '').strip()
                 if key not in SETTING_KEYS: raise ValueError('Unknown marketplace setting')
                 if key == 'maintenance_mode' and value not in {'0', '1'}: raise ValueError('Invalid maintenance mode value')
-                if key == 'require_email_verification' and value not in {'0', '1'}:
-                    raise ValueError('Choose whether email verification is required')
                 if len(value) > 5000: raise ValueError('Setting value is too long')
                 if key.startswith('social_') and value and (urlparse(value).scheme != 'https' or not urlparse(value).netloc): raise ValueError('Social links must use a secure https URL')
                 execute('INSERT INTO app_settings (setting_key, setting_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [key, value]); audit('admin_setting_updated', 'app_setting', None, {'key': key})

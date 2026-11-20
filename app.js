@@ -16,7 +16,8 @@ const propertyCategoryOptions=[
   {value:'apartment',label:'Apartments',caption:'City living, made easy',image:'/assets/makazi-category-apartment.webp',icon:'<path d="M6 21V4h12v17M3 21h18M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/>'},
   {value:'land',label:'Land',caption:'Build your future',image:'/assets/makazi-category-land.webp',icon:'<path d="M12 21s7-5.5 7-12a7 7 0 1 0-14 0c0 6.5 7 12 7 12Z"/><circle cx="12" cy="9" r="2"/>'},
   {value:'hotel',label:'Hotels',caption:'Welcoming stays',image:'/assets/makazi-category-hotel.webp',icon:'<path d="M4 20V5m0 10h16v5M7 14V9h5v5m2 0v-3a3 3 0 0 1 6 0v3M3 21h18"/>'},
-  {value:'commercial',label:'Commercial',caption:'Room to do business',image:'/assets/makazi-category-commercial.webp',icon:'<path d="M4 21V9h16v12M3 9l2-5h14l2 5M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 21v-6h6v6"/>'}
+  {value:'commercial',label:'Commercial',caption:'Room to do business',image:'/assets/makazi-category-commercial.webp',icon:'<path d="M4 21V9h16v12M3 9l2-5h14l2 5M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 21v-6h6v6"/>'},
+  {value:'venue',label:'Venues',caption:'Spaces for celebrations and events',image:'/assets/makazi-category-commercial.webp',icon:'<path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-7h6v7M8 9h.01M16 9h.01"/>'}
 ];
 function mountPropertyCategories(){
   const hero=document.querySelector('.hero');
@@ -36,13 +37,13 @@ function mountPropertyCategories(){
 }
 mountPropertyCategories();
 const DEFAULT_AGENT_AVATAR='/assets/default-avatar.svg';
-function applyMakaziBrand(){document.title='Makazi Go | Find your place. Make your move.';document.querySelector('meta[name="description"]')?.setAttribute('content','Discover homes, apartments, land, hotels, and commercial property across Tanzania with Makazi Go.');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#062b22');document.querySelectorAll('.brand').forEach(brand=>{brand.setAttribute('aria-label','Makazi Go home');brand.innerHTML='<span class="brand-mark" aria-hidden="true">⌂</span><span>Makazi <span>Go</span></span>'});document.querySelector('.admin-shortcut')?.remove();const eyebrow=document.querySelector('.hero-copy .eyebrow'),heading=document.querySelector('.hero-copy h1'),lead=document.querySelector('.hero-lead');if(eyebrow)eyebrow.textContent='Find your place in Tanzania';if(heading)heading.innerHTML='Find your place.<br><em>Make your move.</em>';if(lead)lead.textContent='Discover homes, apartments, land, hotels, and commercial spaces in one trusted marketplace';const footer=document.querySelector('footer .footer-brand p');if(footer)footer.textContent='Find your place. Make your move.';document.querySelectorAll('footer h4').forEach(heading=>{if(heading.textContent.trim()==='Makazi Go')heading.textContent='Makazi Go'})}
+function applyMakaziBrand(){document.title='Makazi Go | Find your place. Make your move.';document.querySelector('meta[name="description"]')?.setAttribute('content','Discover homes, apartments, land, hotels, venues, and commercial property across Tanzania with Makazi Go.');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#062b22');document.querySelectorAll('.brand').forEach(brand=>{brand.setAttribute('aria-label','Makazi Go home');brand.innerHTML='<span class="brand-mark" aria-hidden="true">⌂</span><span>Makazi <span>Go</span></span>'});document.querySelector('.admin-shortcut')?.remove();const eyebrow=document.querySelector('.hero-copy .eyebrow'),heading=document.querySelector('.hero-copy h1'),lead=document.querySelector('.hero-lead');if(eyebrow)eyebrow.textContent='Find your place in Tanzania';if(heading)heading.innerHTML='Find your place.<br><em>Make your move.</em>';if(lead)lead.textContent='Discover homes, apartments, land, hotels, venues, and commercial spaces in one trusted marketplace';const footer=document.querySelector('footer .footer-brand p');if(footer)footer.textContent='Find your place. Make your move.';document.querySelectorAll('footer h4').forEach(heading=>{if(heading.textContent.trim()==='Makazi Go')heading.textContent='Makazi Go'})}
 applyMakaziBrand();
 function configureMarketplaceSearch(){
   const propertyType=document.querySelector('#searchType');
   const rentalTerm=document.querySelector('#dateInput');
   if(propertyType){
-    propertyType.innerHTML='<option value="">All properties</option><option value="house">Homes</option><option value="apartment">Apartments</option><option value="land">Land</option><option value="hotel">Hotels</option><option value="commercial">Commercial</option>';
+    propertyType.innerHTML='<option value="">All properties</option><option value="house">Homes</option><option value="apartment">Apartments</option><option value="land">Land</option><option value="hotel">Hotels</option><option value="commercial">Commercial</option><option value="venue">Venues</option>';
     propertyType.setAttribute('aria-label','Property type');
     const label=propertyType.closest('.search-field')?.querySelector('label');
     if(label)label.textContent='Property type';
@@ -180,9 +181,51 @@ const safeMarkup=value=>{
 const setSafeMarkup=(element,markup)=>nativeInnerHTML.set.call(element,safeMarkup(markup));
 if(pageMain&&nativeInnerHTML)Object.defineProperty(pageMain,'innerHTML',{configurable:true,get:()=>nativeInnerHTML.get.call(pageMain),set:value=>setSafeMarkup(pageMain,value)});
 function closeModal(){modal.classList.remove('open');modal.querySelector('.modal')?.classList.remove('professional-workspace-modal');document.body.classList.remove('modal-open')}
-function createVerificationResendButton(getEmail){const button=document.createElement('button');button.type='button';button.className='auth-verification-resend';button.textContent='Resend verification email';button.addEventListener('click',async()=>{const email=String(typeof getEmail==='function'?getEmail():getEmail||'').trim();if(!email){showToast('Enter your email address first.','error');return}button.disabled=true;try{const csrf=(await apiJson('/api/auth/csrf')).token;const result=await apiJson('/api/auth/email-verification/resend',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({email})});showToast(result.message)}catch(error){showToast(error.message,'error')}finally{button.disabled=false}});return button}
-function openModal(html){modal.querySelector('.modal')?.classList.remove('professional-workspace-modal');setSafeMarkup(content,html);modal.classList.add('open');document.body.classList.add('modal-open');const form=content.querySelector('form');if(form?.dataset.auth==='login'){const identifier=form.elements.email;if(identifier){identifier.type='text';identifier.autocomplete='username';identifier.placeholder='you@example.com or username';if(identifier.previousElementSibling?.tagName==='LABEL')identifier.previousElementSibling.textContent='Email or username'}const divider=form.previousElementSibling?.classList.contains('auth-divider')?form.previousElementSibling.querySelector('span'):null;if(divider)divider.textContent='or use your email or username';const recovery=document.createElement('button');recovery.type='button';recovery.className='auth-recovery';recovery.textContent='Forgot password?';recovery.addEventListener('click',()=>openPasswordReset());const resend=createVerificationResendButton(()=>form.elements.email.value);form.after(recovery,resend)}}
-function showAgentApproval(result){const contact=result?.approvalContact||{email:'cleysir54@gmail.com',whatsapp:'255794442907',displayPhone:'0794 442 907'};openModal(`<div class="approval-message"><div class="approval-icon" aria-hidden="true">✓</div><p class="eyebrow">Application received</p><h2>Your agent account is awaiting approval</h2><p>Thank you for applying to join Makazi Go in Tanzania. An administrator must verify your profile before you can sign in, publish homes, or manage bookings. We will review your application as soon as possible.</p>${result?.emailVerificationSent?'<p class="search-note">A verification link was sent to your email. Verify it while your agent application is reviewed.</p>':'<p class="search-note">We could not send a verification email yet. You can request another link below.</p>'}<div class="approval-contact"><a href="mailto:${contact.email}"><span aria-hidden="true">✉</span><span><strong>Email support</strong><small>${contact.email}</small></span></a><a href="https://wa.me/${contact.whatsapp}" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">◉</span><span><strong>WhatsApp support</strong><small>${contact.displayPhone}</small></span></a></div><button class="primary" id="approvalSignIn">Continue to sign in</button></div>`);const signIn=content.querySelector('#approvalSignIn');if(result?.email)signIn.before(createVerificationResendButton(result.email));signIn.onclick=()=>auth('login','Your application is pending administrator approval. You can sign in after the admin verifies your account.')}
+const identityRegistrationFields=`<fieldset class="identity-registration-fields" data-identity-fields hidden disabled><legend>Identity verification (required for owners and agents)</legend><p class="search-note">Submit your NIDA or passport for secure admin review. NIDA submissions need both sides; all submissions need a selfie holding the ID.</p><div class="form-grid"><label>ID type<select name="documentType" data-identity-required><option value="national_id">Tanzanian NIDA</option><option value="passport">Passport</option></select></label><label>ID number<input name="idNumber" maxlength="40" data-identity-required></label><label>Full name as shown on ID<input name="fullName" maxlength="160" data-identity-required></label><label>Date of birth<input name="dateOfBirth" type="date" data-identity-required></label><label>Front of ID (photo or PDF)<input name="document" type="file" accept="image/jpeg,image/png,application/pdf" data-identity-required></label><label data-back-document>Back of NIDA<input name="backDocument" type="file" accept="image/jpeg,image/png,application/pdf"></label><label>Selfie holding the ID<input name="selfie" type="file" accept="image/jpeg,image/png" data-identity-required></label><label class="check-row form-wide"><input name="consent" type="checkbox" value="true" data-identity-required> I consent to secure identity processing and admin review.</label></div></fieldset>`;
+function setupIdentityRegistrationFields(form){
+  const fieldset=form.querySelector('[data-identity-fields]');
+  if(!fieldset)return;
+  const update=()=>{
+    const required=['agent','property_owner'].includes(form.elements.role?.value);
+    fieldset.hidden=!required;
+    fieldset.disabled=!required;
+    fieldset.querySelectorAll('[data-identity-required]').forEach(field=>{field.required=required});
+    const backDocument=fieldset.querySelector('[name="backDocument"]');
+    backDocument.required=required&&form.elements.documentType.value==='national_id';
+  };
+  form.querySelectorAll('[name="role"]').forEach(role=>role.addEventListener('change',update));
+  form.elements.documentType?.addEventListener('change',update);
+  update();
+}
+function openModal(html){
+  modal.querySelector('.modal')?.classList.remove('professional-workspace-modal');
+  setSafeMarkup(content,html);
+  modal.classList.add('open');
+  document.body.classList.add('modal-open');
+  const registrationForm=content.querySelector('form[data-auth="register"]');
+  const googleSetupForm=content.querySelector('#googleSetupForm');
+  if(registrationForm){
+    registrationForm.elements.lastName?.closest('label')?.insertAdjacentHTML('afterend',identityRegistrationFields);
+    setupIdentityRegistrationFields(registrationForm);
+  }else if(googleSetupForm){
+    googleSetupForm.elements.role?.closest('label')?.insertAdjacentHTML('afterend',identityRegistrationFields);
+    setupIdentityRegistrationFields(googleSetupForm);
+  }
+  const form=content.querySelector('form');
+  if(form?.dataset.auth==='login'){
+    const identifier=form.elements.email;
+    if(identifier){identifier.type='text';identifier.autocomplete='username';identifier.placeholder='you@example.com or username';if(identifier.previousElementSibling?.tagName==='LABEL')identifier.previousElementSibling.textContent='Email or username'}
+    const divider=form.previousElementSibling?.classList.contains('auth-divider')?form.previousElementSibling.querySelector('span'):null;
+    if(divider)divider.textContent='or use your email or username';
+    const recovery=document.createElement('button');
+    recovery.type='button';
+    recovery.className='auth-recovery';
+    recovery.textContent='Forgot password?';
+    recovery.addEventListener('click',()=>openPasswordReset());
+    form.after(recovery);
+  }
+}
+function showAgentApproval(result){const contact=result?.approvalContact||{email:'cleysir54@gmail.com',whatsapp:'255794442907',displayPhone:'0794 442 907'};openModal(`<div class="approval-message"><div class="approval-icon" aria-hidden="true">✓</div><p class="eyebrow">Application received</p><h2>Your agent account is awaiting approval</h2><p>Thank you for applying to join Makazi Go in Tanzania. An administrator must approve your profile before you can sign in, publish homes, or manage bookings. We will review your application as soon as possible.</p><div class="approval-contact"><a href="mailto:${contact.email}"><span aria-hidden="true">✉</span><span><strong>Email support</strong><small>${contact.email}</small></span></a><a href="https://wa.me/${contact.whatsapp}" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">◉</span><span><strong>WhatsApp support</strong><small>${contact.displayPhone}</small></span></a></div><button class="primary" id="approvalSignIn">Continue to sign in</button></div>`);content.querySelector('#approvalSignIn').onclick=()=>auth('login','Your application is pending administrator approval. You can sign in after the admin approves your account.')}
 function showHostApproval(){const contact={email:'cleysir54@gmail.com',whatsapp:'255794442907',displayPhone:'0794 442 907'};openModal(`<div class="approval-message"><div class="approval-icon" aria-hidden="true">i</div><p class="eyebrow">Hosting requires approval</p><h2>Become a Makazi Go agent</h2><p>To start hosting, your account must be reviewed and approved by a Makazi Go administrator. Your tenant account and bookings remain unchanged while the hosting request is reviewed.</p><p class="search-note">Please provide accurate identity and property information. Do not publish or accept bookings outside Makazi Go before approval.</p><div class="approval-contact"><a href="mailto:${contact.email}"><span aria-hidden="true">✉</span><span><strong>Admin email</strong><small>${contact.email}</small></span></a><a href="https://wa.me/${contact.whatsapp}" target="_blank" rel="noopener noreferrer"><span aria-hidden="true">◉</span><span><strong>WhatsApp</strong><small>${contact.displayPhone}</small></span></a></div><button class="primary" id="hostApprovalContinue">Apply for agent access <span>→</span></button></div>`);content.querySelector('#hostApprovalContinue').onclick=()=>auth('host')}
 async function openListingDetails(x){
   try{
@@ -804,7 +847,7 @@ runSearch=async({focusResults=false}={})=>{
     }
     return;
   }
-  if(['house','apartment','land','hotel','commercial'].includes(searchBy))params.set('propertyType',searchBy);
+  if(['house','apartment','land','hotel','commercial','venue'].includes(searchBy))params.set('propertyType',searchBy);
   if(query&&searchBy==='location')params.set('location',query);
   else if(query)params.set('q',query);
   if(['short_term','long_term'].includes(rentalMode))params.set('rentalMode',rentalMode);
@@ -1264,8 +1307,10 @@ function openGoogleSetupWithPassword() {
   roleSelect.after(roleGuidance);
   const updateRoleGuidance = () => {
     roleGuidance.textContent = roleSelect.value === "agent"
-      ? "Agent accounts require administrator approval before you can sign in and manage properties."
-      : "Tenant accounts are ready after creation. Sign in with your email and password to explore and book homes.";
+      ? "Agent accounts require administrator approval. Submit identity documents for review."
+      : roleSelect.value === "property_owner"
+        ? "Submit identity documents for admin review before publishing properties."
+        : "Tenant accounts are ready after creation. Sign in with your email and password to explore and book homes.";
   };
   roleSelect.addEventListener("change", updateRoleGuidance);
   updateRoleGuidance();
@@ -1291,14 +1336,8 @@ function openGoogleSetupWithPassword() {
         const csrf = (await apiJson("/api/auth/csrf")).token;
         const result = await apiJson("/api/auth/google/complete", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-          body: JSON.stringify({
-            phone: form.elements.phone.value,
-            location: form.elements.location.value,
-            password: form.elements.password.value,
-            confirmPassword: form.elements.confirmPassword.value,
-            role: form.elements.role.value,
-          }),
+          headers: { "X-CSRF-Token": csrf },
+          body: new FormData(form),
         });
         if (result.requiresLogin) {
           location.assign("/login/?googleSignup=1");
@@ -1347,11 +1386,9 @@ document.addEventListener('submit',async event=>{
   errorNode.textContent='';
   try{
     const csrf=(await apiJson('/api/auth/csrf')).token;
-    const result=await apiJson('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(Object.fromEntries(new FormData(form)))});
+    const result=await apiJson('/api/auth/register',{method:'POST',headers:{'X-CSRF-Token':csrf},body:new FormData(form)});
     if(result.pendingApproval){showAgentApproval(result);return}
-    auth('login',result.emailVerificationSent
-      ? `Your account was created. Verify your email, then sign in using ${result.email} and your password.`
-      : `Your account was created, but we could not send the verification email yet. Use Resend verification email, then sign in as ${result.email}.`);
+    auth('login',`Your account was created. Sign in using ${result.email} and your password.`);
     const loginForm=content.querySelector('[data-auth="login"]');
     if(loginForm)loginForm.elements.email.value=result.email;
   }catch(error){

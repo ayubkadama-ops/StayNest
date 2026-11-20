@@ -19,6 +19,27 @@ export function validateIdentitySubmission(body) {
   return { value: { documentType, idNumber, fullName, dateOfBirth } };
 }
 
+export function validateIdentityDocuments(body, files) {
+  const document = files?.document?.[0];
+  const backDocument = files?.backDocument?.[0];
+  const selfie = files?.selfie?.[0];
+  if (!document || !selfie) return { error: 'Add the ID document and a selfie holding the ID' };
+  if (body?.documentType === 'national_id' && !backDocument) {
+    return { error: 'Add the back of the NIDA document' };
+  }
+  const submission = validateIdentitySubmission(body);
+  if (submission.error) return submission;
+  return {
+    value: {
+      ...submission.value,
+      document,
+      backDocument,
+      selfie,
+      documentCountry: String(body.documentCountry || '').trim().slice(0, 2).toUpperCase() || null
+    }
+  };
+}
+
 export class IdentityVerificationProvider {
   async verify(_submission) {
     return { status: 'manual_review', checked: false };
