@@ -214,6 +214,15 @@ export function validateOptionalListingCoordinates(latitude, longitude) {
   return { value: { latitude: lat, longitude: lng } };
 }
 
+export function loginLockoutForFailureCount(failedCount, previousRound = 0) {
+  const count = Math.max(0, Number(failedCount) || 0);
+  const round = count > 0 && count % 5 === 0
+    ? Math.max(1, previousRound + 1)
+    : previousRound;
+  const minutes = [0, 15, 30, 60][Math.min(round, 3)];
+  return { round, minutes };
+}
+
 export function withPublicListingCoordinates(listing) {
   const {
     approximate_latitude: approximateLatitude,

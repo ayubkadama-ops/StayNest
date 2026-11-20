@@ -14,7 +14,7 @@ import { isCloudinaryConfigured, isCloudinaryDeliveryConfigured } from './cloudi
 import { MySqlSessionStore, ensureSessionTable } from './session-store.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { MAX_IMAGE_UPLOAD_BYTES, readPrivateDocument, storeAgentProfileImage, storeListingImage, storeListingVideo, storePrivateDocument, storeUserProfileImage, validateUpload } from './storage.js';
-import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
+import { verifyWebhookSignature, calculateBooking, calculateStayBooking, validateBookingGuestCount, hasAgentPermission, hasRole, isActiveSubAgent, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, loginLockoutForFailureCount, withPublicListingCoordinates, ipMatchesNetwork, isValidIpNetwork } from './rules.js';
 import { boundedPage, isValidDate, nonEmptyString, positiveId, registrationDetails } from './validation.js';
 import { geocodeAddress } from './geocoding.js';
 import { notifyUser } from './notifications.js';
@@ -593,6 +593,9 @@ app.use('/api', requireCsrf);
 
 const requireAuth = async (req, res, next) => {
   if (!req.session.user) return res.status(401).json({ error: 'Authentication required' });
+  if (req.session.user.requirePasswordChange && req.path !== '/account/change-password' && req.originalUrl !== '/api/auth/logout') {
+    return res.status(403).json({ error: 'Set a new password before continuing.', requirePasswordChange: true });
+  }
   if (req.session.adminGate === true && req.session.user.roles?.includes('administrator')) return next();
   // Re-check account state so a suspended or pending account cannot keep using
   // a session that was created before an administrator changed its status.
@@ -692,6 +695,9 @@ const apiLimiter = rateLimit({
   skip: req => req.path === '/health' || req.path === '/ready'
 });
 app.use('/api', apiLimiter);
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false });
+const signupLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
+const recoveryLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
 const requireAgentAccess = (permission) => (req, res, next) => {
   if (hasAgentPermission(req.session.user, permission)) return next();
   if (hasListingRolePermission(req.session.user, permission)) return next();
@@ -722,7 +728,7 @@ async function notifyAdministrators(notification) {
   await Promise.all(admins.map(admin => notifyUser(admin.id, notification)));
 }
 
-app.post('/api/auth/register', async (req, res, next) => {
+app.post('/api/auth/register', signupLimiter, async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     if (!(await isFeatureEnabled('new_registrations'))) return res.status(503).json({ error: 'New registrations are temporarily paused' });
@@ -782,19 +788,89 @@ app.post('/api/auth/register', async (req, res, next) => {
   } finally { connection.release(); }
 });
 
-app.post('/api/auth/login', async (req, res, next) => {
+app.post('/api/auth/login', loginLimiter, async (req, res, next) => {
   try {
     const identifier = String(req.body.identifier || req.body.email || req.body.username || '').toLowerCase().trim();
     const [rows] = await pool.execute(
-      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE (u.email=? OR u.username=?) AND u.status IN ("active","pending") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
-      [identifier, identifier]
+      'SELECT u.id, u.status, u.email_verified_at, u.password_hash, u.mfa_enabled, u.mfa_secret_encrypted, u.failed_login_count, u.failed_login_round, u.login_locked_until, u.require_password_change, p.first_name firstName, p.last_name lastName, GROUP_CONCAT(r.name) roles FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id WHERE (u.email=? OR u.username=? OR u.phone=?) AND u.status IN ("active","pending","suspended") GROUP BY u.id, u.status, u.email_verified_at, p.first_name, p.last_name',
+      [identifier, identifier, identifier]
     );
     const user = rows[0];
-    if (!user || !(await bcrypt.compare(String(req.body.password || ''), user.password_hash || ''))) {
-      await pool.execute('INSERT INTO security_events (event_type, ip_address, metadata) VALUES ("failed_login", INET6_ATON(?), ?)', [req.ip, JSON.stringify({ email: identifier.slice(0, 254) })]);
+    const identifierHash = crypto.createHash('sha256').update(identifier).digest();
+    const [ipFailures] = await pool.execute(
+      'SELECT COUNT(*) failed FROM login_attempts WHERE ip_address=INET6_ATON(?) AND successful=FALSE AND attempted_at>=DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)',
+      [req.ip]
+    );
+    const ipFailedCount = Number(ipFailures[0]?.failed || 0);
+    const ipLockRound = Math.floor(ipFailedCount / 5);
+    if (ipFailedCount >= 5 && ipFailedCount % 5 === 0) {
+      const ipLock = loginLockoutForFailureCount(ipFailedCount, ipLockRound - 1);
+      return res.status(429).json({ error: `Too many sign-in attempts. Try again in ${ipLock.minutes} minutes.` });
+    }
+    if (user?.login_locked_until && new Date(user.login_locked_until).getTime() > Date.now()) {
+      const remainingMinutes = Math.max(1, Math.ceil((new Date(user.login_locked_until).getTime() - Date.now()) / 60000));
+      return res.status(423).json({ error: `This sign-in is temporarily locked. Try again in ${remainingMinutes} minutes.` });
+    }
+    const submittedPassword = String(req.body.password || '');
+    let passwordValid = false;
+    let temporaryPassword = false;
+    if (user?.status === 'active' && user.password_hash) {
+      passwordValid = await bcrypt.compare(submittedPassword, user.password_hash);
+    }
+    if (!passwordValid && user?.status === 'active') {
+      const [temporaryRows] = await pool.execute(
+        'SELECT id, request_id, password_hash FROM temporary_passwords WHERE user_id=? AND used_at IS NULL AND expires_at>UTC_TIMESTAMP()',
+        [user.id]
+      );
+      for (const temporary of temporaryRows) {
+        if (await bcrypt.compare(submittedPassword, temporary.password_hash)) {
+          temporaryPassword = true;
+          passwordValid = true;
+          await pool.execute('UPDATE temporary_passwords SET used_at=UTC_TIMESTAMP() WHERE id=?', [temporary.id]);
+          await pool.execute(
+            'UPDATE password_reset_requests SET status="completed" WHERE id=?',
+            [temporary.request_id]
+          );
+          break;
+        }
+      }
+    }
+    if (!passwordValid) {
+      await pool.execute(
+        'INSERT INTO login_attempts (user_id, identifier_hash, ip_address, successful) VALUES (?, ?, INET6_ATON(?), FALSE)',
+        [user?.id || null, identifierHash, req.ip]
+      );
+      await pool.execute('INSERT INTO security_events (event_type, ip_address, metadata) VALUES ("failed_login", INET6_ATON(?), ?)', [req.ip, JSON.stringify({ identifier: identifierHash.toString('hex') })]);
+      if (user) {
+        const staleRound = user.last_failed_login_at
+          && new Date(user.last_failed_login_at).getTime() < Date.now() - 24 * 60 * 60 * 1000;
+        let failedCount = staleRound ? 1 : Number(user.failed_login_count || 0) + 1;
+        let failedRound = staleRound ? 0 : Number(user.failed_login_round || 0);
+        let lockedUntil = null;
+        if (failedCount % 5 === 0) {
+          const lockout = loginLockoutForFailureCount(failedCount, failedRound);
+          failedRound = lockout.round;
+          lockedUntil = new Date(Date.now() + lockout.minutes * 60 * 1000);
+        }
+        await pool.execute(
+          'UPDATE users SET failed_login_count=?, failed_login_round=?, login_locked_until=?, last_failed_login_at=UTC_TIMESTAMP() WHERE id=?',
+          [failedCount, failedRound, lockedUntil, user.id]
+        );
+      }
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const roles = user.roles ? user.roles.split(',').filter(isSupportedRole) : [];
+    await pool.execute(
+      'INSERT INTO login_attempts (user_id, identifier_hash, ip_address, successful) VALUES (?, ?, INET6_ATON(?), TRUE)',
+      [user.id, identifierHash, req.ip]
+    );
+    await pool.execute(
+      'UPDATE users SET failed_login_count=0, failed_login_round=0, login_locked_until=NULL, last_failed_login_at=NULL, require_password_change=IF(?=TRUE,TRUE,require_password_change) WHERE id=?',
+      [temporaryPassword, user.id]
+    );
+    if (!temporaryPassword && /^\$2[aby]\$/.test(user.password_hash || '') && bcrypt.getRounds(user.password_hash) < 12) {
+      await pool.execute('UPDATE users SET password_hash=? WHERE id=?', [await bcrypt.hash(submittedPassword, 12), user.id]);
+    }
     if (user.status === 'pending') {
       return res.status(403).json({ pendingApproval: true, error: 'Your agent account is awaiting administrator approval. Contact Makazi Go support if you need an update.' });
     }
@@ -820,8 +896,8 @@ app.post('/api/auth/login', async (req, res, next) => {
       const [permissionRows] = await pool.query('SELECT permission_key permission FROM agent_subaccount_permissions WHERE subaccount_id=?', [subaccount.id]);
       permissions = permissionRows.map(row => row.permission);
     }
-    req.session.user = { id: user.id, firstName: user.firstName || '', lastName: user.lastName || '', roles, isSubAgent: Boolean(subaccount), mainAgentId: subaccount?.mainAgentId || null, accountLabel: subaccount?.label || null, permissions };
-    res.json({ ok: true, roles: req.session.user.roles });
+    req.session.user = { id: user.id, firstName: user.firstName || '', lastName: user.lastName || '', roles, isSubAgent: Boolean(subaccount), mainAgentId: subaccount?.mainAgentId || null, accountLabel: subaccount?.label || null, permissions, requirePasswordChange: temporaryPassword || Boolean(user.require_password_change) };
+    res.json({ ok: true, roles: req.session.user.roles, requirePasswordChange: req.session.user.requirePasswordChange });
   } catch (error) { next(error); }
 });
 
@@ -872,38 +948,25 @@ app.post('/api/auth/email-verification/resend', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/auth/password-reset/request', async (req, res, next) => {
-  const genericResponse = { ok: true, message: 'If an account matches that email, password recovery instructions have been prepared.' };
+app.post('/api/auth/password-reset/request', recoveryLimiter, async (req, res, next) => {
+  const genericResponse = { ok: true, message: 'Request received. An admin will contact you to verify and help.' };
   try {
-    const email = String(req.body.email || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(genericResponse);
+    const identifier = String(req.body.identifier || req.body.email || req.body.phone || '').trim().toLowerCase();
+    const note = String(req.body.note || '').trim().slice(0, 1000) || null;
     const [[user]] = await pool.query(
-      'SELECT id, email, status FROM users WHERE email=? AND status IN ("active","pending") LIMIT 1',
-      [email]
+      'SELECT id FROM users WHERE (email=? OR phone=? OR username=?) AND status IN ("active","pending") LIMIT 1',
+      [identifier, identifier, identifier]
     );
-    if (!user) return res.json(genericResponse);
-    const token = crypto.randomBytes(32).toString('base64url');
-    const tokenHash = hashResetToken(token);
-    await pool.query('UPDATE password_reset_tokens SET used_at=COALESCE(used_at, UTC_TIMESTAMP()) WHERE user_id=? AND used_at IS NULL', [user.id]);
     await pool.execute(
-      'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, requested_ip) VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), ?)',
-      [user.id, tokenHash, PASSWORD_RESET_TTL_MINUTES, req.ip]
+      'INSERT INTO password_reset_requests (user_id, status, note, requested_ip) VALUES (?, "pending", ?, INET6_ATON(?))',
+      [user?.id || null, note, req.ip]
     );
-    const resetUrl = `${publicAppUrl()}/index.html?reset=${encodeURIComponent(token)}`;
-    let emailSent = false;
-    try {
-      emailSent = await sendBrandedEmail({
-        to: user.email,
-        subject: 'Reset your Makazi Go password',
-        text: `We received a request to reset your password. This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes. If you did not request it, you can ignore this email.`,
-        actionUrl: resetUrl,
-        actionLabel: 'Reset password'
-      });
-    } catch (emailError) {
-      console.error('Password reset email failed:', emailError.message);
-    }
-    if (!emailSent) console.warn('Password reset email was not delivered: Resend is not configured or unavailable.');
-    if (process.env.NODE_ENV !== 'production') return res.json({ ...genericResponse, resetUrl, expiresInMinutes: PASSWORD_RESET_TTL_MINUTES, emailSent });
+    if (user) await notifyAdministrators({
+      type: 'password_recovery_request',
+      title: 'Password recovery request',
+      body: 'A user submitted an out-of-band password recovery request.',
+      data: { userId: user.id }
+    }).catch(error => console.error('Password recovery notification failed:', error.message));
     return res.json(genericResponse);
   } catch (error) { next(error); }
 });
@@ -2845,10 +2908,14 @@ app.post('/api/account/change-password', requireAuth, async (req, res, next) => 
   try {
     const currentPassword = String(req.body.currentPassword || '');
     const password = String(req.body.password || '');
-    if (password.length < 12) return res.status(400).json({ error: 'Password must be at least 12 characters' });
-    const [[user]] = await pool.query('SELECT password_hash passwordHash FROM users WHERE id=?', [req.session.user.id]);
-    if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) return res.status(400).json({ error: 'Current password is incorrect' });
+    if (!strongPassword(password)) return res.status(400).json({ error: 'Password must be at least 12 characters with three character types' });
+    if (!req.session.user.requirePasswordChange) {
+      const [[user]] = await pool.query('SELECT password_hash passwordHash FROM users WHERE id=?', [req.session.user.id]);
+      if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) return res.status(400).json({ error: 'Current password is incorrect' });
+    }
     await pool.execute('UPDATE users SET password_hash=? WHERE id=?', [await bcrypt.hash(password, 12), req.session.user.id]);
+    await pool.execute('UPDATE users SET require_password_change=FALSE WHERE id=?', [req.session.user.id]);
+    req.session.user.requirePasswordChange = false;
     await audit(req, 'password_changed', 'user', req.session.user.id);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -3736,6 +3803,106 @@ app.post('/api/admin/bookings/:id/status', requireAuth, requireAdminAccess('book
     const [result] = await pool.execute('UPDATE bookings SET status=?, confirmed_at=IF(?="confirmed", COALESCE(confirmed_at, UTC_TIMESTAMP()), confirmed_at) WHERE id=? AND status NOT IN ("completed","cancelled")', [status, status, bookingId]);
     if (!result.affectedRows) return res.status(404).json({ error: 'Booking not found or already finalised' });
     await audit(req, `booking_${status}`, 'booking', bookingId);
+    res.json({ ok: true, status });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/login-security', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
+  try {
+    const [locked] = await pool.query(
+      `SELECT u.id,u.email,u.phone,u.failed_login_count,u.failed_login_round,u.login_locked_until,u.last_failed_login_at,
+              COALESCE(p.first_name,'') firstName,COALESCE(p.last_name,'') lastName
+       FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+       WHERE u.login_locked_until>UTC_TIMESTAMP() OR u.failed_login_count>0
+       ORDER BY u.login_locked_until DESC,u.last_failed_login_at DESC LIMIT 300`
+    );
+    const [history] = await pool.query(
+      `SELECT la.id,la.user_id,la.successful,la.attempted_at,
+              COALESCE(p.first_name,'') firstName,COALESCE(p.last_name,'') lastName
+       FROM login_attempts la LEFT JOIN user_profiles p ON p.user_id=la.user_id
+       ORDER BY la.attempted_at DESC LIMIT 300`
+    );
+    res.json({ locked, history });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/users/:id/unlock', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
+  try {
+    const userId = positiveId(req.params.id);
+    await pool.execute(
+      'UPDATE users SET failed_login_count=0,failed_login_round=0,login_locked_until=NULL,last_failed_login_at=NULL WHERE id=?',
+      [userId]
+    );
+    await audit(req, 'account_lockout_unlocked', 'user', userId, { unlockedBy: req.session.user?.id || null });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/password-recovery-requests', requireAuth, requireAdminAccess('users'), async (_req, res, next) => {
+  try {
+    const [requests] = await pool.query(
+      `SELECT pr.id,pr.user_id,pr.status,pr.requested_at,pr.handled_at,pr.note,
+              u.email,u.phone,COALESCE(p.first_name,'') firstName,COALESCE(p.last_name,'') lastName
+       FROM password_reset_requests pr LEFT JOIN users u ON u.id=pr.user_id
+       LEFT JOIN user_profiles p ON p.user_id=pr.user_id
+       ORDER BY pr.requested_at DESC LIMIT 300`
+    );
+    res.json({ requests });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/password-recovery-requests/:id/issue', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
+  const connection = await pool.getConnection();
+  try {
+    const requestId = positiveId(req.params.id);
+    await connection.beginTransaction();
+    const [[request]] = await connection.execute(
+      'SELECT id,user_id,status FROM password_reset_requests WHERE id=? FOR UPDATE',
+      [requestId]
+    );
+    if (!request || !['pending','approved'].includes(request.status) || !request.user_id) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Recovery request is unavailable or already handled' });
+    }
+    const temporaryPassword = crypto.randomBytes(18).toString('base64url') + '!A7';
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+    await connection.execute(
+      'UPDATE temporary_passwords SET expires_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL',
+      [request.user_id]
+    );
+    await connection.execute(
+      'INSERT INTO temporary_passwords (request_id,user_id,password_hash,expires_at,issued_by) VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 24 HOUR), ?)',
+      [requestId, request.user_id, passwordHash, req.session.user?.id || null]
+    );
+    await connection.execute(
+      'UPDATE password_reset_requests SET status="approved",handled_by=?,handled_at=UTC_TIMESTAMP() WHERE id=?',
+      [req.session.user?.id || null, requestId]
+    );
+    await connection.execute(
+      'UPDATE users SET require_password_change=TRUE,failed_login_count=0,failed_login_round=0,login_locked_until=NULL WHERE id=?',
+      [request.user_id]
+    );
+    await connection.commit();
+    await sessionStore.destroyUserSessions(request.user_id);
+    await audit(req, 'password_recovery_temporary_password_issued', 'password_reset_request', requestId, { userId: request.user_id });
+    res.json({ ok: true, temporaryPassword, expiresInHours: 24, warning: 'Show this password once and store nothing except the hash.' });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally { connection.release(); }
+});
+
+app.post('/api/admin/password-recovery-requests/:id/decision', requireAuth, requireAdminAccess('users'), async (req, res, next) => {
+  try {
+    const requestId = positiveId(req.params.id);
+    const status = req.body.status === 'rejected' ? 'rejected' : req.body.status === 'expired' ? 'expired' : null;
+    if (!status) return res.status(400).json({ error: 'Choose rejected or expired.' });
+    const [result] = await pool.execute(
+      'UPDATE password_reset_requests SET status=?,handled_by=?,handled_at=UTC_TIMESTAMP() WHERE id=? AND status="pending"',
+      [status, req.session.user?.id || null, requestId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'Recovery request not found or already handled' });
+    await audit(req, `password_recovery_request_${status}`, 'password_reset_request', requestId);
     res.json({ ok: true, status });
   } catch (error) { next(error); }
 });

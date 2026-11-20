@@ -15,6 +15,7 @@ export const SCHEMA_MIGRATIONS = Object.freeze([
   'listing-beds-migration.sql',
   'listing-wizard-migration.sql',
   'password-recovery-migration.sql',
+  'account-security-migration.sql',
   'posts-badges-migration.sql',
   'posts-migration.sql',
   'property-categories-migration.sql',

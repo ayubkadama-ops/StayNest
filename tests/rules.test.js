@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { approximateListingCoordinates, calculateBooking, calculateStayBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
+import { approximateListingCoordinates, calculateBooking, calculateStayBooking, datesOverlap, hasAgentPermission, hasRole, ipMatchesNetwork, isActiveSubAgent, isListingAvailable, isValidIpNetwork, loginLockoutForFailureCount, resolvePropertyType, validateBookingGuestCount, validateListingJourney, validateListingOccupancy, validateOptionalListingCoordinates, verifyWebhookSignature, withPublicListingCoordinates } from '../server/rules.js';
 import { hasFileSignature, MAX_IMAGE_UPLOAD_BYTES, optimizeImageBuffer, validateUpload } from '../server/storage.js';
 import { cloudinaryAssetPublicId, cloudinaryAssetUrl } from '../server/cloudinary.js';
 import { boundedPage, isValidDate, positiveId, registrationDetails } from '../server/validation.js';
 import { decryptBuffer, encryptBuffer } from '../server/crypto.js';
 import sharp from 'sharp';
+
+test('progressive login lockout uses 15, 30, and 60 minute rounds', () => {
+  assert.deepEqual(loginLockoutForFailureCount(5, 0), { round: 1, minutes: 15 });
+  assert.deepEqual(loginLockoutForFailureCount(10, 1), { round: 2, minutes: 30 });
+  assert.deepEqual(loginLockoutForFailureCount(15, 2), { round: 3, minutes: 60 });
+});
 
 test('optional listing coordinates accept a skipped pin and reject incomplete coordinates', () => {
   assert.deepEqual(validateOptionalListingCoordinates('', ''), {

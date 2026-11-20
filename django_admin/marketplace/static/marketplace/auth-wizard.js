@@ -72,12 +72,12 @@ if(loginForm){
   document.querySelector('[data-forgot-toggle]')?.addEventListener('click',()=>{
     const form=document.querySelector('[data-password-reset]');
     form.hidden=!form.hidden;
-    if(!form.hidden){form.elements.email.value=loginForm.elements.email.value;form.elements.email.focus()}
+    if(!form.hidden){form.elements.identifier.value=loginForm.elements.email.value;form.elements.identifier.focus()}
   });
   document.querySelector('[data-password-reset]')?.addEventListener('submit',async event=>{
     event.preventDefault();
     const form=event.currentTarget,message=form.querySelector('.form-message');
-    try{const result=await authRequest('/api/auth/password-reset/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:form.elements.email.value})});message.textContent=result.message||'If the account exists, recovery instructions are on their way.'}
+    try{const result=await authRequest('/api/auth/password-reset/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:form.elements.identifier.value,note:form.elements.note.value})});message.textContent=result.message||'Request received. An admin will contact you to verify and help.'}
     catch(error){message.textContent=error.message}
   });
 }

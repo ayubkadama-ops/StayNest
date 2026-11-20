@@ -23,7 +23,7 @@
       <button class="button primary" type="submit">Sign in</button>
     </form>
     <button class="text-link forgot-toggle" type="button" data-forgot-toggle>Forgot password?</button>
-    <form class="forgot-form" data-password-reset hidden><label>Email address<input name="email" type="email" autocomplete="email" required></label><p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send recovery instructions</button></form>
+    <form class="forgot-form" data-password-reset hidden><label>Phone or email<input name="identifier" type="text" autocomplete="username" required></label><label>Note (optional)<textarea name="note" maxlength="1000"></textarea></label><p class="form-message" aria-live="polite"></p><button class="button primary" type="submit">Send recovery request</button></form>
     <p class="auth-switch">New to Makazi Go? <a href="/signup/?next={{ next_query }}">Create an account</a></p>
     {% else %}
     <p class="eyebrow">Step-by-step registration</p><h2 id="authTitle">Create your account</h2>

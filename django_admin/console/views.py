@@ -65,6 +65,7 @@ CONSOLE_SECTIONS = [
     ('verifications', 'Identity checks'),
     ('reviews', 'Reviews moderation'),
     ('reports', 'Safety reports'),
+    ('recovery', 'Password recovery'),
     ('audit', 'Audit and security'),
     ('settings', 'Settings and controls'),
     ('analytics', 'Analytics'),
@@ -75,6 +76,8 @@ ADMIN_ACTION_FEATURES = {
     'user-status': 'users',
     'user-hard-delete': 'users',
     'mfa-reset': 'users',
+    'account-unlock': 'users',
+    'recovery-request': 'users',
     'user-role': 'access',
     'agent-status': 'agents',
     'business-status': 'businesses',
@@ -476,7 +479,7 @@ def dashboard(request):
         section = 'overview'
     if section not in permissions:
         return redirect(f'/admin/?section={available_sections[0][0]}')
-    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'duplicate_error': '', 'duplicate_decisions_available': True, 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'reviews': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
+    data = {'section': section, 'sections': available_sections, 'is_founder': is_founder, 'can_manage_users': is_founder or 'users' in permissions, 'agent_decisions': [('approved', 'Approve'), ('rejected', 'Reject')], 'stats': {}, 'rows': [], 'duplicate_candidates': [], 'duplicate_error': '', 'duplicate_decisions_available': True, 'access_rows': [], 'admin_rows': [], 'agents': [], 'businesses': [], 'badges': [], 'reports': [], 'reviews': [], 'recovery_requests': [], 'locked_accounts': [], 'settings': [], 'footer_settings': [], 'features': [], 'templates': [], 'rules': [], 'error': '', 'marketplace_url': os.getenv('MARKETPLACE_URL', 'http://127.0.0.1:8000').rstrip('/')}
     data['founder_name'] = request.session.get('admin_name') or request.session.get('admin_label') or 'Founder administrator'
     data['founder_username'] = request.session.get('admin_username') or request.session.get('admin_label') or ''
     try:
@@ -712,6 +715,21 @@ def dashboard(request):
             )
         elif section == 'reports':
             data['reports'] = rows("SELECT r.id,r.reporter_user_id,r.reported_user_id,r.entity_type,r.entity_id,r.reason,r.details,r.status,r.created_at,reporter.email reporter_email,reported.email reported_email FROM user_reports r JOIN users reporter ON reporter.id=r.reporter_user_id LEFT JOIN users reported ON reported.id=r.reported_user_id ORDER BY r.created_at DESC LIMIT 300")
+        elif section == 'recovery':
+            data['recovery_requests'] = rows(
+                """SELECT pr.id,pr.user_id,pr.status,pr.requested_at,pr.handled_at,pr.note,
+                          u.email,u.phone,COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name
+                   FROM password_reset_requests pr LEFT JOIN users u ON u.id=pr.user_id
+                   LEFT JOIN user_profiles p ON p.user_id=pr.user_id
+                   ORDER BY pr.requested_at DESC LIMIT 300"""
+            )
+            data['locked_accounts'] = rows(
+                """SELECT u.id,u.email,u.phone,u.failed_login_count,u.failed_login_round,u.login_locked_until,
+                          COALESCE(p.display_name,CONCAT(p.first_name,' ',p.last_name),u.email) name
+                   FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
+                   WHERE u.login_locked_until>UTC_TIMESTAMP() OR u.failed_login_count>0
+                   ORDER BY u.login_locked_until DESC,u.last_failed_login_at DESC LIMIT 300"""
+            )
         elif section == 'audit':
             data['rows'] = rows("SELECT id,action,entity_type,entity_id,created_at,metadata FROM audit_logs ORDER BY created_at DESC LIMIT 300")
         elif section == 'settings':
@@ -1258,6 +1276,7 @@ def action(request, action):
             ):
                 return HttpResponseForbidden('Founder administrator access required.')
     created_admin_id = None
+    issued_temporary_password = None
     action_error = ''
     try:
         with transaction.atomic():
@@ -1448,6 +1467,58 @@ def action(request, action):
                 execute('UPDATE users SET mfa_enabled=FALSE,mfa_secret_encrypted=NULL WHERE id=%s', [user_id])
                 invalidate_api_sessions(user_id)
                 audit('user_mfa_reset', 'user', user_id)
+            elif action == 'account-unlock':
+                user_id = int(request.POST.get('id', '0'))
+                if user_id < 1: raise ValueError('Choose a valid account')
+                execute(
+                    'UPDATE users SET failed_login_count=0,failed_login_round=0,login_locked_until=NULL,last_failed_login_at=NULL WHERE id=%s',
+                    [user_id],
+                )
+                audit('account_lockout_unlocked', 'user', user_id)
+            elif action == 'recovery-request':
+                request_id = int(request.POST.get('id', '0'))
+                decision = request.POST.get('status', '')
+                if request_id < 1: raise ValueError('Choose a valid recovery request')
+                recovery = rows(
+                    'SELECT id,user_id,status FROM password_reset_requests WHERE id=%s FOR UPDATE',
+                    [request_id],
+                )
+                if not recovery or recovery[0]['status'] not in {'pending', 'approved'}:
+                    raise ValueError('Recovery request is unavailable or already handled')
+                if decision in {'rejected', 'expired'}:
+                    execute(
+                        'UPDATE password_reset_requests SET status=%s,handled_by=NULL,handled_at=UTC_TIMESTAMP() WHERE id=%s',
+                        [decision, request_id],
+                    )
+                    audit(f'password_recovery_request_{decision}', 'password_reset_request', request_id)
+                elif decision == 'issue':
+                    user_id = int(recovery[0]['user_id'] or 0)
+                    if user_id < 1: raise ValueError('The request has no matching account')
+                    issued_temporary_password = secrets.token_urlsafe(18) + '!A7'
+                    password_hash = bcrypt.hashpw(
+                        issued_temporary_password.encode('utf-8'),
+                        bcrypt.gensalt(rounds=12),
+                    ).decode('utf-8')
+                    execute(
+                        'UPDATE temporary_passwords SET expires_at=UTC_TIMESTAMP() WHERE user_id=%s AND used_at IS NULL',
+                        [user_id],
+                    )
+                    execute(
+                        'INSERT INTO temporary_passwords (request_id,user_id,password_hash,expires_at,issued_by) VALUES (%s,%s,%s,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 24 HOUR),NULL)',
+                        [request_id, user_id, password_hash],
+                    )
+                    execute(
+                        'UPDATE password_reset_requests SET status=\'approved\',handled_by=NULL,handled_at=UTC_TIMESTAMP() WHERE id=%s',
+                        [request_id],
+                    )
+                    execute(
+                        'UPDATE users SET require_password_change=TRUE,failed_login_count=0,failed_login_round=0,login_locked_until=NULL WHERE id=%s',
+                        [user_id],
+                    )
+                    invalidate_api_sessions(user_id)
+                    audit('password_recovery_temporary_password_issued', 'password_reset_request', request_id, {'userId': user_id})
+                else:
+                    raise ValueError('Choose rejected, expired, or issue')
             elif action == 'agent-status':
                 user_id = int(request.POST['id']); status = request.POST.get('status', '')
                 if user_id < 1 or status not in {'approved', 'rejected'}: raise ValueError('Invalid agent decision')
@@ -1945,6 +2016,8 @@ def action(request, action):
             'user-hard-delete': 'User account permanently deleted',
             'user-role': f"Role {'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'} user",
             'mfa-reset': 'Multi-factor authentication reset for user',
+            'account-unlock': 'Account lockout cleared',
+            'recovery-request': 'Password recovery request updated',
             'agent-status': f"Agent application {action_status}",
             'badge': 'Agent badge removed' if request.POST.get('duration') == 'remove' else 'Agent badge updated',
             'report-status': f"Safety report marked {action_status}",
@@ -1975,6 +2048,8 @@ def action(request, action):
             role = request.POST.get('role', 'account')
             operation = 'assigned to' if request.POST.get('operation', 'assign') == 'assign' else 'removed from'
             success_message = f"Role '{role}' {operation} user"
+        elif action == 'recovery-request' and issued_temporary_password:
+            success_message = f"Temporary password issued once: {issued_temporary_password}. Deliver it out of band; it expires in 24 hours."
         messages.success(request, f'{success_message}.')
     except IntegrityError as error:
         if action == 'admin-create':
